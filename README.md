@@ -1,0 +1,153 @@
+# My2DWorld Web
+
+这是 Python + pygame 版 2D 沙盒游戏的浏览器迁移版本。浏览器使用 Canvas 2D 渲染游戏，本地 Node 服务负责账号、设置、世界列表和世界存档文件。
+
+## 运行项目
+
+```bash
+npm install
+npm run dev
+```
+
+在浏览器打开 `http://127.0.0.1:5173`。
+
+如需使用其他端口：
+
+```bat
+set PORT=5174
+npm run dev
+```
+
+生产构建验证：
+
+```bash
+npm run build
+```
+
+开发时必须执行 `npm run dev`，不能直接执行 `vite`。`server.mjs` 会先提供基于文件的 `/api/*` 接口，再将其他请求交给 Vite 处理。
+
+默认账号：`steve` / `1234asdf`。
+
+## 项目结构
+
+```text
+web/
+├── server.mjs                 本地 HTTP 服务和 Vite 中间件宿主
+├── src/
+│   ├── main.ts                界面状态、输入、Canvas 主循环、HUD、聊天
+│   ├── i18n.ts                集中的中英文显示文案
+│   ├── core/
+│   │   ├── world.ts           地形、区块、放置和破坏方块状态
+│   │   ├── player.ts          物理、碰撞、二段跳和飞行
+│   │   ├── particles.ts       从纹理采样的方块破坏粒子
+│   │   ├── storage.ts         同步本地 API 客户端
+│   │   └── types.ts           稳定的游戏数据类型
+│   ├── modes/                 旁观和创造模式实现
+│   └── plugins/api.ts         初始插件扩展注册表
+├── public/assets/             从 Python 版迁移的纹理、字体和背景
+└── run/                       由 server.mjs 创建的本地运行数据
+    ├── accounts/
+    ├── config/
+    ├── logs/
+    └── worlds/
+```
+
+`main.ts` 负责浏览器专属逻辑；可复用的游戏规则放在 `core/`；新游戏模式放在 `modes/`。插件应通过 `plugins/api.ts` 扩展，不应直接依赖游戏内部状态。
+
+## 运行数据
+
+Web 版本有意不使用 `localStorage`。所有可变数据都以 JSON 文件保存在 `web/run/` 下，目录结构与 Python 项目的运行数据布局一致。
+
+```text
+run/accounts/<用户名>.json          加盐 SHA-256 账号记录
+run/config/<用户名>.json            用户界面、移动参数和按键绑定
+run/worlds/<用户名>.json            世界列表和每个世界的物理参数
+run/worlds/<用户名>_<世界ID>.json   玩家位置、模式、破坏和放置的方块
+```
+
+世界 ID 使用 UUID，因此修改显示名称不会影响存档路径。世界存档格式如下：
+
+```json
+{
+  "playerX": 0,
+  "playerY": 45.001,
+  "mode": "creative",
+  "brokenBlocks": [[2, 40]],
+  "placedBlocks": [[3, 42, "stone"]]
+}
+```
+
+服务端只允许文件名组件使用单词字符、连字符和下划线，以阻止路径遍历。
+
+## 操作说明
+
+默认按键可在游戏中通过 `Esc` -> `设置` -> `按键绑定` 修改。
+
+| 操作 | 默认按键 |
+| --- | --- |
+| 向左 / 向右移动 | `A` / `D` |
+| 向上 / 向下移动 | `W` / `S` |
+| 跳跃 / 双击飞行 | `Space` |
+| 破坏方块 | 鼠标左键 |
+| 放置方块 | 创造模式鼠标右键 |
+| 移动旁观相机 | 鼠标右键拖动 |
+| 选择快捷栏 | `1` 到 `9`、点击，或在快捷栏上滚动滚轮 |
+| 缩放 | 快捷栏外滚轮、`+`、`-` |
+| 调试信息 | `F3` |
+| 切换模式 | `F3` + `F4` |
+| 聊天 | `T` 或 `/` |
+| 全屏 | `F11` |
+| 暂停 | `Esc` |
+
+创造模式会显示相邻格预览，可直接向空格放置方块，并拒绝任何会与玩家碰撞盒重叠的位置。
+
+## 聊天命令
+
+只有以 `/` 开头的输入会作为命令解析，普通输入会显示为聊天消息。
+
+```text
+/gamemode creative
+/gamemode spectator
+/speed 4
+/movespeed 4
+/debug on
+/debug off
+```
+
+聊天行为与 Python 版一致：`Tab` 循环补全命令或参数，`ArrowUp` 和 `ArrowDown` 浏览已提交输入历史，聊天框打开时可用滚轮浏览消息记录。
+
+`/speed` 会更新当前玩家、当前世界的 `physics.walkSpeed` 以及用户默认移动设置，并写入对应运行数据文件。因此重新进入世界后仍会保留命令设定的速度。
+
+## 渲染说明
+
+全部源美术资源已从 `py/image/` 和 `py/fonts/` 迁移。
+
+- Canvas 图像平滑已关闭。
+- 方块绘制位置和缩放尺寸会取整到像素。
+- 方块严格按一个方块尺寸绘制，不重叠覆盖。
+- 方块破坏粒子从被破坏方块的真实纹理中随机裁切，不使用生成颜色。
+- 玩家碰撞盒保持为 `0.5 x 1.9` 世界方块；原始正方形角色贴图以更宽的视觉尺寸绘制，避免人物看起来被压扁。
+
+原始纹理许可证保留在 `public/assets/LICENSE.txt`。
+
+## 扩展开发
+
+新增方块时：
+
+1. 在 `public/assets/block/` 下添加 PNG 纹理。
+2. 在 `src/i18n.ts` 中添加中英文显示名称。
+3. 插件拥有的内容通过 `PluginRegistry.registerBlock()` 注册。
+4. 只有需要默认出现的方块才加入地形生成或快捷栏逻辑。
+
+新增游戏模式时：
+
+1. 在 `src/modes/` 中新增 `GameMode` 实现。
+2. 更新 `createMode()`。
+3. 在 `i18n.ts` 中添加本地化模式名称。
+4. 游戏状态放在模式对象或 `core/` 中，不应放入 DOM 事件处理器。
+
+插件 API、编写方式和当前限制见 [插件开发文档](./docs/plugin-development-zh.md)。
+
+## 当前范围
+
+当前迁移版本覆盖 Python 项目的主动玩家和世界流程：程序化地形、区块流送、创造/旁观模式、玩家物理、方块破坏和放置、纹理粒子、文件持久化、设置、聊天命令和菜单。实体 AI 和未来背包系统尚未接入运行循环，但相关纹理已包含在 `public/assets/entity/` 中。

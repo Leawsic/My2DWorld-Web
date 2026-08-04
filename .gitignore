@@ -1,0 +1,22 @@
+dist/
+node_modules/
+
+# idea
+
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# vscode
+
+.settings/
+.vscode/
+bin/
+.classpath
+.project
+
+.codegraph/
+run/
+.reasonix/
+reasonix.toml
