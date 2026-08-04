@@ -40,4 +40,10 @@ export const storage = {
   removeWorld(id: string, username = "steve"): void {
     request(`/api/world-save?user=${encodeURIComponent(username || activeUser)}&world=${encodeURIComponent(id)}`, "DELETE");
   },
+  log(event: string, details: Record<string, unknown> = {}, level: "info" | "warn" | "error" = "info"): void {
+    request(`/api/log?user=${encodeURIComponent(activeUser)}`, "POST", { event, details, level });
+  },
+  listPlugins(): string[] {
+    return request<{ plugins?: string[] }>("/api/plugins")?.plugins || [];
+  },
 };

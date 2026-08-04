@@ -1,5 +1,7 @@
 import type { BlockType } from "../core/types";
+import type { Player } from "../core/player";
 import type { World } from "../core/world";
+import type { WorldMeta } from "../core/types";
 
 export interface BlockDefinition {
   id: BlockType;
@@ -10,20 +12,50 @@ export interface BlockDefinition {
 export interface GamePlugin {
   id: string;
   name: string;
+  version?: string;
+  authors?: string[];
+  description?: string;
+  website?: string;
   install(api: PluginApi): void;
 }
+
+export interface PluginGameContext {
+  username: string;
+  meta: WorldMeta;
+  world: World;
+  player: Player;
+  mode: string;
+}
+
+export interface PluginTickContext extends PluginGameContext { dt: number; }
+export interface PluginBlockContext extends PluginGameContext { x: number; y: number; type: BlockType; }
+export interface PluginModeContext extends PluginGameContext { previousMode: string; mode: string; }
 
 export interface PluginApi {
   registerBlock(definition: BlockDefinition): void;
   onWorldCreated(listener: (world: World) => void): void;
+  onGameStart(listener: (context: PluginGameContext) => void): void;
+  onGameTick(listener: (context: PluginTickContext) => void): void;
+  onGamePause(listener: (context: PluginGameContext) => void): void;
+  onGameResume(listener: (context: PluginGameContext) => void): void;
+  onBlockBroken(listener: (context: PluginBlockContext) => void): void;
+  onBlockPlaced(listener: (context: PluginBlockContext) => void): void;
+  onPlayerRespawn(listener: (context: PluginGameContext) => void): void;
+  onGameModeChanged(listener: (context: PluginModeContext) => void): void;
+  onGameStop(listener: (context: PluginGameContext & { reason: string }) => void): void;
 }
 
 export class PluginRegistry implements PluginApi {
   readonly blocks = new Map<BlockType, BlockDefinition>();
+  readonly plugins = new Map<string, GamePlugin>();
   private readonly worldCreatedListeners: Array<(world: World) => void> = [];
+  private readonly listeners = new Map<string, Array<(context: never) => void>>();
 
   use(plugin: GamePlugin): void {
+    if (!plugin.id || !plugin.name) throw new Error("Plugin requires id and name");
+    if (this.plugins.has(plugin.id)) throw new Error(`Plugin already registered: ${plugin.id}`);
     plugin.install(this);
+    this.plugins.set(plugin.id, plugin);
   }
 
   registerBlock(definition: BlockDefinition): void {
@@ -36,6 +68,29 @@ export class PluginRegistry implements PluginApi {
   }
 
   notifyWorldCreated(world: World): void {
-    this.worldCreatedListeners.forEach((listener) => listener(world));
+    this.worldCreatedListeners.forEach((listener) => this.invoke(() => listener(world)));
   }
+
+  onGameStart(listener: (context: PluginGameContext) => void): void { this.on("gameStart", listener); }
+  onGameTick(listener: (context: PluginTickContext) => void): void { this.on("gameTick", listener); }
+  onGamePause(listener: (context: PluginGameContext) => void): void { this.on("gamePause", listener); }
+  onGameResume(listener: (context: PluginGameContext) => void): void { this.on("gameResume", listener); }
+  onBlockBroken(listener: (context: PluginBlockContext) => void): void { this.on("blockBroken", listener); }
+  onBlockPlaced(listener: (context: PluginBlockContext) => void): void { this.on("blockPlaced", listener); }
+  onPlayerRespawn(listener: (context: PluginGameContext) => void): void { this.on("playerRespawn", listener); }
+  onGameModeChanged(listener: (context: PluginModeContext) => void): void { this.on("gameModeChanged", listener); }
+  onGameStop(listener: (context: PluginGameContext & { reason: string }) => void): void { this.on("gameStop", listener); }
+  notifyGameStart(context: PluginGameContext): void { this.emit("gameStart", context); }
+  notifyGameTick(context: PluginTickContext): void { this.emit("gameTick", context); }
+  notifyGamePause(context: PluginGameContext): void { this.emit("gamePause", context); }
+  notifyGameResume(context: PluginGameContext): void { this.emit("gameResume", context); }
+  notifyBlockBroken(context: PluginBlockContext): void { this.emit("blockBroken", context); }
+  notifyBlockPlaced(context: PluginBlockContext): void { this.emit("blockPlaced", context); }
+  notifyPlayerRespawn(context: PluginGameContext): void { this.emit("playerRespawn", context); }
+  notifyGameModeChanged(context: PluginModeContext): void { this.emit("gameModeChanged", context); }
+  notifyGameStop(context: PluginGameContext & { reason: string }): void { this.emit("gameStop", context); }
+
+  private on<T>(name: string, listener: (context: T) => void): void { this.listeners.set(name, [...(this.listeners.get(name) || []), listener as (context: never) => void]); }
+  private emit<T>(name: string, context: T): void { (this.listeners.get(name) || []).forEach((listener) => this.invoke(() => listener(context as never))); }
+  private invoke(callback: () => void): void { try { callback(); } catch (error) { console.error("Plugin lifecycle listener failed", error); } }
 }

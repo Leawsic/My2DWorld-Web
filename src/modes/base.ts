@@ -11,6 +11,7 @@ export interface ModeContext {
   blockSize: number;
   dt: number;
   textures: ReadonlyMap<string, HTMLImageElement>;
+  onBlockBroken?: (x: number, y: number, type: BlockType) => void;
 }
 
 export abstract class GameMode {
