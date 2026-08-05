@@ -1,7 +1,7 @@
 import "./style.css";
 import { Player, type KeyState } from "./core/player";
 import { storage } from "./core/storage";
-import { World, hashSeed } from "./core/world";
+import { World, hashSeed, spawnX } from "./core/world";
 import type { GameModeName, KeyBindings, Language, WorldMeta } from "./core/types";
 import { createMode } from "./modes";
 import type { GameMode } from "./modes/base";
@@ -24,11 +24,26 @@ function toggleLanguage(): void {
 }
 
 const text = (zh: string, en: string) => language === "zh" ? zh : en;
+const AUTOSAVE_OPTIONS = [0, 60, 300, 600];
+const SPECTATE_LIMIT = 16;
+function autosaveLabel(seconds: number): string {
+  if (seconds <= 0) return text("关闭", "Off");
+  return seconds < 60 ? `${seconds} ${text("秒", "sec")}` : `${Math.round(seconds / 60)} ${text("分钟", "min")}`;
+}
+function nextAutosave(seconds: number): number {
+  return AUTOSAVE_OPTIONS[(AUTOSAVE_OPTIONS.indexOf(seconds) + 1) % AUTOSAVE_OPTIONS.length];
+}
+const ALPHA_PRESETS = [0.3, 0.5, 0.7, 1];
+const BRIGHTNESS_PRESETS = [0.5, 0.75, 1];
+function nextPreset(value: number, presets: number[]): number {
+  const index = presets.indexOf(value);
+  return presets[(index < 0 ? 0 : index + 1) % presets.length];
+}
 const shell = (content: string) => { app.innerHTML = `<div class="shell">${content}</div>`; };
 const button = (label: string, action: string, className = "") => `<button class="button ${className}" data-action="${action}">${label}</button>`;
 
 function renderLogin(message = ""): void {
-  shell(`<section class="login-screen"><div class="brand"><span>MY2D</span><strong>WORLD</strong><small>an endless block journal</small></div><div class="login-panel"><div class="eyebrow">LOCAL SESSION / 01</div><h1>${text("进入世界", "Enter your world")}</h1><p>${text("在浏览器中继续你的无限地形旅程。", "Continue your infinite terrain journey in the browser.")}</p><input id="username" value="steve" placeholder="${text("账号", "Username")}" /><input id="password" type="password" placeholder="${text("密码", "Password")}" /><div class="actions">${button(text("登录", "Login"), "login", "primary")}${button(text("注册", "Register"), "register")}</div><div class="login-tools"><button data-action="language">${language === "zh" ? "中文" : "English"}</button><button data-action="demo">${text("使用默认账号", "Use demo account")}</button></div><div class="message">${message}</div></div></section>`);
+  shell(`<section class="login-screen"><div class="brand"><span>MY2D</span><strong>WORLD</strong><small>an endless block journal</small></div><div class="login-panel"><div class="eyebrow">LOCAL SESSION / 01</div><h1>${text("进入世界", "Enter your world")}</h1><p>${text("在浏览器中继续你的无限地形旅程。", "Continue your infinite terrain journey in the browser.")}</p><input id="username" placeholder="${text("账号", "Username")}" /><input id="password" type="password" placeholder="${text("密码", "Password")}" /><div class="actions">${button(text("登录", "Login"), "login", "primary")}${button(text("注册", "Register"), "register")}</div><div class="login-tools"><button data-action="language">${language === "zh" ? "中文" : "English"}</button><button data-action="demo">${text("使用默认账号", "Use demo account")}</button></div><div class="message">${message}</div></div></section>`);
 }
 
 function renderWorlds(message = ""): void {
@@ -63,9 +78,10 @@ class GameSession {
   private voidDamageTimer = 0;
   private notice = "";
   private noticeTimer = 0;
-  private menu: "pause" | "settings" | "bindings" | null = null;
+  private menu: "pause" | "settings" | "bindings" | "display" | null = null;
   private bindingCapture: keyof KeyBindings | null = null;
   private readonly blockImages = new Map<string, HTMLImageElement>();
+  private readonly guiImages = new Map<string, HTMLImageElement>();
   private placement: [number, number] | null = null;
   private active = true;
   private cameraOffsetX = 0;
@@ -75,6 +91,9 @@ class GameSession {
   private dragStartY = 0;
   private dragOriginX = 0;
   private dragOriginY = 0;
+  private dragOriginPlayerX = 0;
+  private dragOriginPlayerY = 0;
+  private spectate = false;
   private f3Held = false;
   private f4Held = false;
   private modeComboPending = false;
@@ -84,8 +103,8 @@ class GameSession {
     this.modeName = meta.mode;
     this.world = new World(8, meta.seed ?? 0);
     const save = storage.loadWorld(meta.id);
-    const x = save?.playerX ?? 0;
-    const y = save?.playerY ?? this.world.getSurfaceHeight(0) + 0.001;
+    const x = save?.playerX ?? spawnX(meta.seed ?? 0);
+    const y = save?.playerY ?? this.world.getSurfaceHeight(x) + 0.001;
     this.world.updateView(x);
     this.world.restore(save?.brokenBlocks ?? [], save?.placedBlocks ?? []);
     plugins.notifyWorldCreated(this.world);
@@ -93,6 +112,14 @@ class GameSession {
     if (save?.mode) this.modeName = save.mode;
     this.mode = createMode(this.modeName);
     ["grass_block_side", "dirt", "stone", "cobblestone", "mossy_cobblestone", "bedrock", "coal_block", "iron_block", "gold_block", "diamond_block"].forEach((type) => this.loadBlock(type));
+    this.loadGui("mode_creative", "/assets/gui/gamemode/creative.png");
+    this.loadGui("mode_spectator", "/assets/gui/gamemode/spectator.png");
+    this.loadGui("mouse", "/assets/gui/mouse/mouse.png");
+    this.loadGui("mouse_left_broke", "/assets/gui/mouse/mouse_left_broke.png");
+    this.loadGui("mouse_right_place_and_move", "/assets/gui/mouse/mouse_right_place_and_move.png");
+    this.loadGui("player_stand", "/assets/player/steve/stand/1.png");
+    this.loadGui("move_fly", "/assets/gui/movemode/creative_fly.png");
+    this.loadGui("move_walk", "/assets/gui/movemode/creative_walk.png");
     this.canvas.className = "game-canvas";
     this.ctx.imageSmoothingEnabled = false;
     document.body.innerHTML = "";
@@ -104,7 +131,7 @@ class GameSession {
     requestAnimationFrame(this.tick);
   }
 
-  private resize = (): void => { this.canvas.width = window.innerWidth; this.canvas.height = window.innerHeight; };
+  private resize = (): void => { this.canvas.width = window.innerWidth; this.canvas.height = window.innerHeight; this.ctx.imageSmoothingEnabled = false; };
   private bindInput(): void {
     const actionFor = (code: string): keyof KeyBindings | null => (Object.entries(settings.keyBindings).find(([, value]) => value === code)?.[0] as keyof KeyBindings | undefined) || null;
     const isMove = (action: keyof KeyBindings | null): action is "left" | "right" | "up" | "down" | "jump" => !!action && ["left", "right", "up", "down", "jump"].includes(action);
@@ -113,6 +140,7 @@ class GameSession {
       if (this.chatOpen) { this.handleChatKey(event); return; }
       const action = actionFor(event.code);
       if (event.key === "Escape") { this.menu = this.menu ? null : "pause"; this.paused = Boolean(this.menu); }
+      if (event.key === "F7") event.preventDefault();
       if (event.key === "F11") event.preventDefault();
       if (event.code === "ShiftLeft" || event.code === "ShiftRight") { this.keys.sneak = true; event.preventDefault(); }
       if (action === "debug") { if (!this.f3Held) this.modeComboConsumed = false; this.f3Held = true; }
@@ -140,6 +168,7 @@ class GameSession {
         this.f4Held = false;
         if (this.f3Held || this.modeComboPending) { this.modeComboPending = false; this.modeComboConsumed = true; this.toggleMode(); }
       }
+      if (event.key === "F7") this.toggleSpectate();
       if (event.key === "F11") { event.preventDefault(); if (document.fullscreenElement) void document.exitFullscreen(); else void document.documentElement.requestFullscreen(); }
       if (event.key === "=" || event.key === "+") this.blockSize = Math.min(72, this.blockSize * 1.15);
       if (event.key === "-") this.blockSize = Math.max(16, this.blockSize / 1.15);
@@ -155,17 +184,46 @@ class GameSession {
       this.modeComboConsumed = false;
     });
     this.canvas.addEventListener("mousemove", (event) => { const rect = this.canvas.getBoundingClientRect(); this.lastMouseX = event.clientX - rect.left; this.lastMouseY = event.clientY - rect.top; });
-    this.canvas.addEventListener("mousedown", (event) => { if (this.chatOpen) { event.preventDefault(); return; } if (this.menu) { if (event.button === 0) this.handleMenuClick(event.clientX, event.clientY); return; } if (event.button === 0) { const slot = this.hotbarSlotAt(event.clientX, event.clientY); if (slot >= 0) this.selected = slot; else this.mouseDown = true; } if (event.button === 2) { if (this.modeName === "spectator") { this.dragging = true; this.dragStartX = event.clientX; this.dragStartY = event.clientY; this.dragOriginX = this.cameraOffsetX; this.dragOriginY = this.cameraOffsetY; } else this.place(event.clientX, event.clientY); } });
-    this.canvas.addEventListener("mousemove", (event) => { const rect = this.canvas.getBoundingClientRect(); this.lastMouseX = event.clientX - rect.left; this.lastMouseY = event.clientY - rect.top; if (this.dragging) { this.cameraOffsetX = this.dragOriginX - (event.clientX - this.dragStartX) / this.blockSize; this.cameraOffsetY = this.dragOriginY + (event.clientY - this.dragStartY) / this.blockSize; } });
+    this.canvas.addEventListener("mousedown", (event) => { if (this.chatOpen) { event.preventDefault(); return; } if (this.menu) { if (event.button === 0) this.handleMenuClick(event.clientX, event.clientY); return; } if (event.button === 0) { const slot = this.hotbarSlotAt(event.clientX, event.clientY); if (slot >= 0) this.selected = slot; else this.mouseDown = true; } if (event.button === 2) { if (this.modeName === "spectator" || this.spectate) { this.dragging = true; this.dragStartX = event.clientX; this.dragStartY = event.clientY; this.dragOriginX = this.cameraOffsetX; this.dragOriginY = this.cameraOffsetY; this.dragOriginPlayerX = this.player.x; this.dragOriginPlayerY = this.player.y; } else this.place(event.clientX, event.clientY); } });
+    this.canvas.addEventListener("mousemove", (event) => { const rect = this.canvas.getBoundingClientRect(); this.lastMouseX = event.clientX - rect.left; this.lastMouseY = event.clientY - rect.top; if (this.dragging) { const dx = -(event.clientX - this.dragStartX) / this.blockSize; const dy = (event.clientY - this.dragStartY) / this.blockSize; if (this.modeName === "spectator") { this.player.x = this.dragOriginPlayerX + dx; this.player.y = this.dragOriginPlayerY + dy; } else if (this.spectate) { this.cameraOffsetX = Math.max(-SPECTATE_LIMIT, Math.min(SPECTATE_LIMIT, this.dragOriginX + dx)); this.cameraOffsetY = Math.max(-SPECTATE_LIMIT, Math.min(SPECTATE_LIMIT, this.dragOriginY + dy)); } } });
     window.addEventListener("mouseup", () => { this.mouseDown = false; this.dragging = false; });
     this.canvas.addEventListener("contextmenu", (event) => event.preventDefault());
     this.canvas.addEventListener("wheel", (event) => { event.preventDefault(); if (this.chatOpen) { this.chatScroll = Math.max(0, Math.min(Math.max(0, this.chatMessages.length - 9), this.chatScroll + Math.sign(event.deltaY))); } else if (this.hotbarSlotAt(event.clientX, event.clientY) >= 0) this.selected = (this.selected + Math.sign(event.deltaY) + this.hotbar.length) % this.hotbar.length; else this.blockSize = this.snapBlockSize(this.blockSize * (event.deltaY < 0 ? 1.15 : 1 / 1.15)); }, { passive: false });
   }
 
-  private toggleMode(): void { if (this.menu) return; this.modeName = this.modeName === "creative" ? "spectator" : "creative"; this.mode = createMode(this.modeName); this.cameraOffsetX = 0; this.cameraOffsetY = 0; this.dragging = false; this.notice = text("已切换游戏模式", "Game mode switched"); this.noticeTimer = 2; this.save(); }
+  private toggleMode(): void { if (this.menu) return; this.modeName = this.modeName === "creative" ? "spectator" : "creative"; this.mode = createMode(this.modeName); this.cameraOffsetX = 0; this.cameraOffsetY = 0; this.dragging = false; this.spectate = false; this.notice = text("已切换游戏模式", "Game mode switched"); this.noticeTimer = 2; this.save(); }
+  private toggleSpectate(): void { if (this.menu || this.modeName !== "creative") return; this.spectate = !this.spectate; this.cameraOffsetX = 0; this.cameraOffsetY = 0; this.dragging = false; this.notice = this.spectate ? text("灵魂出窍", "Out of body") : text("已返回身体", "Back to body"); this.noticeTimer = 2; }
   private worldAtMouse(): [number, number] { const rect = this.canvas.getBoundingClientRect(); return [this.player.x + this.cameraOffsetX + (this.lastMouseX - rect.width / 2) / this.blockSize, this.player.y + this.cameraOffsetY - (this.lastMouseY - rect.height / 2) / this.blockSize]; }
-  private hovered(): [number, number, string] | null { const [x, y] = this.worldAtMouse(); const wx = Math.floor(x); const wy = Math.ceil(y); const type = this.world.getBlock(wx, wy); return type ? [wx, wy, type] : null; }
-  private getPlacementTarget(): [number, number] | null { if (this.modeName !== "creative") return null; const [x, y] = this.worldAtMouse(); const cellX = Math.floor(x); const cellY = Math.ceil(y); if (cellY < 1) return null; const hit = this.world.getBlock(cellX, cellY); if (!hit) return [cellX, cellY]; const relX = x - (cellX + 0.5); const relY = y - (cellY - 0.5); const target: [number, number] = Math.abs(relX) > Math.abs(relY) ? [cellX + (relX >= 0 ? 1 : -1), cellY] : [cellX, cellY + (relY >= 0 ? 1 : -1)]; return target[1] >= 1 ? target : null; }
+  private inReach(worldX: number, worldY: number): boolean {
+    const centerX = this.player.x;
+    const centerY = this.player.y + 0.95;
+    return Math.abs(worldX - centerX) <= 2.5 && Math.abs(worldY - centerY) <= 3;
+  }
+  private hovered(): [number, number, string] | null { const [x, y] = this.worldAtMouse(); const wx = Math.floor(x); const wy = Math.ceil(y); const type = this.world.getBlock(wx, wy); return type && this.inReach(wx + 0.5, wy - 0.5) ? [wx, wy, type] : null; }
+  private getPlacementTarget(): [number, number] | null {
+    if (this.modeName !== "creative") return null;
+    const [x, y] = this.worldAtMouse();
+    const cellX = Math.floor(x); const cellY = Math.ceil(y);
+    if (cellY < 1) return null;
+    let target: [number, number];
+    const hit = this.world.getBlock(cellX, cellY);
+    if (!hit) {
+      target = [cellX, cellY];
+    } else {
+      const relX = x - (cellX + 0.5);
+      const relY = y - (cellY - 0.5);
+      target = Math.abs(relX) > Math.abs(relY) ? [cellX + (relX >= 0 ? 1 : -1), cellY] : [cellX, cellY + (relY >= 0 ? 1 : -1)];
+    }
+    if (target[1] < 1) return null;
+    if (this.world.getBlock(target[0], target[1])) return null;
+    if (!this.inReach(target[0] + 0.5, target[1] - 0.5)) return null;
+    const left = this.player.x - 0.25;
+    const right = this.player.x + 0.25;
+    const playerBottom = this.player.y;
+    const playerTop = playerBottom + 1.9;
+    if (left < target[0] + 1 && right > target[0] && playerBottom < target[1] && playerTop > target[1] - 1) return null;
+    return target;
+  }
   private lastMouseX = 0;
   private lastMouseY = 0;
   private chatOpen = false;
@@ -178,34 +236,55 @@ class GameSession {
   private suggestions: string[] = [];
   private openChat(initial = ""): void { this.chatOpen = true; this.chatText = initial; this.chatScroll = 0; this.suggestionIndex = 0; this.suggestions = []; this.chatHistoryCursor = null; this.paused = false; this.menu = null; }
   private handleChatKey(event: KeyboardEvent): void { if (event.key === "Escape") { this.chatOpen = false; this.chatText = ""; this.chatScroll = 0; } else if (event.key === "Backspace") { this.chatText = this.chatText.slice(0, -1); this.resetSuggestions(); } else if (event.key === "Tab") { const suggestions = this.suggestions.length ? this.suggestions : this.getSuggestions(); if (suggestions.length) { const suggestion = suggestions[this.suggestionIndex % suggestions.length]; this.suggestionIndex += 1; this.suggestions = suggestions; if (suggestion.startsWith("/")) { this.chatText = suggestion + (["/gamemode", "/debug"].includes(suggestion) ? " " : ""); this.resetSuggestions(); } else { const prefix = this.chatText.includes(" ") ? this.chatText.slice(0, this.chatText.lastIndexOf(" ")) : this.chatText; this.chatText = `${prefix} ${suggestion}`; } } } else if (event.key === "Enter") { const input = this.chatText.trim(); if (input) { this.chatHistory.push(input); this.chatHistory = this.chatHistory.slice(-200); this.submitChat(input); } this.chatOpen = false; this.chatText = ""; this.chatHistoryCursor = null; } else if (event.key === "ArrowUp") { if (this.chatHistory.length) { this.chatHistoryCursor = this.chatHistoryCursor === null ? this.chatHistory.length - 1 : Math.max(0, this.chatHistoryCursor - 1); this.chatText = this.chatHistory[this.chatHistoryCursor]; this.resetSuggestions(); } } else if (event.key === "ArrowDown") { if (this.chatHistoryCursor !== null) { this.chatHistoryCursor += 1; if (this.chatHistoryCursor >= this.chatHistory.length) { this.chatHistoryCursor = null; this.chatText = ""; } else this.chatText = this.chatHistory[this.chatHistoryCursor]; this.resetSuggestions(); } } else if (event.key.length === 1 && this.chatText.length < 160) { this.chatText += event.key; this.resetSuggestions(); } event.preventDefault(); }
-  private submitChat(input: string): void { this.addChat(`> ${input}`); if (!input.startsWith("/")) { this.addChat(input); return; } const parts = input.slice(1).trim().split(/\s+/); const command = parts[0]?.toLowerCase(); if (command === "gamemode" && (parts[1] === "creative" || parts[1] === "spectator")) { this.modeName = parts[1]; this.mode = createMode(this.modeName); this.save(); this.addChat(`Gamemode set to ${this.modeName}`); } else if ((command === "speed" || command === "movespeed") && Number.isFinite(Number(parts[1]))) { const speed = Math.max(0.1, Math.min(50, Number(parts[1]))); this.player.movement.walkSpeed = speed; this.meta.physics.walkSpeed = speed; settings.movement.walkSpeed = speed; storage.saveSettings(settings); const worlds = storage.loadWorlds(username).map((world) => world.id === this.meta.id ? this.meta : world); storage.saveWorlds(worlds, username); this.save(); this.addChat(`Movement speed set to ${speed}`); } else if (command === "debug" && ["on", "off", "true", "false"].includes(parts[1])) { this.debug = parts[1] === "on" || parts[1] === "true"; settings.debugDefault = this.debug; storage.saveSettings(settings); this.addChat(`Debug ${this.debug ? "on" : "off"}`); } else if (command === "seed") this.addChat(`Seed: ${this.meta.seed ?? 0}`); else this.addChat("Unknown or invalid command"); }
+  private submitChat(input: string): void { this.addChat(`> ${input}`); if (!input.startsWith("/")) { this.addChat(input); return; } const parts = input.slice(1).trim().split(/\s+/); const command = parts[0]?.toLowerCase(); if (command === "gamemode" && (parts[1] === "creative" || parts[1] === "spectator")) { this.modeName = parts[1]; this.mode = createMode(this.modeName); this.cameraOffsetX = 0; this.cameraOffsetY = 0; this.dragging = false; this.spectate = false; this.save(); this.addChat(`Gamemode set to ${this.modeName}`); } else if ((command === "speed" || command === "movespeed") && Number.isFinite(Number(parts[1]))) { const speed = Math.max(0.1, Math.min(50, Number(parts[1]))); this.player.movement.walkSpeed = speed; this.meta.physics.walkSpeed = speed; settings.movement.walkSpeed = speed; storage.saveSettings(settings); const worlds = storage.loadWorlds(username).map((world) => world.id === this.meta.id ? this.meta : world); storage.saveWorlds(worlds, username); this.save(); this.addChat(`Movement speed set to ${speed}`); } else if (command === "debug" && ["on", "off", "true", "false"].includes(parts[1])) { this.debug = parts[1] === "on" || parts[1] === "true"; settings.debugDefault = this.debug; storage.saveSettings(settings); this.addChat(`Debug ${this.debug ? "on" : "off"}`); } else if (command === "seed") this.addChat(`Seed: ${this.meta.seed ?? 0}`); else this.addChat("Unknown or invalid command"); }
   private addChat(text: string): void { this.chatMessages.push({ text, age: 0 }); this.chatMessages = this.chatMessages.slice(-200); this.chatScroll = 0; }
   private getSuggestions(): string[] { if (!this.chatText.startsWith("/")) return []; const body = this.chatText.slice(1); const parts = body.split(/\s+/); const trailing = body.endsWith(" "); const commands = ["gamemode", "speed", "movespeed", "debug", "seed"]; if (!parts[0]) return commands.map((command) => `/${command}`); if (parts.length === 1 && !trailing) return commands.filter((command) => command.startsWith(parts[0].toLowerCase())).map((command) => `/${command}`); const args: Record<string, string[]> = { gamemode: ["creative", "spectator"], debug: ["on", "off", "true", "false"] }; const prefix = trailing ? "" : parts.at(-1)?.toLowerCase() || ""; return (args[parts[0].toLowerCase()] || []).filter((argument) => argument.startsWith(prefix)); }
   private resetSuggestions(): void { this.suggestionIndex = 0; this.suggestions = []; }
   private snapBlockSize(size: number): number { return Math.max(16, Math.min(72, Math.round(size))); }
   private hotbarSlotAt(clientX: number, clientY: number): number { const width = window.innerWidth; const height = window.innerHeight; const slot = 48; const barWidth = slot * this.hotbar.length; const x = (width - barWidth) / 2; if (clientY < height - 60 || clientY > height - 18) return -1; const index = Math.floor((clientX - x) / slot); return index >= 0 && index < this.hotbar.length ? index : -1; }
   private place(mouseX: number, mouseY: number): void { const rect = this.canvas.getBoundingClientRect(); this.lastMouseX = mouseX - rect.left; this.lastMouseY = mouseY - rect.top; const target = this.getPlacementTarget(); if (!target) return; const [placeX, placeY] = target; if (this.world.getBlock(placeX, placeY)) return; const left = this.player.x - 0.25; const right = this.player.x + 0.25; const playerBottom = this.player.y; const playerTop = playerBottom + 1.9; if (left < placeX + 1 && right > placeX && playerBottom < placeY && playerTop > placeY - 1) return; if (this.world.placeBlock(placeX, placeY, this.hotbar[this.selected])) { this.notice = text("方块已放置", "Block placed"); this.noticeTimer = 1; this.save(); } }
-  private tick = (now: number): void => { if (!this.active) return; const dt = Math.min(0.05, (now - this.last) / 1000); this.last = now; this.frame += 1; this.lastMouseX = this.lastMouseX || window.innerWidth / 2; this.lastMouseY = this.lastMouseY || window.innerHeight / 2; this.chatMessages.forEach((message) => { message.age += dt; }); if (this.noticeTimer > 0) this.noticeTimer -= dt; if (!this.paused && !this.chatOpen) { this.mode.update({ player: this.player, world: this.world, keys: this.keys, mouseDown: this.mouseDown, hovered: this.hovered(), blockSize: this.blockSize, dt, textures: this.blockImages }); this.world.updateView(this.player.x); this.updateVoid(dt); this.autosaveElapsed += dt; if (this.autosaveElapsed >= 10) { this.save(); this.autosaveElapsed = 0; } } this.render(); requestAnimationFrame(this.tick); };
+  private tick = (now: number): void => { if (!this.active) return; const dt = Math.min(0.05, (now - this.last) / 1000); this.last = now; this.frame += 1; this.lastMouseX = this.lastMouseX || window.innerWidth / 2; this.lastMouseY = this.lastMouseY || window.innerHeight / 2; this.chatMessages.forEach((message) => { message.age += dt; }); if (this.noticeTimer > 0) this.noticeTimer -= dt; if (!this.paused && !this.chatOpen) { this.mode.update({ player: this.player, world: this.world, keys: this.keys, mouseDown: this.mouseDown, hovered: this.hovered(), blockSize: this.blockSize, dt, textures: this.blockImages }); this.world.updateView(this.player.x); this.updateVoid(dt); this.autosaveElapsed += dt; if (settings.autosaveInterval > 0 && this.autosaveElapsed >= settings.autosaveInterval) { this.save(); this.autosaveElapsed = 0; } } this.render(); requestAnimationFrame(this.tick); };
 
-  private updateVoid(dt: number): void { if (this.modeName !== "creative" || this.player.y >= -10) { this.voidDamageTimer = 0; return; } this.voidDamageTimer += dt; this.health = Math.max(0, this.health - 20 * dt); if (this.health <= 0) { const spawnY = this.world.getSurfaceHeight(0) + 0.001; this.player.reset(0, spawnY); this.health = 20; this.notice = text("你掉入虚空并重生了", "You fell into the void and respawned"); this.noticeTimer = 3; } }
+  private updateVoid(dt: number): void { if (this.modeName !== "creative" || this.player.y >= -10) { this.voidDamageTimer = 0; return; } this.voidDamageTimer += dt; this.health = Math.max(0, this.health - 20 * dt); if (this.health <= 0) { const spawnXPos = spawnX(this.meta.seed ?? 0); const spawnYPos = this.world.getSurfaceHeight(spawnXPos) + 0.001; this.player.reset(spawnXPos, spawnYPos); this.health = 20; this.save(); this.notice = text("你掉入虚空并重生了", "You fell into the void and respawned"); this.noticeTimer = 3; } }
 
   private loadBlock(type: string): void { const image = new Image(); image.src = `/assets/block/${type}.png`; this.blockImages.set(type, image); }
+  private loadGui(key: string, src: string): void { const image = new Image(); image.src = src; this.guiImages.set(key, image); }
 
   private handleMenuClick(clientX: number, clientY: number): void {
-    const boxW = Math.min(420, window.innerWidth - 40);
+    const boxW = Math.min(460, window.innerWidth - 40);
     const x = (window.innerWidth - boxW) / 2;
-    const menuHeight = this.menu === "bindings" ? 620 : 410;
+    const menuHeight = this.menu === "bindings" ? 620 : this.menu === "settings" ? 540 : 410;
     const y = (window.innerHeight - menuHeight) / 2;
     if (clientX < x + 52 || clientX > x + boxW - 52) return;
     const index = Math.floor((clientY - (y + (this.menu === "bindings" ? 82 : 92))) / (this.menu === "bindings" ? 55 : 66));
-    if (index < 0 || index > (this.menu === "bindings" ? 8 : this.menu === "settings" ? 3 : 2)) return;
+    if (index < 0 || index > (this.menu === "bindings" ? 8 : this.menu === "settings" ? 6 : this.menu === "display" ? 4 : 2)) return;
+    const rowY = y + (this.menu === "bindings" ? 82 : 92) + index * (this.menu === "bindings" ? 55 : 66);
+    const rowH = this.menu === "bindings" ? 42 : 44;
+    if (clientY < rowY || clientY > rowY + rowH) return;
     if (this.menu === "pause") {
       if (index === 0) { this.menu = null; this.paused = false; }
       if (index === 1) this.menu = "settings";
       if (index === 2) { this.save(); this.active = false; app!.innerHTML = ""; document.body.innerHTML = ""; document.body.appendChild(app!); renderWorlds(); }
       return;
     }
-    if (this.menu === "settings") { if (index === 0) toggleLanguage(); if (index === 1) { this.debug = !this.debug; settings.debugDefault = this.debug; storage.saveSettings(settings); } if (index === 2) this.menu = "bindings"; if (index === 3) this.menu = "pause"; return; }
+    if (this.menu === "settings") {
+      if (index === 0) toggleLanguage();
+      if (index === 1) { this.debug = !this.debug; settings.debugDefault = this.debug; storage.saveSettings(settings); }
+      if (index === 2) { settings.autosaveInterval = nextAutosave(settings.autosaveInterval); storage.saveSettings(settings); }
+      if (index === 3) { settings.cursorStyle = settings.cursorStyle === "crosshair" ? "default" : "crosshair"; storage.saveSettings(settings); }
+      if (index === 4) this.menu = "display";
+      if (index === 5) this.menu = "bindings";
+      if (index === 6) this.menu = "pause";
+      return;
+    }
+    if (this.menu === "display") {
+      if (index === 0) { settings.placementAlpha = nextPreset(settings.placementAlpha, ALPHA_PRESETS); storage.saveSettings(settings); }
+      if (index === 1) { settings.placementBrightness = nextPreset(settings.placementBrightness, BRIGHTNESS_PRESETS); storage.saveSettings(settings); }
+      if (index === 2) { settings.spectateAlpha = nextPreset(settings.spectateAlpha, ALPHA_PRESETS); storage.saveSettings(settings); }
+      if (index === 3) { settings.spectateBrightness = nextPreset(settings.spectateBrightness, BRIGHTNESS_PRESETS); storage.saveSettings(settings); }
+      if (index === 4) this.menu = "settings";
+      return;
+    }
     if (index === 8) { this.menu = "settings"; return; }
     const key = Object.keys(settings.keyBindings)[index] as keyof KeyBindings;
     if (key) this.bindingCapture = key;
@@ -233,25 +312,69 @@ class GameSession {
     const target = this.hovered();
     this.placement = this.getPlacementTarget();
     if (target) { const sx = (target[0] - cameraX) * this.blockSize + width / 2; const sy = (cameraY - target[1]) * this.blockSize + height / 2; ctx.strokeStyle = "rgba(255,255,255,.9)"; ctx.lineWidth = 2; ctx.strokeRect(sx + 1, sy + 1, this.blockSize - 2, this.blockSize - 2); }
-    if (this.placement) { const [x, y] = this.placement; const sx = (x - cameraX) * this.blockSize + width / 2; const sy = (cameraY - y) * this.blockSize + height / 2; ctx.fillStyle = "rgba(255,255,255,.25)"; ctx.fillRect(sx, sy, this.blockSize, this.blockSize); ctx.strokeStyle = "rgba(255,255,255,.95)"; ctx.strokeRect(sx + 1, sy + 1, this.blockSize - 2, this.blockSize - 2); }
+    if (this.placement) { const [x, y] = this.placement; const sx = (x - cameraX) * this.blockSize + width / 2; const sy = (cameraY - y) * this.blockSize + height / 2; const image = this.blockImages.get(this.hotbar[this.selected]); if (image?.complete && image.naturalWidth) this.drawGhost(ctx, image, sx, sy, this.blockSize, this.blockSize, settings.placementAlpha, settings.placementBrightness); else { ctx.fillStyle = "rgba(255,255,255,.25)"; ctx.fillRect(sx, sy, this.blockSize, this.blockSize); } ctx.strokeStyle = "rgba(255,255,255,.95)"; ctx.strokeRect(sx + 1, sy + 1, this.blockSize - 2, this.blockSize - 2); }
     if (this.mode instanceof CreativeMode) this.mode.particles.render(ctx, cameraX, cameraY, this.blockSize);
     this.mode.renderPlayer(ctx, { player: this.player, world: this.world, keys: this.keys, mouseDown: this.mouseDown, hovered: this.hovered(), blockSize: this.blockSize, dt: 0, textures: this.blockImages }, cameraX, cameraY);
+    if (this.spectate) { const playerImage = this.guiImages.get("player_stand"); const gw = this.blockSize * 1.9; const gh = this.blockSize * 1.9; this.drawGhost(ctx, playerImage, width / 2 - gw / 2, height / 2 - gh / 2, gw, gh, settings.spectateAlpha, settings.spectateBrightness); }
     this.renderHud(ctx, width, height);
+    this.renderCursor();
+  }
+
+  private drawGhost(ctx: CanvasRenderingContext2D, image: HTMLImageElement | undefined, x: number, y: number, w: number, h: number, alpha: number, brightness: number): void {
+    if (!image?.complete || !image.naturalWidth) return;
+    ctx.globalAlpha = alpha;
+    ctx.drawImage(image, x, y, w, h);
+    ctx.globalAlpha = 1 - brightness;
+    ctx.fillStyle = "#000";
+    ctx.fillRect(x, y, w, h);
+    ctx.globalAlpha = 1;
+  }
+
+  private renderCursor(): void {
+    if (this.paused || this.chatOpen) { this.canvas.style.cursor = settings.cursorStyle === "crosshair" ? "crosshair" : "default"; return; }
+    if (settings.cursorStyle === "crosshair") { this.canvas.style.cursor = "crosshair"; return; }
+    this.canvas.style.cursor = "none";
+    let key = "mouse";
+    const target = this.hovered();
+    const placement = this.getPlacementTarget();
+    if (this.modeName === "creative") {
+      if (!target && placement) key = "mouse_right_place_and_move";
+      else if (target) key = "mouse_left_broke";
+    } else if (this.modeName === "spectator" && this.dragging) {
+      key = "mouse_right_place_and_move";
+    }
+    const image = this.guiImages.get(key);
+    if (!image?.complete || !image.naturalWidth) { this.canvas.style.cursor = "default"; return; }
+    const size = 30;
+    this.ctx.drawImage(image, this.lastMouseX, this.lastMouseY, size, size);
   }
 
   private renderHud(ctx: CanvasRenderingContext2D, width: number, height: number): void {
     ctx.fillStyle = "rgba(9,17,24,.78)";
-    ctx.fillRect(18, 18, 184, 76);
+    ctx.fillRect(18, 18, 184, 60);
     ctx.fillStyle = "#f8f4e7";
     ctx.font = "600 14px ui-monospace";
     ctx.fillText(this.meta.name.toUpperCase(), 32, 43);
     ctx.fillStyle = "#9bb3b3";
-    ctx.fillText(this.modeName === "creative" ? text("创造模式", "CREATIVE") : text("旁观模式", "SPECTATOR"), 32, 66);
-    ctx.fillText("[ESC] " + text("暂停", "PAUSE"), 32, 86);
+    ctx.fillText("[ESC] " + text("暂停", "PAUSE"), 32, 66);
     ctx.fillStyle = "#d95f55";
-    ctx.fillRect(18, 106, 184 * (this.health / 20), 6);
+    ctx.fillRect(18, 92, 184 * (this.health / 20), 6);
     ctx.strokeStyle = "#e7eee5";
-    ctx.strokeRect(18, 106, 184, 6);
+    ctx.strokeRect(18, 92, 184, 6);
+    const modeImage = this.guiImages.get(this.modeName === "creative" ? "mode_creative" : "mode_spectator");
+    if (modeImage?.complete && modeImage.naturalWidth) {
+      ctx.fillStyle = "rgba(9,17,24,.55)";
+      ctx.fillRect(width - 18 - 44, 14, 44, 44);
+      ctx.drawImage(modeImage, width - 18 - 38, 18, 38, 38);
+    }
+    if (this.modeName === "creative") {
+      const moveImage = this.guiImages.get(this.player.flying ? "move_fly" : "move_walk");
+      if (moveImage?.complete && moveImage.naturalWidth) {
+        ctx.fillStyle = "rgba(9,17,24,.55)";
+        ctx.fillRect(width - 18 - 44, 62, 44, 44);
+        ctx.drawImage(moveImage, width - 18 - 38, 66, 38, 38);
+      }
+    }
     const slot = 48;
     const barWidth = slot * this.hotbar.length;
     ctx.fillStyle = "rgba(9,17,24,.88)";
@@ -317,7 +440,18 @@ class GameSession {
       ctx.fillStyle = "#fff";
       ctx.fillText(this.chatText, 24, height - 20);
     }
-    if (this.noticeTimer > 0) { ctx.textAlign = "center"; ctx.fillStyle = "#f5dc8e"; ctx.font = "600 16px Manrope"; ctx.fillText(this.notice, width / 2, 42); ctx.textAlign = "left"; }
+    if (this.noticeTimer > 0) {
+      ctx.font = "600 16px Manrope";
+      const modeImage = this.guiImages.get(this.modeName === "creative" ? "mode_creative" : "mode_spectator");
+      const iconSize = 22;
+      const iconShown = Boolean(modeImage?.complete && modeImage.naturalWidth);
+      const textW = ctx.measureText(this.notice).width;
+      if (iconShown) ctx.drawImage(modeImage!, width / 2 - textW / 2 - iconSize - 8, 42 - 8 - iconSize / 2, iconSize, iconSize);
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#f5dc8e";
+      ctx.fillText(this.notice, width / 2, 42);
+      ctx.textAlign = "left";
+    }
     if (this.paused) this.renderMenu(ctx, width, height);
   }
 
@@ -326,7 +460,7 @@ class GameSession {
     ctx.fillRect(0, 0, width, height);
     const bindingMode = this.menu === "bindings";
     const boxW = Math.min(460, width - 40);
-    const boxH = bindingMode ? 620 : 410;
+    const boxH = bindingMode ? 620 : this.menu === "settings" ? 540 : 410;
     const x = (width - boxW) / 2;
     const y = (height - boxH) / 2;
     ctx.fillStyle = "#13252d";
@@ -336,7 +470,7 @@ class GameSession {
     ctx.fillStyle = "#f8f4e7";
     ctx.textAlign = "center";
     ctx.font = "700 30px Georgia";
-    const title = bindingMode ? t(language, "settings_keybindings") : this.menu === "settings" ? t(language, "settings_title") : t(language, "pause_title");
+    const title = bindingMode ? t(language, "settings_keybindings") : this.menu === "settings" ? t(language, "settings_title") : this.menu === "display" ? t(language, "settings_display") : t(language, "pause_title");
     ctx.fillText(title, width / 2, y + 54);
     ctx.font = "14px 'LXGW WenKai', Manrope";
     if (bindingMode) {
@@ -351,7 +485,8 @@ class GameSession {
         ctx.fillText(t(language, `bind_${key}`), x + 46, by + 27);
         ctx.textAlign = "right";
         ctx.fillStyle = selected ? "#f5dc8e" : "#b9d2ca";
-        ctx.fillText(selected ? t(language, "settings_rebind") : keyName(value), x + boxW - 46, by + 27);
+        const display = key === "mode" ? `${keyName(settings.keyBindings.debug)} + ${keyName(value)}` : keyName(value);
+        ctx.fillText(selected ? t(language, "settings_rebind") : display, x + boxW - 46, by + 27);
       });
       const by = y + 82 + bindings.length * 55;
       ctx.fillStyle = "#28434a";
@@ -361,7 +496,23 @@ class GameSession {
       ctx.fillText(t(language, "settings_back"), width / 2, by + 27);
     } else {
       const labels = this.menu === "settings"
-        ? [`${t(language, "settings_language")}: ${language === "zh" ? "中文" : "English"}`, `${t(language, "settings_debug_default")}: ${this.debug ? text("开启", "ON") : text("关闭", "OFF")}`, t(language, "settings_keybindings"), t(language, "settings_back")]
+        ? [
+            `${t(language, "settings_language")}: ${language === "zh" ? "中文" : "English"}`,
+            `${t(language, "settings_debug_default")}: ${this.debug ? text("开启", "ON") : text("关闭", "OFF")}`,
+            `${t(language, "settings_autosave")}: ${autosaveLabel(settings.autosaveInterval)}`,
+            `${t(language, "settings_cursor")}: ${settings.cursorStyle === "crosshair" ? t(language, "cursor_crosshair") : t(language, "cursor_default")}`,
+            t(language, "settings_display"),
+            t(language, "settings_keybindings"),
+            t(language, "settings_back"),
+          ]
+        : this.menu === "display"
+        ? [
+            `${t(language, "display_placement_alpha")}: ${Math.round(settings.placementAlpha * 100)}%`,
+            `${t(language, "display_placement_brightness")}: ${Math.round(settings.placementBrightness * 100)}%`,
+            `${t(language, "display_spectate_alpha")}: ${Math.round(settings.spectateAlpha * 100)}%`,
+            `${t(language, "display_spectate_brightness")}: ${Math.round(settings.spectateBrightness * 100)}%`,
+            t(language, "settings_back"),
+          ]
         : [t(language, "pause_resume"), t(language, "settings_title"), t(language, "pause_homepage")];
       labels.forEach((label, index) => {
         const by = y + 92 + index * 66;
@@ -378,7 +529,7 @@ class GameSession {
 
 function startGame(meta: WorldMeta): void { new GameSession(meta); }
 
-app.addEventListener("click", (event) => { const target = event.target as HTMLElement; const action = target.dataset.action; if (!action) return; if (action === "language") { toggleLanguage(); renderLogin(); } else if (action === "login" || action === "demo") { const input = document.querySelector<HTMLInputElement>("#username"); const password = document.querySelector<HTMLInputElement>("#password"); const candidate = input?.value.trim() || "steve"; if (!storage.account(candidate, password?.value || "1234asdf", "login")) { renderLogin(text("账号或密码错误", "Wrong username or password")); return; } username = candidate; storage.setUser(username); settings = storage.loadSettings(); language = settings.language; renderWorlds(); } else if (action === "register") { const input = document.querySelector<HTMLInputElement>("#username"); const password = document.querySelector<HTMLInputElement>("#password"); const candidate = input?.value.trim() || ""; if (!candidate || !password?.value || password.value.length < 4 || !storage.account(candidate, password.value, "register")) { renderLogin(text("注册失败：账号已存在或密码少于4位", "Registration failed: account exists or password is too short")); return; } renderLogin(text("注册成功，请登录", "Registered, please log in")); } else if (action === "logout") renderLogin(); else if (action === "create-world") renderCreate(); else if (action === "worlds") renderWorlds(); else if (action === "save-world") { const get = (id: string) => document.querySelector<HTMLInputElement>(`#${id}`)?.value || ""; const seedInput = get("world-seed").trim(); const numericSeed = Number(seedInput); const seed = seedInput === "" ? Math.floor(Math.random() * 0x7fffffff) : Number.isInteger(numericSeed) && numericSeed >= 0 && numericSeed <= 0xffffffff ? numericSeed : hashSeed(seedInput); const meta: WorldMeta = { id: crypto.randomUUID(), name: get("world-name").trim() || "New World", mode: (document.querySelector<HTMLSelectElement>("#world-mode")?.value || "spectator") as GameModeName, physics: { walkSpeed: Number(get("walk-speed")) || 1.8, flySpeed: Number(get("fly-speed")) || 3.5, jumpVelocity: Number(get("jump-velocity")) || 9.5, gravity: Number(get("gravity")) || 14 }, seed, createdAt: new Date().toISOString() }; storage.saveWorlds([...storage.loadWorlds(username), meta], username); startGame(meta); } else if (action.startsWith("enter:")) { const meta = storage.loadWorlds(username).find((item) => item.id === action.slice(6)); if (meta) startGame(meta); } else if (action.startsWith("delete:")) { const id = action.slice(7); storage.removeWorld(id, username); storage.saveWorlds(storage.loadWorlds(username).filter((item) => item.id !== id), username); renderWorlds(); } });
+app.addEventListener("click", (event) => { const target = event.target as HTMLElement; const action = target.dataset.action; if (!action) return; if (action === "language") { toggleLanguage(); renderLogin(); } else if (action === "login" || action === "demo") { const input = document.querySelector<HTMLInputElement>("#username"); const password = document.querySelector<HTMLInputElement>("#password"); const candidate = action === "demo" ? "steve" : input?.value.trim() || ""; if (!candidate) { renderLogin(text("请输入账号", "Please enter a username")); return; } if (action === "demo" && !window.confirm(text("确定使用默认账号 steve 登录吗？", "Log in with the demo account steve?"))) return; if (!storage.account(candidate, password?.value || "1234asdf", "login")) { renderLogin(text("账号或密码错误", "Wrong username or password")); return; } username = candidate; storage.setUser(username); settings = storage.loadSettings(); language = settings.language; renderWorlds(); } else if (action === "register") { const input = document.querySelector<HTMLInputElement>("#username"); const password = document.querySelector<HTMLInputElement>("#password"); const candidate = input?.value.trim() || ""; if (!candidate || !password?.value || password.value.length < 4 || !storage.account(candidate, password.value, "register")) { renderLogin(text("注册失败：账号已存在或密码少于4位", "Registration failed: account exists or password is too short")); return; } renderLogin(text("注册成功，请登录", "Registered, please log in")); } else if (action === "logout") renderLogin(); else if (action === "create-world") renderCreate(); else if (action === "worlds") renderWorlds(); else if (action === "save-world") { const get = (id: string) => document.querySelector<HTMLInputElement>(`#${id}`)?.value || ""; const seedInput = get("world-seed").trim(); const numericSeed = Number(seedInput); const seed = seedInput === "" ? Math.floor(Math.random() * 0x7fffffff) : Number.isInteger(numericSeed) && numericSeed >= 0 && numericSeed <= 0xffffffff ? numericSeed : hashSeed(seedInput); const meta: WorldMeta = { id: crypto.randomUUID(), name: get("world-name").trim() || "New World", mode: (document.querySelector<HTMLSelectElement>("#world-mode")?.value || "spectator") as GameModeName, physics: { walkSpeed: Number(get("walk-speed")) || 1.8, flySpeed: Number(get("fly-speed")) || 3.5, jumpVelocity: Number(get("jump-velocity")) || 9.5, gravity: Number(get("gravity")) || 14 }, seed, createdAt: new Date().toISOString() }; storage.saveWorlds([...storage.loadWorlds(username), meta], username); startGame(meta); } else if (action.startsWith("enter:")) { const meta = storage.loadWorlds(username).find((item) => item.id === action.slice(6)); if (meta) startGame(meta); } else if (action.startsWith("delete:")) { const id = action.slice(7); storage.removeWorld(id, username); storage.saveWorlds(storage.loadWorlds(username).filter((item) => item.id !== id), username); renderWorlds(); } });
 
 document.addEventListener("keydown", (event) => {
   if (event.ctrlKey && event.code === "KeyL") {
@@ -391,7 +542,7 @@ document.addEventListener("keydown", (event) => {
       renderLogin();
       const newUsername = document.querySelector<HTMLInputElement>("#username");
       const newPassword = document.querySelector<HTMLInputElement>("#password");
-      if (newUsername) newUsername.value = usernameInput || "steve";
+      if (newUsername) newUsername.value = usernameInput || "";
       if (newPassword && passwordInput) newPassword.value = passwordInput;
     } else if (document.querySelector(".world-screen")) renderWorlds();
     else if (document.querySelector(".create-screen")) renderCreate();

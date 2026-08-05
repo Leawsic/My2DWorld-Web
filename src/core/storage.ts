@@ -20,6 +20,12 @@ export const storage = {
       ...saved,
       keyBindings: { ...DEFAULT_SETTINGS.keyBindings, ...saved.keyBindings },
       movement: { ...DEFAULT_SETTINGS.movement, ...saved.movement },
+      autosaveInterval: typeof saved.autosaveInterval === "number" && saved.autosaveInterval >= 0 ? saved.autosaveInterval : DEFAULT_SETTINGS.autosaveInterval,
+      cursorStyle: saved.cursorStyle === "crosshair" || saved.cursorStyle === "default" ? saved.cursorStyle : DEFAULT_SETTINGS.cursorStyle,
+      placementAlpha: typeof saved.placementAlpha === "number" && saved.placementAlpha >= 0 && saved.placementAlpha <= 1 ? saved.placementAlpha : DEFAULT_SETTINGS.placementAlpha,
+      placementBrightness: typeof saved.placementBrightness === "number" && saved.placementBrightness >= 0 && saved.placementBrightness <= 1 ? saved.placementBrightness : DEFAULT_SETTINGS.placementBrightness,
+      spectateAlpha: typeof saved.spectateAlpha === "number" && saved.spectateAlpha >= 0 && saved.spectateAlpha <= 1 ? saved.spectateAlpha : DEFAULT_SETTINGS.spectateAlpha,
+      spectateBrightness: typeof saved.spectateBrightness === "number" && saved.spectateBrightness >= 0 && saved.spectateBrightness <= 1 ? saved.spectateBrightness : DEFAULT_SETTINGS.spectateBrightness,
     };
   },
   saveSettings(settings: PlayerSettings): void {

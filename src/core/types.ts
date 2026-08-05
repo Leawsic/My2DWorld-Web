@@ -32,6 +32,12 @@ export interface PlayerSettings {
   debugDefault: boolean;
   keyBindings: KeyBindings;
   movement: MovementSettings;
+  autosaveInterval: number;
+  cursorStyle: "crosshair" | "default";
+  placementAlpha: number;
+  placementBrightness: number;
+  spectateAlpha: number;
+  spectateBrightness: number;
 }
 
 export interface KeyBindings {
@@ -69,4 +75,10 @@ export const DEFAULT_SETTINGS: PlayerSettings = {
   debugDefault: true,
   keyBindings: { ...DEFAULT_KEY_BINDINGS },
   movement: { ...DEFAULT_MOVEMENT },
+  autosaveInterval: 300,
+  cursorStyle: "default",
+  placementAlpha: 0.5,
+  placementBrightness: 0.75,
+  spectateAlpha: 0.5,
+  spectateBrightness: 0.75,
 };
