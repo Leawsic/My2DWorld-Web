@@ -15,6 +15,7 @@ export interface WorldMeta {
   mode: GameModeName;
   physics: MovementSettings;
   createdAt: string;
+  seed?: number;
 }
 
 export interface WorldSave {

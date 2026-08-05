@@ -12,6 +12,7 @@ export interface KeyState {
   up: boolean;
   down: boolean;
   jump: boolean;
+  sneak: boolean;
 }
 
 export class Player {
@@ -50,7 +51,9 @@ export class Player {
     this.velocityX = keys.left === keys.right ? 0 : keys.left ? -this.movement.walkSpeed : this.movement.walkSpeed;
     if (this.velocityX) this.facing = Math.sign(this.velocityX);
     if (this.flying) {
-      this.velocityY = keys.up === keys.down ? 0 : keys.up ? this.movement.flySpeed : -this.movement.flySpeed;
+      const up = keys.up || keys.jump;
+      const down = keys.down || keys.sneak;
+      this.velocityY = up === down ? 0 : up ? this.movement.flySpeed : -this.movement.flySpeed;
     } else {
       if (pressed && this.jumpsUsed < MAX_JUMPS) {
         this.velocityY = this.movement.jumpVelocity;

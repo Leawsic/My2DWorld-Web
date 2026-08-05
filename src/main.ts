@@ -1,7 +1,7 @@
 import "./style.css";
 import { Player, type KeyState } from "./core/player";
 import { storage } from "./core/storage";
-import { World } from "./core/world";
+import { World, hashSeed } from "./core/world";
 import type { GameModeName, KeyBindings, Language, WorldMeta } from "./core/types";
 import { createMode } from "./modes";
 import type { GameMode } from "./modes/base";
@@ -17,6 +17,12 @@ let language: Language = settings.language;
 let username = "steve";
 const plugins = new PluginRegistry();
 
+function toggleLanguage(): void {
+  language = language === "zh" ? "en" : "zh";
+  settings.language = language;
+  storage.saveSettings(settings);
+}
+
 const text = (zh: string, en: string) => language === "zh" ? zh : en;
 const shell = (content: string) => { app.innerHTML = `<div class="shell">${content}</div>`; };
 const button = (label: string, action: string, className = "") => `<button class="button ${className}" data-action="${action}">${label}</button>`;
@@ -27,26 +33,26 @@ function renderLogin(message = ""): void {
 
 function renderWorlds(message = ""): void {
   const worlds = storage.loadWorlds(username);
-  const rows = worlds.map((world) => `<div class="world-row"><div><b>${world.name}</b><span>${world.mode === "creative" ? text("创造模式", "Creative") : text("旁观模式", "Spectator")}</span></div>${button(text("进入", "Enter"), `enter:${world.id}`, "primary")}${button(text("删除", "Delete"), `delete:${world.id}`, "small")}</div>`).join("");
+  const rows = worlds.map((world) => `<div class="world-row"><div><b>${world.name}</b><span>${world.mode === "creative" ? text("创造模式", "Creative") : text("旁观模式", "Spectator")} · ${text("种子", "Seed")} ${world.seed ?? 0}</span></div>${button(text("进入", "Enter"), `enter:${world.id}`, "primary")}${button(text("删除", "Delete"), `delete:${world.id}`, "small")}</div>`).join("");
   shell(`<section class="world-screen"><header class="topbar"><div class="brand compact"><span>MY2D</span><strong>WORLD</strong></div><div class="top-actions"><span>${username}</span><button data-action="language">${language === "zh" ? "中" : "EN"}</button>${button(text("退出", "Log out"), "logout")}</div></header><div class="world-content"><div class="section-kicker">WORLD ARCHIVE / ${String(worlds.length).padStart(2, "0")}</div><h1>${text("我的世界", "My worlds")}</h1><p class="muted">${text("选择一个存档，或者从一片新的地平线开始。", "Choose a save, or start from a new horizon.")}</p><div class="world-list">${rows || `<div class="empty">${text("还没有世界。创建第一个世界。", "No worlds yet. Create your first one.")}</div>`}</div>${button(text("创建世界", "Create world"), "create-world", "primary create") }<div class="message">${message}</div></div></section>`);
 }
 
 function renderCreate(): void {
   const defaults = settings.movement;
-  shell(`<section class="create-screen"><div class="create-card"><div class="section-kicker">NEW TERRITORY / 00${Math.floor(Math.random() * 9)}</div><h1>${text("创建世界", "Create world")}</h1><label>${text("世界名称", "World name")}<input id="world-name" value="新世界" maxlength="24" /></label><label>${text("游戏模式", "Game mode")}<select id="world-mode"><option value="spectator">${text("旁观模式", "Spectator")}</option><option value="creative">${text("创造模式", "Creative")}</option></select></label><div class="physics-grid"><label>${text("行走速度", "Walk speed")}<input id="walk-speed" type="number" step="0.1" value="${defaults.walkSpeed}" /></label><label>${text("飞行速度", "Fly speed")}<input id="fly-speed" type="number" step="0.1" value="${defaults.flySpeed}" /></label><label>${text("跳跃力度", "Jump power")}<input id="jump-velocity" type="number" step="0.1" value="${defaults.jumpVelocity}" /></label><label>${text("重力", "Gravity")}<input id="gravity" type="number" step="0.1" value="${defaults.gravity}" /></label></div><div class="actions">${button(text("开始探索", "Start exploring"), "save-world", "primary")}${button(text("取消", "Cancel"), "worlds")}</div></div></section>`);
+  shell(`<section class="create-screen"><div class="create-card"><div class="section-kicker">NEW TERRITORY / 00${Math.floor(Math.random() * 9)}</div><h1>${text("创建世界", "Create world")}</h1><label>${text("世界名称", "World name")}<input id="world-name" value="新世界" maxlength="24" /></label><label>${text("游戏模式", "Game mode")}<select id="world-mode"><option value="spectator">${text("旁观模式", "Spectator")}</option><option value="creative">${text("创造模式", "Creative")}</option></select></label><label>${text("世界种子", "World seed")}<input id="world-seed" placeholder="${text("留空自动生成", "Blank to random")}" /></label><div class="physics-grid"><label>${text("行走速度", "Walk speed")}<input id="walk-speed" type="number" step="0.1" value="${defaults.walkSpeed}" /></label><label>${text("飞行速度", "Fly speed")}<input id="fly-speed" type="number" step="0.1" value="${defaults.flySpeed}" /></label><label>${text("跳跃力度", "Jump power")}<input id="jump-velocity" type="number" step="0.1" value="${defaults.jumpVelocity}" /></label><label>${text("重力", "Gravity")}<input id="gravity" type="number" step="0.1" value="${defaults.gravity}" /></label></div><div class="actions">${button(text("开始探索", "Start exploring"), "save-world", "primary")}${button(text("取消", "Cancel"), "worlds")}</div></div></section>`);
 }
 
 class GameSession {
   readonly canvas = document.createElement("canvas");
   readonly ctx = this.canvas.getContext("2d")!;
-  readonly world = new World();
+  readonly world: World;
   readonly player: Player;
   mode: GameMode;
   modeName: GameModeName;
   blockSize = 32;
   paused = false;
   debug = settings.debugDefault;
-  private keys: KeyState = { left: false, right: false, up: false, down: false, jump: false };
+  private keys: KeyState = { left: false, right: false, up: false, down: false, jump: false, sneak: false };
   private mouseDown = false;
   private last = performance.now();
   private frame = 0;
@@ -71,9 +77,12 @@ class GameSession {
   private dragOriginY = 0;
   private f3Held = false;
   private f4Held = false;
+  private modeComboPending = false;
+  private modeComboConsumed = false;
 
   constructor(readonly meta: WorldMeta) {
     this.modeName = meta.mode;
+    this.world = new World(8, meta.seed ?? 0);
     const save = storage.loadWorld(meta.id);
     const x = save?.playerX ?? 0;
     const y = save?.playerY ?? this.world.getSurfaceHeight(0) + 0.001;
@@ -98,8 +107,53 @@ class GameSession {
   private resize = (): void => { this.canvas.width = window.innerWidth; this.canvas.height = window.innerHeight; };
   private bindInput(): void {
     const actionFor = (code: string): keyof KeyBindings | null => (Object.entries(settings.keyBindings).find(([, value]) => value === code)?.[0] as keyof KeyBindings | undefined) || null;
-    window.addEventListener("keydown", (event) => { if (this.bindingCapture) { settings.keyBindings[this.bindingCapture] = event.code; this.bindingCapture = null; storage.saveSettings(settings); event.preventDefault(); return; } if (this.chatOpen) { this.handleChatKey(event); return; } const action = actionFor(event.code); if (event.key === "Escape") { this.menu = this.menu ? null : "pause"; this.paused = Boolean(this.menu); } if (action === "debug") { this.f3Held = true; if (this.f4Held) this.toggleMode(); else this.debug = !this.debug; } if (action === "mode") { this.f4Held = true; if (this.f3Held) this.toggleMode(); } if (event.key === "F11") { event.preventDefault(); if (document.fullscreenElement) void document.exitFullscreen(); else void document.documentElement.requestFullscreen(); } if (event.key === "=" || event.key === "+") this.blockSize = Math.min(72, this.blockSize * 1.15); if (event.key === "-") this.blockSize = Math.max(16, this.blockSize / 1.15); if (/^Digit[1-9]$/.test(event.code)) this.selected = Math.min(this.hotbar.length - 1, Number(event.code.at(-1)) - 1); if (action === "chat") this.openChat(); if (event.key === "/") this.openChat("/"); if (action && ["left", "right", "up", "down", "jump"].includes(action)) { this.keys[action as keyof KeyState] = true; event.preventDefault(); } });
-    window.addEventListener("keyup", (event) => { const action = actionFor(event.code); if (action === "debug") this.f3Held = false; if (action === "mode") this.f4Held = false; if (action && ["left", "right", "up", "down", "jump"].includes(action)) this.keys[action as keyof KeyState] = false; });
+    const isMove = (action: keyof KeyBindings | null): action is "left" | "right" | "up" | "down" | "jump" => !!action && ["left", "right", "up", "down", "jump"].includes(action);
+    window.addEventListener("keydown", (event) => {
+      if (this.bindingCapture) { settings.keyBindings[this.bindingCapture] = event.code; this.bindingCapture = null; storage.saveSettings(settings); event.preventDefault(); return; }
+      if (this.chatOpen) { this.handleChatKey(event); return; }
+      const action = actionFor(event.code);
+      if (event.key === "Escape") { this.menu = this.menu ? null : "pause"; this.paused = Boolean(this.menu); }
+      if (event.key === "F11") event.preventDefault();
+      if (event.code === "ShiftLeft" || event.code === "ShiftRight") { this.keys.sneak = true; event.preventDefault(); }
+      if (action === "debug") { if (!this.f3Held) this.modeComboConsumed = false; this.f3Held = true; }
+      if (action === "mode") this.f4Held = true;
+      if (isMove(action)) { this.keys[action] = true; event.preventDefault(); }
+    });
+    window.addEventListener("keyup", (event) => {
+      const action = actionFor(event.code);
+      const isShift = event.code === "ShiftLeft" || event.code === "ShiftRight";
+      if (isMove(action)) this.keys[action] = false;
+      if (isShift) this.keys.sneak = false;
+      if (isMove(action)) return;
+      if (this.chatOpen) {
+        if (action === "debug") this.f3Held = false;
+        if (action === "mode") this.f4Held = false;
+        return;
+      }
+      if (action === "debug") {
+        this.f3Held = false;
+        if (this.f4Held) this.modeComboPending = true;
+        else if (this.modeComboConsumed) this.modeComboConsumed = false;
+        else this.debug = !this.debug;
+      }
+      if (action === "mode") {
+        this.f4Held = false;
+        if (this.f3Held || this.modeComboPending) { this.modeComboPending = false; this.modeComboConsumed = true; this.toggleMode(); }
+      }
+      if (event.key === "F11") { event.preventDefault(); if (document.fullscreenElement) void document.exitFullscreen(); else void document.documentElement.requestFullscreen(); }
+      if (event.key === "=" || event.key === "+") this.blockSize = Math.min(72, this.blockSize * 1.15);
+      if (event.key === "-") this.blockSize = Math.max(16, this.blockSize / 1.15);
+      if (/^Digit[1-9]$/.test(event.code)) this.selected = Math.min(this.hotbar.length - 1, Number(event.code.at(-1)) - 1);
+      if (action === "chat") this.openChat();
+      if (event.key === "/") this.openChat("/");
+    });
+    window.addEventListener("blur", () => {
+      this.keys = { left: false, right: false, up: false, down: false, jump: false, sneak: false };
+      this.f3Held = false;
+      this.f4Held = false;
+      this.modeComboPending = false;
+      this.modeComboConsumed = false;
+    });
     this.canvas.addEventListener("mousemove", (event) => { const rect = this.canvas.getBoundingClientRect(); this.lastMouseX = event.clientX - rect.left; this.lastMouseY = event.clientY - rect.top; });
     this.canvas.addEventListener("mousedown", (event) => { if (this.chatOpen) { event.preventDefault(); return; } if (this.menu) { if (event.button === 0) this.handleMenuClick(event.clientX, event.clientY); return; } if (event.button === 0) { const slot = this.hotbarSlotAt(event.clientX, event.clientY); if (slot >= 0) this.selected = slot; else this.mouseDown = true; } if (event.button === 2) { if (this.modeName === "spectator") { this.dragging = true; this.dragStartX = event.clientX; this.dragStartY = event.clientY; this.dragOriginX = this.cameraOffsetX; this.dragOriginY = this.cameraOffsetY; } else this.place(event.clientX, event.clientY); } });
     this.canvas.addEventListener("mousemove", (event) => { const rect = this.canvas.getBoundingClientRect(); this.lastMouseX = event.clientX - rect.left; this.lastMouseY = event.clientY - rect.top; if (this.dragging) { this.cameraOffsetX = this.dragOriginX - (event.clientX - this.dragStartX) / this.blockSize; this.cameraOffsetY = this.dragOriginY + (event.clientY - this.dragStartY) / this.blockSize; } });
@@ -124,9 +178,9 @@ class GameSession {
   private suggestions: string[] = [];
   private openChat(initial = ""): void { this.chatOpen = true; this.chatText = initial; this.chatScroll = 0; this.suggestionIndex = 0; this.suggestions = []; this.chatHistoryCursor = null; this.paused = false; this.menu = null; }
   private handleChatKey(event: KeyboardEvent): void { if (event.key === "Escape") { this.chatOpen = false; this.chatText = ""; this.chatScroll = 0; } else if (event.key === "Backspace") { this.chatText = this.chatText.slice(0, -1); this.resetSuggestions(); } else if (event.key === "Tab") { const suggestions = this.suggestions.length ? this.suggestions : this.getSuggestions(); if (suggestions.length) { const suggestion = suggestions[this.suggestionIndex % suggestions.length]; this.suggestionIndex += 1; this.suggestions = suggestions; if (suggestion.startsWith("/")) { this.chatText = suggestion + (["/gamemode", "/debug"].includes(suggestion) ? " " : ""); this.resetSuggestions(); } else { const prefix = this.chatText.includes(" ") ? this.chatText.slice(0, this.chatText.lastIndexOf(" ")) : this.chatText; this.chatText = `${prefix} ${suggestion}`; } } } else if (event.key === "Enter") { const input = this.chatText.trim(); if (input) { this.chatHistory.push(input); this.chatHistory = this.chatHistory.slice(-200); this.submitChat(input); } this.chatOpen = false; this.chatText = ""; this.chatHistoryCursor = null; } else if (event.key === "ArrowUp") { if (this.chatHistory.length) { this.chatHistoryCursor = this.chatHistoryCursor === null ? this.chatHistory.length - 1 : Math.max(0, this.chatHistoryCursor - 1); this.chatText = this.chatHistory[this.chatHistoryCursor]; this.resetSuggestions(); } } else if (event.key === "ArrowDown") { if (this.chatHistoryCursor !== null) { this.chatHistoryCursor += 1; if (this.chatHistoryCursor >= this.chatHistory.length) { this.chatHistoryCursor = null; this.chatText = ""; } else this.chatText = this.chatHistory[this.chatHistoryCursor]; this.resetSuggestions(); } } else if (event.key.length === 1 && this.chatText.length < 160) { this.chatText += event.key; this.resetSuggestions(); } event.preventDefault(); }
-  private submitChat(input: string): void { this.addChat(`> ${input}`); if (!input.startsWith("/")) { this.addChat(input); return; } const parts = input.slice(1).trim().split(/\s+/); const command = parts[0]?.toLowerCase(); if (command === "gamemode" && (parts[1] === "creative" || parts[1] === "spectator")) { this.modeName = parts[1]; this.mode = createMode(this.modeName); this.save(); this.addChat(`Gamemode set to ${this.modeName}`); } else if ((command === "speed" || command === "movespeed") && Number.isFinite(Number(parts[1]))) { const speed = Math.max(0.1, Math.min(50, Number(parts[1]))); this.player.movement.walkSpeed = speed; this.meta.physics.walkSpeed = speed; settings.movement.walkSpeed = speed; storage.saveSettings(settings); const worlds = storage.loadWorlds(username).map((world) => world.id === this.meta.id ? this.meta : world); storage.saveWorlds(worlds, username); this.save(); this.addChat(`Movement speed set to ${speed}`); } else if (command === "debug" && ["on", "off", "true", "false"].includes(parts[1])) { this.debug = parts[1] === "on" || parts[1] === "true"; settings.debugDefault = this.debug; storage.saveSettings(settings); this.addChat(`Debug ${this.debug ? "on" : "off"}`); } else this.addChat("Unknown or invalid command"); }
+  private submitChat(input: string): void { this.addChat(`> ${input}`); if (!input.startsWith("/")) { this.addChat(input); return; } const parts = input.slice(1).trim().split(/\s+/); const command = parts[0]?.toLowerCase(); if (command === "gamemode" && (parts[1] === "creative" || parts[1] === "spectator")) { this.modeName = parts[1]; this.mode = createMode(this.modeName); this.save(); this.addChat(`Gamemode set to ${this.modeName}`); } else if ((command === "speed" || command === "movespeed") && Number.isFinite(Number(parts[1]))) { const speed = Math.max(0.1, Math.min(50, Number(parts[1]))); this.player.movement.walkSpeed = speed; this.meta.physics.walkSpeed = speed; settings.movement.walkSpeed = speed; storage.saveSettings(settings); const worlds = storage.loadWorlds(username).map((world) => world.id === this.meta.id ? this.meta : world); storage.saveWorlds(worlds, username); this.save(); this.addChat(`Movement speed set to ${speed}`); } else if (command === "debug" && ["on", "off", "true", "false"].includes(parts[1])) { this.debug = parts[1] === "on" || parts[1] === "true"; settings.debugDefault = this.debug; storage.saveSettings(settings); this.addChat(`Debug ${this.debug ? "on" : "off"}`); } else if (command === "seed") this.addChat(`Seed: ${this.meta.seed ?? 0}`); else this.addChat("Unknown or invalid command"); }
   private addChat(text: string): void { this.chatMessages.push({ text, age: 0 }); this.chatMessages = this.chatMessages.slice(-200); this.chatScroll = 0; }
-  private getSuggestions(): string[] { if (!this.chatText.startsWith("/")) return []; const body = this.chatText.slice(1); const parts = body.split(/\s+/); const trailing = body.endsWith(" "); const commands = ["gamemode", "speed", "movespeed", "debug"]; if (!parts[0]) return commands.map((command) => `/${command}`); if (parts.length === 1 && !trailing) return commands.filter((command) => command.startsWith(parts[0].toLowerCase())).map((command) => `/${command}`); const args: Record<string, string[]> = { gamemode: ["creative", "spectator"], debug: ["on", "off", "true", "false"] }; const prefix = trailing ? "" : parts.at(-1)?.toLowerCase() || ""; return (args[parts[0].toLowerCase()] || []).filter((argument) => argument.startsWith(prefix)); }
+  private getSuggestions(): string[] { if (!this.chatText.startsWith("/")) return []; const body = this.chatText.slice(1); const parts = body.split(/\s+/); const trailing = body.endsWith(" "); const commands = ["gamemode", "speed", "movespeed", "debug", "seed"]; if (!parts[0]) return commands.map((command) => `/${command}`); if (parts.length === 1 && !trailing) return commands.filter((command) => command.startsWith(parts[0].toLowerCase())).map((command) => `/${command}`); const args: Record<string, string[]> = { gamemode: ["creative", "spectator"], debug: ["on", "off", "true", "false"] }; const prefix = trailing ? "" : parts.at(-1)?.toLowerCase() || ""; return (args[parts[0].toLowerCase()] || []).filter((argument) => argument.startsWith(prefix)); }
   private resetSuggestions(): void { this.suggestionIndex = 0; this.suggestions = []; }
   private snapBlockSize(size: number): number { return Math.max(16, Math.min(72, Math.round(size))); }
   private hotbarSlotAt(clientX: number, clientY: number): number { const width = window.innerWidth; const height = window.innerHeight; const slot = 48; const barWidth = slot * this.hotbar.length; const x = (width - barWidth) / 2; if (clientY < height - 60 || clientY > height - 18) return -1; const index = Math.floor((clientX - x) / slot); return index >= 0 && index < this.hotbar.length ? index : -1; }
@@ -151,7 +205,7 @@ class GameSession {
       if (index === 2) { this.save(); this.active = false; app!.innerHTML = ""; document.body.innerHTML = ""; document.body.appendChild(app!); renderWorlds(); }
       return;
     }
-    if (this.menu === "settings") { if (index === 0) { language = language === "zh" ? "en" : "zh"; settings.language = language; storage.saveSettings(settings); } if (index === 1) { this.debug = !this.debug; settings.debugDefault = this.debug; storage.saveSettings(settings); } if (index === 2) this.menu = "bindings"; if (index === 3) this.menu = "pause"; return; }
+    if (this.menu === "settings") { if (index === 0) toggleLanguage(); if (index === 1) { this.debug = !this.debug; settings.debugDefault = this.debug; storage.saveSettings(settings); } if (index === 2) this.menu = "bindings"; if (index === 3) this.menu = "pause"; return; }
     if (index === 8) { this.menu = "settings"; return; }
     const key = Object.keys(settings.keyBindings)[index] as keyof KeyBindings;
     if (key) this.bindingCapture = key;
@@ -212,11 +266,26 @@ class GameSession {
     });
     if (this.debug) {
       ctx.fillStyle = "#102229";
-      ctx.fillRect(18, 124, 370, 224);
+      ctx.fillRect(18, 124, 370, 240);
       ctx.fillStyle = "#d8e4df";
       ctx.font = "12px ui-monospace";
       const target = this.hovered();
-      const lines = [`FPS ${Math.round(1000 / 16)}`, `MODE ${this.modeName}`, `WORLD ${this.meta.name}`, `PLAYER ${this.player.x.toFixed(1)}, ${this.player.y.toFixed(1)}`, `VELOCITY ${this.player.velocityX.toFixed(2)}, ${this.player.velocityY.toFixed(2)}`, `CAMERA ${(this.player.x + this.cameraOffsetX).toFixed(1)}, ${(this.player.y + this.cameraOffsetY).toFixed(1)}`, `MOUSE ${this.lastMouseX}, ${this.lastMouseY}`, `BLOCK ${target ? `${target[0]}, ${target[1]} ${target[2]}` : "air"}`, `ZOOM ${Math.round(this.blockSize / 32 * 100)}%`, `CHUNKS ${this.world.chunks.size}`, `TEXTURES ${this.blockImages.size}`, `HEALTH ${Math.ceil(this.health)}/20`, `CONTROLS ${Object.values(settings.keyBindings).map(keyName).join(" / ")}`];
+      const lines = [
+        `${t(language, "debug_fps")} ${Math.round(1000 / 16)}`,
+        `${t(language, "debug_mode")} ${t(language, this.modeName === "creative" ? "mode_creative" : "mode_spectator")}`,
+        `${t(language, "debug_world")} ${this.meta.name}`,
+        `${t(language, "debug_seed")} ${this.meta.seed ?? 0}`,
+        `${t(language, "debug_player")} ${this.player.x.toFixed(1)}, ${this.player.y.toFixed(1)}`,
+        `${t(language, "debug_velocity")} ${this.player.velocityX.toFixed(2)}, ${this.player.velocityY.toFixed(2)}`,
+        `${t(language, "debug_camera")} ${(this.player.x + this.cameraOffsetX).toFixed(1)}, ${(this.player.y + this.cameraOffsetY).toFixed(1)}`,
+        `${t(language, "debug_mouse")} ${this.lastMouseX}, ${this.lastMouseY}`,
+        `${t(language, "debug_block")} ${target ? `${target[0]}, ${target[1]} ${t(language, target[2])}` : t(language, "debug_air")}`,
+        `${t(language, "debug_zoom")} ${Math.round(this.blockSize / 32 * 100)}%`,
+        `${t(language, "debug_chunks")} ${this.world.chunks.size}`,
+        `${t(language, "debug_textures")} ${this.blockImages.size}`,
+        `${t(language, "debug_health")} ${Math.ceil(this.health)}/20`,
+        `${t(language, "debug_controls")} ${Object.values(settings.keyBindings).map(keyName).join(" / ")}`,
+      ];
       lines.forEach((line, index) => ctx.fillText(line, 30, 147 + index * 16));
     }
     const messages = this.chatOpen ? this.chatMessages : this.chatMessages.filter((message) => message.age < 7);
@@ -309,6 +378,24 @@ class GameSession {
 
 function startGame(meta: WorldMeta): void { new GameSession(meta); }
 
-app.addEventListener("click", (event) => { const target = event.target as HTMLElement; const action = target.dataset.action; if (!action) return; if (action === "language") { language = language === "zh" ? "en" : "zh"; settings.language = language; storage.saveSettings(settings); renderLogin(); } else if (action === "login" || action === "demo") { const input = document.querySelector<HTMLInputElement>("#username"); const password = document.querySelector<HTMLInputElement>("#password"); const candidate = input?.value.trim() || "steve"; if (!storage.account(candidate, password?.value || "1234asdf", "login")) { renderLogin(text("账号或密码错误", "Wrong username or password")); return; } username = candidate; storage.setUser(username); settings = storage.loadSettings(); language = settings.language; renderWorlds(); } else if (action === "register") { const input = document.querySelector<HTMLInputElement>("#username"); const password = document.querySelector<HTMLInputElement>("#password"); const candidate = input?.value.trim() || ""; if (!candidate || !password?.value || password.value.length < 4 || !storage.account(candidate, password.value, "register")) { renderLogin(text("注册失败：账号已存在或密码少于4位", "Registration failed: account exists or password is too short")); return; } renderLogin(text("注册成功，请登录", "Registered, please log in")); } else if (action === "logout") renderLogin(); else if (action === "create-world") renderCreate(); else if (action === "worlds") renderWorlds(); else if (action === "save-world") { const get = (id: string) => document.querySelector<HTMLInputElement>(`#${id}`)?.value || ""; const meta: WorldMeta = { id: crypto.randomUUID(), name: get("world-name").trim() || "New World", mode: (document.querySelector<HTMLSelectElement>("#world-mode")?.value || "spectator") as GameModeName, physics: { walkSpeed: Number(get("walk-speed")) || 1.8, flySpeed: Number(get("fly-speed")) || 3.5, jumpVelocity: Number(get("jump-velocity")) || 9.5, gravity: Number(get("gravity")) || 14 }, createdAt: new Date().toISOString() }; storage.saveWorlds([...storage.loadWorlds(username), meta], username); startGame(meta); } else if (action.startsWith("enter:")) { const meta = storage.loadWorlds(username).find((item) => item.id === action.slice(6)); if (meta) startGame(meta); } else if (action.startsWith("delete:")) { const id = action.slice(7); storage.removeWorld(id, username); storage.saveWorlds(storage.loadWorlds(username).filter((item) => item.id !== id), username); renderWorlds(); } });
+app.addEventListener("click", (event) => { const target = event.target as HTMLElement; const action = target.dataset.action; if (!action) return; if (action === "language") { toggleLanguage(); renderLogin(); } else if (action === "login" || action === "demo") { const input = document.querySelector<HTMLInputElement>("#username"); const password = document.querySelector<HTMLInputElement>("#password"); const candidate = input?.value.trim() || "steve"; if (!storage.account(candidate, password?.value || "1234asdf", "login")) { renderLogin(text("账号或密码错误", "Wrong username or password")); return; } username = candidate; storage.setUser(username); settings = storage.loadSettings(); language = settings.language; renderWorlds(); } else if (action === "register") { const input = document.querySelector<HTMLInputElement>("#username"); const password = document.querySelector<HTMLInputElement>("#password"); const candidate = input?.value.trim() || ""; if (!candidate || !password?.value || password.value.length < 4 || !storage.account(candidate, password.value, "register")) { renderLogin(text("注册失败：账号已存在或密码少于4位", "Registration failed: account exists or password is too short")); return; } renderLogin(text("注册成功，请登录", "Registered, please log in")); } else if (action === "logout") renderLogin(); else if (action === "create-world") renderCreate(); else if (action === "worlds") renderWorlds(); else if (action === "save-world") { const get = (id: string) => document.querySelector<HTMLInputElement>(`#${id}`)?.value || ""; const seedInput = get("world-seed").trim(); const numericSeed = Number(seedInput); const seed = seedInput === "" ? Math.floor(Math.random() * 0x7fffffff) : Number.isInteger(numericSeed) && numericSeed >= 0 && numericSeed <= 0xffffffff ? numericSeed : hashSeed(seedInput); const meta: WorldMeta = { id: crypto.randomUUID(), name: get("world-name").trim() || "New World", mode: (document.querySelector<HTMLSelectElement>("#world-mode")?.value || "spectator") as GameModeName, physics: { walkSpeed: Number(get("walk-speed")) || 1.8, flySpeed: Number(get("fly-speed")) || 3.5, jumpVelocity: Number(get("jump-velocity")) || 9.5, gravity: Number(get("gravity")) || 14 }, seed, createdAt: new Date().toISOString() }; storage.saveWorlds([...storage.loadWorlds(username), meta], username); startGame(meta); } else if (action.startsWith("enter:")) { const meta = storage.loadWorlds(username).find((item) => item.id === action.slice(6)); if (meta) startGame(meta); } else if (action.startsWith("delete:")) { const id = action.slice(7); storage.removeWorld(id, username); storage.saveWorlds(storage.loadWorlds(username).filter((item) => item.id !== id), username); renderWorlds(); } });
+
+document.addEventListener("keydown", (event) => {
+  if (event.ctrlKey && event.code === "KeyL") {
+    event.preventDefault();
+    event.stopPropagation();
+    toggleLanguage();
+    if (document.querySelector(".login-screen")) {
+      const usernameInput = document.querySelector<HTMLInputElement>("#username")?.value;
+      const passwordInput = document.querySelector<HTMLInputElement>("#password")?.value;
+      renderLogin();
+      const newUsername = document.querySelector<HTMLInputElement>("#username");
+      const newPassword = document.querySelector<HTMLInputElement>("#password");
+      if (newUsername) newUsername.value = usernameInput || "steve";
+      if (newPassword && passwordInput) newPassword.value = passwordInput;
+    } else if (document.querySelector(".world-screen")) renderWorlds();
+    else if (document.querySelector(".create-screen")) renderCreate();
+  }
+}, true);
 
 renderLogin();

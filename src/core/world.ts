@@ -10,32 +10,38 @@ export const COBBLESTONE = "cobblestone";
 export const MOSSY_COBBLESTONE = "mossy_cobblestone";
 export const BEDROCK = "bedrock";
 
-export function hashNoise(x: number): number {
-  let h = Math.imul(x, 374761393) + 668265263;
+export function hashNoise(x: number, seed = 0): number {
+  let h = Math.imul(x ^ seed, 374761393) + 668265263;
   h = Math.imul(h ^ (h >>> 13), 1274126177);
   return ((h ^ (h >>> 16)) & 0x7fffffff) / 0x7fffffff;
 }
 
-function smoothNoise(x: number): number {
+export function hashSeed(input: string): number {
+  let h = 5381;
+  for (let i = 0; i < input.length; i += 1) h = Math.imul(h, 33) ^ input.charCodeAt(i);
+  return h >>> 0;
+}
+
+function smoothNoise(x: number, seed = 0): number {
   const integer = Math.floor(x);
   let fraction = x - integer;
   fraction = fraction * fraction * (3 - 2 * fraction);
-  return hashNoise(integer) + (hashNoise(integer + 1) - hashNoise(integer)) * fraction;
+  return hashNoise(integer, seed) + (hashNoise(integer + 1, seed) - hashNoise(integer, seed)) * fraction;
 }
 
-export function terrainHeight(x: number): number {
+export function terrainHeight(x: number, seed = 0): number {
   const terrain = Math.sin(x * 0.008) * 12 + Math.sin(x * 0.025) * 6 + Math.sin(x * 0.06) * 2.5;
-  return Math.max(1, Math.round(terrain + smoothNoise(x * 0.008) * 8 + smoothNoise(x * 0.03) * 3 + 45));
+  return Math.max(1, Math.round(terrain + smoothNoise(x * 0.008, seed) * 8 + smoothNoise(x * 0.03, seed) * 3 + 45));
 }
 
-function generatedBlock(x: number, y: number, surface: number): BlockType | null {
+function generatedBlock(x: number, y: number, surface: number, seed = 0): BlockType | null {
   if (y <= 0) return null;
   if (y <= BEDROCK_THICKNESS) return BEDROCK;
   if (y === surface) return GRASS;
-  const grassDepth = 2 + Math.floor(hashNoise(x + 9999) * 4);
+  const grassDepth = 2 + Math.floor(hashNoise(x + 9999, seed) * 4);
   if (y > surface - grassDepth) return GRASS;
   if (y > surface - grassDepth - DIRT_DEPTH) return DIRT;
-  const variant = hashNoise(x * 131 + y * 2837);
+  const variant = hashNoise(x * 131 + y * 2837, seed);
   return variant < 0.05 ? MOSSY_COBBLESTONE : variant < 0.15 ? COBBLESTONE : STONE;
 }
 
@@ -44,13 +50,13 @@ class Chunk {
   readonly blocks = new Map<string, BlockType>();
   readonly surfaces = new Map<number, number>();
 
-  constructor(readonly x: number) {
+  constructor(readonly x: number, readonly seed = 0) {
     this.start = x * CHUNK_SIZE;
     for (let worldX = this.start; worldX < this.start + CHUNK_SIZE; worldX += 1) {
-      const surface = terrainHeight(worldX);
+      const surface = terrainHeight(worldX, seed);
       this.surfaces.set(worldX, surface);
       for (let y = 1; y <= surface; y += 1) {
-        const type = generatedBlock(worldX, y, surface);
+        const type = generatedBlock(worldX, y, surface, seed);
         if (type) this.blocks.set(World.cell(worldX, y), type);
       }
     }
@@ -63,7 +69,7 @@ export class World {
   readonly placedBlocks = new Map<string, BlockType>();
   private centerChunk: number | null = null;
 
-  constructor(private readonly viewDistance = 8) {}
+  constructor(private readonly viewDistance = 8, readonly seed = 0) {}
 
   static cell(x: number, y: number): string {
     return `${x},${y}`;
@@ -104,7 +110,7 @@ export class World {
   }
 
   getSurfaceHeight(x: number): number {
-    return this.chunks.get(Math.floor(x / CHUNK_SIZE))?.surfaces.get(x) ?? terrainHeight(x);
+    return this.chunks.get(Math.floor(x / CHUNK_SIZE))?.surfaces.get(x) ?? terrainHeight(x, this.seed);
   }
 
   restore(brokenBlocks: [number, number][], placedBlocks: [number, number, BlockType][]): void {
@@ -115,7 +121,7 @@ export class World {
 
   private loadChunk(x: number): void {
     if (this.chunks.has(x)) return;
-    const chunk = new Chunk(x);
+    const chunk = new Chunk(x, this.seed);
     this.applyChanges(chunk);
     this.chunks.set(x, chunk);
   }
