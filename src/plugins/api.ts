@@ -26,6 +26,8 @@ export interface PluginGameContext {
     world: World;
     player: Player;
     mode: string;
+    spectate: boolean;
+    flying: boolean;
 }
 
 export interface PluginTickContext extends PluginGameContext {
@@ -41,6 +43,14 @@ export interface PluginBlockContext extends PluginGameContext {
 export interface PluginModeContext extends PluginGameContext {
     previousMode: string;
     mode: string;
+}
+
+export interface PluginSpectateContext extends PluginGameContext {
+    spectate: boolean;
+}
+
+export interface PluginFlyContext extends PluginGameContext {
+    flying: boolean;
 }
 
 export interface PluginApi {
@@ -65,6 +75,10 @@ export interface PluginApi {
     onGameModeChanged(listener: (context: PluginModeContext) => void): void;
 
     onGameStop(listener: (context: PluginGameContext & { reason: string }) => void): void;
+
+    onSpectateChanged(listener: (context: PluginSpectateContext) => void): void;
+
+    onFlyChanged(listener: (context: PluginFlyContext) => void): void;
 }
 
 export class PluginRegistry implements PluginApi {
@@ -129,6 +143,14 @@ export class PluginRegistry implements PluginApi {
         this.on("gameStop", listener);
     }
 
+    onSpectateChanged(listener: (context: PluginSpectateContext) => void): void {
+        this.on("spectateChanged", listener);
+    }
+
+    onFlyChanged(listener: (context: PluginFlyContext) => void): void {
+        this.on("flyChanged", listener);
+    }
+
     notifyGameStart(context: PluginGameContext): void {
         this.emit("gameStart", context);
     }
@@ -163,6 +185,14 @@ export class PluginRegistry implements PluginApi {
 
     notifyGameStop(context: PluginGameContext & { reason: string }): void {
         this.emit("gameStop", context);
+    }
+
+    notifySpectateChanged(context: PluginSpectateContext): void {
+        this.emit("spectateChanged", context);
+    }
+
+    notifyFlyChanged(context: PluginFlyContext): void {
+        this.emit("flyChanged", context);
     }
 
     private on<T>(name: string, listener: (context: T) => void): void {

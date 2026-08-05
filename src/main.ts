@@ -2,6 +2,7 @@ import "./style.css";
 import { Player, type KeyState } from "./core/player";
 import { storage } from "./core/storage";
 import { World, hashSeed, spawnX } from "./core/world";
+import { clampSpectateOffset } from "./core/spectate";
 import type { GameModeName, KeyBindings, Language, WorldMeta } from "./core/types";
 import { createMode } from "./modes";
 import type { GameMode } from "./modes/base";
@@ -54,7 +55,6 @@ function toggleLanguage(): void {
 
 const text = (zh: string, en: string) => language === "zh" ? zh : en;
 const AUTOSAVE_OPTIONS = [0, 60, 300, 600];
-const SPECTATE_LIMIT = 32;
 function autosaveLabel(seconds: number): string {
   if (seconds <= 0) return text("关闭", "Off");
   return seconds < 60 ? `${seconds} ${text("秒", "sec")}` : `${Math.round(seconds / 60)} ${text("分钟", "min")}`;
@@ -127,6 +127,7 @@ class GameSession {
   private dragOriginPlayerX = 0;
   private dragOriginPlayerY = 0;
   private spectate = false;
+  private lastFlying = false;
   private f3Held = false;
   private f4Held = false;
   private modeComboPending = false;
@@ -222,14 +223,14 @@ class GameSession {
     });
     this.canvas.addEventListener("mousemove", (event) => { const rect = this.canvas.getBoundingClientRect(); this.lastMouseX = event.clientX - rect.left; this.lastMouseY = event.clientY - rect.top; });
     this.canvas.addEventListener("mousedown", (event) => { if (this.chatOpen || this.inventoryOpen) { if (this.inventoryOpen && event.button === 0) this.handleInventoryClick(event.clientX, event.clientY); event.preventDefault(); return; } if (this.menu) { if (event.button === 0) this.handleMenuClick(event.clientX, event.clientY); return; } if (event.button === 0) { const slot = this.hotbarSlotAt(event.clientX, event.clientY); if (slot >= 0) this.selected = slot; else this.mouseDown = true; } if (event.button === 2) { if (this.modeName === "spectator" || this.spectate) { this.dragging = true; this.dragStartX = event.clientX; this.dragStartY = event.clientY; this.dragOriginX = this.cameraOffsetX; this.dragOriginY = this.cameraOffsetY; this.dragOriginPlayerX = this.player.x; this.dragOriginPlayerY = this.player.y; } else this.place(event.clientX, event.clientY); } });
-    this.canvas.addEventListener("mousemove", (event) => { const rect = this.canvas.getBoundingClientRect(); this.lastMouseX = event.clientX - rect.left; this.lastMouseY = event.clientY - rect.top; if (this.dragging) { const dx = -(event.clientX - this.dragStartX) / this.blockSize; const dy = (event.clientY - this.dragStartY) / this.blockSize; if (this.modeName === "spectator") { this.player.x = this.dragOriginPlayerX + dx; this.player.y = this.dragOriginPlayerY + dy; } else if (this.spectate) { this.cameraOffsetX = Math.max(-SPECTATE_LIMIT, Math.min(SPECTATE_LIMIT, this.dragOriginX + dx)); this.cameraOffsetY = Math.max(-SPECTATE_LIMIT, Math.min(SPECTATE_LIMIT, this.dragOriginY + dy)); } } });
+    this.canvas.addEventListener("mousemove", (event) => { const rect = this.canvas.getBoundingClientRect(); this.lastMouseX = event.clientX - rect.left; this.lastMouseY = event.clientY - rect.top; if (this.dragging) { const dx = -(event.clientX - this.dragStartX) / this.blockSize; const dy = (event.clientY - this.dragStartY) / this.blockSize; if (this.modeName === "spectator") { this.player.x = this.dragOriginPlayerX + dx; this.player.y = this.dragOriginPlayerY + dy; } else if (this.spectate) { [this.cameraOffsetX, this.cameraOffsetY] = clampSpectateOffset(this.dragOriginX + dx, this.dragOriginY + dy); } } });
     window.addEventListener("mouseup", () => { this.mouseDown = false; this.dragging = false; });
     this.canvas.addEventListener("contextmenu", (event) => event.preventDefault());
     this.canvas.addEventListener("wheel", (event) => { event.preventDefault(); if (this.chatOpen) { this.chatScroll = Math.max(0, Math.min(Math.max(0, this.chatMessages.length - 9), this.chatScroll + Math.sign(event.deltaY))); } else if (!this.inventoryOpen && this.hotbarSlotAt(event.clientX, event.clientY) >= 0) this.selected = (this.selected + Math.sign(event.deltaY) + this.hotbar.length) % this.hotbar.length; else if (!this.inventoryOpen) this.blockSize = this.snapBlockSize(this.blockSize * (event.deltaY < 0 ? 1.15 : 1 / 1.15)); }, { passive: false });
   }
 
   private toggleMode(): void { if (this.menu || this.inventoryOpen) return; const previousMode = this.modeName; this.modeName = this.modeName === "creative" ? "spectator" : "creative"; this.mode = createMode(this.modeName); this.cameraOffsetX = 0; this.cameraOffsetY = 0; this.dragging = false; this.spectate = false; this.notice = text("已切换游戏模式", "Game mode switched"); this.noticeTimer = 2; this.save(); plugins.notifyGameModeChanged({ ...this.pluginContext(), previousMode, mode: this.modeName }); storage.log("Game mode changed", { world: this.meta.name, from: previousMode, to: this.modeName }); }
-  private toggleSpectate(): void { if (this.menu || this.inventoryOpen || this.modeName !== "creative") return; this.spectate = !this.spectate; this.cameraOffsetX = 0; this.cameraOffsetY = 0; this.dragging = false; this.notice = this.spectate ? text("灵魂出窍", "Out of body") : text("已返回身体", "Back to body"); this.noticeTimer = 2; }
+  private toggleSpectate(): void { if (this.menu || this.inventoryOpen || this.modeName !== "creative") return; this.spectate = !this.spectate; this.cameraOffsetX = 0; this.cameraOffsetY = 0; this.dragging = false; this.notice = this.spectate ? text("灵魂出窍", "Out of body") : text("已返回身体", "Back to body"); this.noticeTimer = 2; plugins.notifySpectateChanged({ ...this.pluginContext(), spectate: this.spectate }); }
   private worldAtMouse(): [number, number] { const rect = this.canvas.getBoundingClientRect(); return [this.player.x + this.cameraOffsetX + (this.lastMouseX - rect.width / 2) / this.blockSize, this.player.y + this.cameraOffsetY - (this.lastMouseY - rect.height / 2) / this.blockSize]; }
   private inReach(worldX: number, worldY: number): boolean {
     const centerX = this.player.x;
@@ -280,7 +281,7 @@ class GameSession {
   private snapBlockSize(size: number): number { return Math.max(16, Math.min(72, Math.round(size))); }
   private hotbarSlotAt(clientX: number, clientY: number): number { const width = window.innerWidth; const height = window.innerHeight; const slot = 48; const barWidth = slot * this.hotbar.length; const x = (width - barWidth) / 2; if (clientY < height - 60 || clientY > height - 18) return -1; const index = Math.floor((clientX - x) / slot); return index >= 0 && index < this.hotbar.length ? index : -1; }
   private place(mouseX: number, mouseY: number): void { const rect = this.canvas.getBoundingClientRect(); this.lastMouseX = mouseX - rect.left; this.lastMouseY = mouseY - rect.top; const target = this.getPlacementTarget(); if (!target) return; const [placeX, placeY] = target; if (this.world.getBlock(placeX, placeY)) return; const left = this.player.x - 0.25; const right = this.player.x + 0.25; const playerBottom = this.player.y; const playerTop = playerBottom + 1.9; if (left < placeX + 1 && right > placeX && playerBottom < placeY && playerTop > placeY - 1) return; const type = this.hotbar[this.selected]; if (!type) return; if (this.world.placeBlock(placeX, placeY, type)) { this.notice = text("方块已放置", "Block placed"); this.noticeTimer = 1; this.save(); plugins.notifyBlockPlaced({ ...this.pluginContext(), x: placeX, y: placeY, type }); storage.log("Block placed", { world: this.meta.name, x: placeX, y: placeY, type }); } }
-  private tick = (now: number): void => { if (!this.active) return; const dt = Math.min(0.05, (now - this.last) / 1000); this.last = now; this.frame += 1; this.lastMouseX = this.lastMouseX || window.innerWidth / 2; this.lastMouseY = this.lastMouseY || window.innerHeight / 2; this.chatMessages.forEach((message) => { message.age += dt; }); if (this.noticeTimer > 0) this.noticeTimer -= dt; if (!this.paused && !this.chatOpen && !this.inventoryOpen) { if (!this.spectate) this.mode.update({ player: this.player, world: this.world, keys: this.keys, mouseDown: this.mouseDown, hovered: this.hovered(), blockSize: this.blockSize, dt, textures: this.blockImages, onBlockBroken: (x, y, type) => { plugins.notifyBlockBroken({ ...this.pluginContext(), x, y, type }); storage.log("Block broken", { world: this.meta.name, x, y, type }); } }); this.world.updateView(this.player.x); this.updateVoid(dt); plugins.notifyGameTick({ ...this.pluginContext(), dt }); this.autosaveElapsed += dt; if (settings.autosaveInterval > 0 && this.autosaveElapsed >= settings.autosaveInterval) { this.save(); this.autosaveElapsed = 0; } } this.render(); requestAnimationFrame(this.tick); };
+  private tick = (now: number): void => { if (!this.active) return; const dt = Math.min(0.05, (now - this.last) / 1000); this.last = now; this.frame += 1; this.lastMouseX = this.lastMouseX || window.innerWidth / 2; this.lastMouseY = this.lastMouseY || window.innerHeight / 2; this.chatMessages.forEach((message) => { message.age += dt; }); if (this.noticeTimer > 0) this.noticeTimer -= dt; if (!this.paused && !this.chatOpen && !this.inventoryOpen) { if (!this.spectate) this.mode.update({ player: this.player, world: this.world, keys: this.keys, mouseDown: this.mouseDown, hovered: this.hovered(), blockSize: this.blockSize, dt, textures: this.blockImages, onBlockBroken: (x, y, type) => { plugins.notifyBlockBroken({ ...this.pluginContext(), x, y, type }); storage.log("Block broken", { world: this.meta.name, x, y, type }); } }); if (this.player.flying !== this.lastFlying) { this.lastFlying = this.player.flying; plugins.notifyFlyChanged({ ...this.pluginContext(), flying: this.player.flying }); storage.log("Fly mode changed", { world: this.meta.name, flying: this.player.flying }); } this.world.updateView(this.player.x); this.updateVoid(dt); plugins.notifyGameTick({ ...this.pluginContext(), dt }); this.autosaveElapsed += dt; if (settings.autosaveInterval > 0 && this.autosaveElapsed >= settings.autosaveInterval) { this.save(); this.autosaveElapsed = 0; } } this.render(); requestAnimationFrame(this.tick); };
 
   private updateVoid(dt: number): void { if (this.modeName !== "creative" || this.player.y >= -10) { this.voidDamageTimer = 0; return; } this.voidDamageTimer += dt; this.health = Math.max(0, this.health - 20 * dt); if (this.health <= 0) { const spawnXPos = spawnX(this.meta.seed ?? 0); const spawnYPos = this.world.getSurfaceHeight(spawnXPos) + 0.001; this.player.reset(spawnXPos, spawnYPos); this.health = 20; this.save(); this.notice = text("你掉入虚空并重生了", "You fell into the void and respawned"); this.noticeTimer = 3; plugins.notifyPlayerRespawn(this.pluginContext()); storage.log("Player respawned", { world: this.meta.name, reason: "void" }); } }
 
@@ -289,7 +290,7 @@ class GameSession {
   private loadImage(src: string): HTMLImageElement { const image = new Image(); image.src = src; return image; }
 
   private pluginContext(): PluginGameContext {
-    return { username, meta: this.meta, world: this.world, player: this.player, mode: this.modeName };
+    return { username, meta: this.meta, world: this.world, player: this.player, mode: this.modeName, spectate: this.spectate, flying: this.player.flying };
   }
 
   private stop(reason: string): void {
@@ -416,13 +417,15 @@ class GameSession {
     if (this.placement) { const [x, y] = this.placement; const sx = (x - cameraX) * this.blockSize + width / 2; const sy = (cameraY - y) * this.blockSize + height / 2; const image = this.blockImages.get(this.hotbar[this.selected] ?? ""); if (image?.complete && image.naturalWidth) this.drawGhost(ctx, image, sx, sy, this.blockSize, this.blockSize, settings.placementAlpha, settings.placementBrightness); else { ctx.fillStyle = "rgba(255,255,255,.25)"; ctx.fillRect(sx, sy, this.blockSize, this.blockSize); } ctx.strokeStyle = "rgba(255,255,255,.95)"; ctx.strokeRect(sx + 1, sy + 1, this.blockSize - 2, this.blockSize - 2); }
     if (this.mode instanceof CreativeMode) this.mode.particles.render(ctx, cameraX, cameraY, this.blockSize);
     this.mode.renderPlayer(ctx, { player: this.player, world: this.world, keys: this.keys, mouseDown: this.mouseDown, hovered: this.hovered(), blockSize: this.blockSize, dt: 0, textures: this.blockImages }, cameraX, cameraY);
-    if (this.spectate) { const playerImage = this.guiImages.get("player_stand"); const gw = this.blockSize * 1.9; const gh = this.blockSize * 1.9; this.drawGhost(ctx, playerImage, width / 2 - gw / 2, height / 2 - gh / 2, gw, gh, settings.spectateAlpha, settings.spectateBrightness); }
+    if (this.spectate) { const playerImage = this.guiImages.get("player_stand"); const gw = this.blockSize * 1.9; const gh = this.blockSize * 1.9; this.drawGhost(ctx, playerImage, width / 2 - gw / 2, height / 2 - gh / 2, gw, gh, settings.spectateAlpha, settings.spectateBrightness, this.player.facing < 0); }
     this.renderHud(ctx, width, height);
     this.renderCursor();
   }
 
-  private drawGhost(ctx: CanvasRenderingContext2D, image: HTMLImageElement | undefined, x: number, y: number, w: number, h: number, alpha: number, brightness: number): void {
+  private drawGhost(ctx: CanvasRenderingContext2D, image: HTMLImageElement | undefined, x: number, y: number, w: number, h: number, alpha: number, brightness: number, flip = false): void {
     if (!image?.complete || !image.naturalWidth) return;
+    ctx.save();
+    if (flip) { ctx.translate(x + w, y); ctx.scale(-1, 1); x = 0; y = 0; }
     ctx.globalAlpha = alpha;
     ctx.drawImage(image, x, y, w, h);
     ctx.globalCompositeOperation = "source-atop";
@@ -431,6 +434,7 @@ class GameSession {
     ctx.fillRect(x, y, w, h);
     ctx.globalCompositeOperation = "source-over";
     ctx.globalAlpha = 1;
+    ctx.restore();
   }
 
   private renderCursor(): void {
