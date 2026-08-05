@@ -22,6 +22,11 @@ export function hashSeed(input: string): number {
   return h >>> 0;
 }
 
+export function spawnX(seed = 0): number {
+  if (seed === 0) return 0;
+  return Math.floor((hashNoise(seed) - 0.5) * 400);
+}
+
 function smoothNoise(x: number, seed = 0): number {
   const integer = Math.floor(x);
   let fraction = x - integer;
