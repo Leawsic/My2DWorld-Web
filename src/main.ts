@@ -54,7 +54,7 @@ function toggleLanguage(): void {
 
 const text = (zh: string, en: string) => language === "zh" ? zh : en;
 const AUTOSAVE_OPTIONS = [0, 60, 300, 600];
-const SPECTATE_LIMIT = 16;
+const SPECTATE_LIMIT = 32;
 function autosaveLabel(seconds: number): string {
   if (seconds <= 0) return text("关闭", "Off");
   return seconds < 60 ? `${seconds} ${text("秒", "sec")}` : `${Math.round(seconds / 60)} ${text("分钟", "min")}`;
@@ -280,7 +280,7 @@ class GameSession {
   private snapBlockSize(size: number): number { return Math.max(16, Math.min(72, Math.round(size))); }
   private hotbarSlotAt(clientX: number, clientY: number): number { const width = window.innerWidth; const height = window.innerHeight; const slot = 48; const barWidth = slot * this.hotbar.length; const x = (width - barWidth) / 2; if (clientY < height - 60 || clientY > height - 18) return -1; const index = Math.floor((clientX - x) / slot); return index >= 0 && index < this.hotbar.length ? index : -1; }
   private place(mouseX: number, mouseY: number): void { const rect = this.canvas.getBoundingClientRect(); this.lastMouseX = mouseX - rect.left; this.lastMouseY = mouseY - rect.top; const target = this.getPlacementTarget(); if (!target) return; const [placeX, placeY] = target; if (this.world.getBlock(placeX, placeY)) return; const left = this.player.x - 0.25; const right = this.player.x + 0.25; const playerBottom = this.player.y; const playerTop = playerBottom + 1.9; if (left < placeX + 1 && right > placeX && playerBottom < placeY && playerTop > placeY - 1) return; const type = this.hotbar[this.selected]; if (!type) return; if (this.world.placeBlock(placeX, placeY, type)) { this.notice = text("方块已放置", "Block placed"); this.noticeTimer = 1; this.save(); plugins.notifyBlockPlaced({ ...this.pluginContext(), x: placeX, y: placeY, type }); storage.log("Block placed", { world: this.meta.name, x: placeX, y: placeY, type }); } }
-  private tick = (now: number): void => { if (!this.active) return; const dt = Math.min(0.05, (now - this.last) / 1000); this.last = now; this.frame += 1; this.lastMouseX = this.lastMouseX || window.innerWidth / 2; this.lastMouseY = this.lastMouseY || window.innerHeight / 2; this.chatMessages.forEach((message) => { message.age += dt; }); if (this.noticeTimer > 0) this.noticeTimer -= dt; if (!this.paused && !this.chatOpen && !this.inventoryOpen) { this.mode.update({ player: this.player, world: this.world, keys: this.keys, mouseDown: this.mouseDown, hovered: this.hovered(), blockSize: this.blockSize, dt, textures: this.blockImages, onBlockBroken: (x, y, type) => { plugins.notifyBlockBroken({ ...this.pluginContext(), x, y, type }); storage.log("Block broken", { world: this.meta.name, x, y, type }); } }); this.world.updateView(this.player.x); this.updateVoid(dt); plugins.notifyGameTick({ ...this.pluginContext(), dt }); this.autosaveElapsed += dt; if (settings.autosaveInterval > 0 && this.autosaveElapsed >= settings.autosaveInterval) { this.save(); this.autosaveElapsed = 0; } } this.render(); requestAnimationFrame(this.tick); };
+  private tick = (now: number): void => { if (!this.active) return; const dt = Math.min(0.05, (now - this.last) / 1000); this.last = now; this.frame += 1; this.lastMouseX = this.lastMouseX || window.innerWidth / 2; this.lastMouseY = this.lastMouseY || window.innerHeight / 2; this.chatMessages.forEach((message) => { message.age += dt; }); if (this.noticeTimer > 0) this.noticeTimer -= dt; if (!this.paused && !this.chatOpen && !this.inventoryOpen) { if (!this.spectate) this.mode.update({ player: this.player, world: this.world, keys: this.keys, mouseDown: this.mouseDown, hovered: this.hovered(), blockSize: this.blockSize, dt, textures: this.blockImages, onBlockBroken: (x, y, type) => { plugins.notifyBlockBroken({ ...this.pluginContext(), x, y, type }); storage.log("Block broken", { world: this.meta.name, x, y, type }); } }); this.world.updateView(this.player.x); this.updateVoid(dt); plugins.notifyGameTick({ ...this.pluginContext(), dt }); this.autosaveElapsed += dt; if (settings.autosaveInterval > 0 && this.autosaveElapsed >= settings.autosaveInterval) { this.save(); this.autosaveElapsed = 0; } } this.render(); requestAnimationFrame(this.tick); };
 
   private updateVoid(dt: number): void { if (this.modeName !== "creative" || this.player.y >= -10) { this.voidDamageTimer = 0; return; } this.voidDamageTimer += dt; this.health = Math.max(0, this.health - 20 * dt); if (this.health <= 0) { const spawnXPos = spawnX(this.meta.seed ?? 0); const spawnYPos = this.world.getSurfaceHeight(spawnXPos) + 0.001; this.player.reset(spawnXPos, spawnYPos); this.health = 20; this.save(); this.notice = text("你掉入虚空并重生了", "You fell into the void and respawned"); this.noticeTimer = 3; plugins.notifyPlayerRespawn(this.pluginContext()); storage.log("Player respawned", { world: this.meta.name, reason: "void" }); } }
 
@@ -425,9 +425,11 @@ class GameSession {
     if (!image?.complete || !image.naturalWidth) return;
     ctx.globalAlpha = alpha;
     ctx.drawImage(image, x, y, w, h);
+    ctx.globalCompositeOperation = "source-atop";
     ctx.globalAlpha = 1 - brightness;
     ctx.fillStyle = "#000";
     ctx.fillRect(x, y, w, h);
+    ctx.globalCompositeOperation = "source-over";
     ctx.globalAlpha = 1;
   }
 
