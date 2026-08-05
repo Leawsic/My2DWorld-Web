@@ -302,7 +302,13 @@ class GameSession {
 
   private toggleInventory(): void {
     this.inventoryOpen = !this.inventoryOpen;
-    if (!this.inventoryOpen) this.heldInventoryItem = null;
+    if (this.inventoryOpen) return;
+    if (this.heldInventoryItem) {
+      const emptyIndex = this.inventorySlots.findIndex((item) => item === null);
+      if (emptyIndex >= 0) this.inventorySlots[emptyIndex] = this.heldInventoryItem;
+      else this.hotbar[this.selected] = this.heldInventoryItem;
+      this.heldInventoryItem = null;
+    }
   }
 
   private inventoryLayout(): { panelX: number; panelY: number; gridX: number; gridY: number; hotbarX: number; hotbarY: number; slot: number } {
