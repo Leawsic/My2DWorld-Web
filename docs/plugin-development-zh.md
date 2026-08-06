@@ -11,7 +11,7 @@ ESM 模块，包名、manifest 的 `id`、入口模块导出的 `plugin.id` 必�
 web/
 └── plugins/
     ├── my2dworld-plugin-api.d.ts
-    └── world-greeter/
+    └── world_greeter/
         ├── plugin.json
         ├── src/
         │   └── index.mjs
@@ -40,44 +40,44 @@ api.Blocks.MY2DWORLD.GRASS_BLOCK_SIDE
 api.GameModes.CREATIVE
 ```
 
-对于由其他插件注册、在编辑时无法确定的方块，使用 `api.block("other-plugin:block_id")`。该方法找不到 id 时会直接抛出明确错误；若希望自行处理不存在的情况，使用 `api.getBlock(id)`。自身资源可用 `api.id("block_path")` 生成完整 ID。
+对于由其他插件注册、在编辑时无法确定的方块，使用 `api.block("other_plugin:block_id")`。该方法找不到 id 时会直接抛出明确错误；若希望自行处理不存在的情况，使用 `api.getBlock(id)`。自身资源可用 `api.id("block_path")` 生成完整 ID。
 
 ## 最小插件
 
-创建 `web/plugins/my-plugin/plugin.json`：
+创建 `web/plugins/my_plugin/plugin.json`：
 
 ```json
 {
-  "id": "my-plugin",
+  "id": "my_plugin",
   "name": "我的插件",
   "version": "1.0.0",
   "entry": "src/index.mjs"
 }
 ```
 
-然后创建 `web/plugins/my-plugin/src/index.mjs`：
+然后创建 `web/plugins/my_plugin/src/index.mjs`：
 
 ```js
 /// <reference path="../../my2dworld-plugin-api.d.ts" />
 
 export default {
-  id: "my-plugin",
+  id: "my_plugin",
   name: "我的插件",
   version: "1.0.0",
   authors: ["开发者名称"],
   description: "一个自动加载的 My2DWorld 插件。",
-  website: "https://example.com/my-plugin",
+  website: "https://example.com/my_plugin",
 
   /** @param {PluginApi} api */
   install(api) {
     api.onGameStart((context) => {
-      console.info(`[my-plugin] 进入世界：${context.meta.name}`);
+      console.info(`[my_plugin] 进入世界：${context.meta.name}`);
     });
   }
 };
 ```
 
-`id` 和 `name` 是必填项。`id` 必须在所有已加载插件中唯一，推荐使用小写短横线命名，例如 `my-plugin`。`version`、`authors`、`description` 和 `website` 是可选元数据，供日志、插件管理界面和未来兼容性检查使用。
+`id` 和 `name` 是必填项。`id` 必须在所有已加载插件中唯一，只允许小写字母、数字和下划线，例如 `my_plugin`。插件目录名必须与 `id` 完全相同。`version`、`authors`、`description` 和 `website` 是可选元数据，供日志、插件管理界面和未来兼容性检查使用。
 
 目前插件元数据会保存在运行时注册表中，但游戏尚未实现版本依赖解析、签名校验或沙箱。插件与游戏运行在同一个浏览器上下文中，因此只能安装可信插件。
 
@@ -87,7 +87,7 @@ export default {
 
 ```js
 export const plugin = {
-  id: "crystal-content",
+  id: "crystal_content",
   name: "水晶内容",
   authors: ["开发者名称"],
   description: "增加一个水晶方块。",
@@ -110,7 +110,7 @@ export const plugin = {
 本体方块会从 `/assets/block/<方块路径>.png` 加载纹理。插件资源必须保留在插件包中，使用 `api.asset()` 生成运行时 URL：
 
 ```text
-web/plugins/crystal-content/assets/block/crystal_block.png
+web/plugins/crystal_content/assets/block/crystal_block.png
 ```
 
 ```js
@@ -165,7 +165,7 @@ api.onGameTick((context) => {
 
 ```js
 export default {
-  id: "world-greeter",
+  id: "world_greeter",
   name: "世界问候",
   version: "1.0.0",
   authors: ["开发者名称"],
@@ -221,7 +221,7 @@ api.onGameModeChanged((context) => {
 });
 ```
 
-插件方块使用 `registerBlock()` 注册后，会自动归属当前插件的 namespace，并以完整资源 ID 保存。例如插件 `world-greeter` 注册 `greeting_marker`，其方块 ID 会成为 `world-greeter:greeting_marker`，常量访问为 `api.Blocks.WORLD_GREETER.GREETING_MARKER`。不同插件可注册相同 path，但同一 namespace 内重复路径会被拒绝。
+插件方块使用 `registerBlock()` 注册后，会自动归属当前插件的 namespace，并以完整资源 ID 保存。例如插件 `world_greeter` 注册 `greeting_marker`，其方块 ID 会成为 `world_greeter:greeting_marker`，常量访问为 `api.Blocks.WORLD_GREETER.GREETING_MARKER`。namespace、插件 ID 与目录名统一使用下划线，不使用连字符。不同插件可注册相同 path，但同一 namespace 内重复路径会被拒绝。
 
 ```js
 const crystal = api.registerBlock({

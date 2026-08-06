@@ -1,5 +1,5 @@
 {
-  "id": "example-plugin",
+  "id": "example_plugin",
   "name": "示例插件",
   "version": "1.0.0",
   "entry": "src/index.mjs"

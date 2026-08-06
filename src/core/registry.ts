@@ -91,7 +91,7 @@ export class Registry<T extends RegistryObject> {
         const namespace = separator < 0 ? defaultNamespace : id.slice(0, separator);
         const path = separator < 0 ? id : id.slice(separator + 1);
         if (!/^[a-z0-9][a-z0-9_-]*$/i.test(namespace) || !/^[a-z0-9][a-z0-9_/-]*$/i.test(path)) throw new Error(`Invalid resource id: ${id}`);
-        return [namespace.toLowerCase(), path.toLowerCase()];
+        return [namespace.replace(/-/g, "_").toLowerCase(), path.replace(/-/g, "_").toLowerCase()];
     }
 
     private key(id: string): string {
@@ -100,10 +100,10 @@ export class Registry<T extends RegistryObject> {
 
     private group(namespace: string): RegistryNamespaceProxy<T> | null {
         if (!this.namespaced) return null;
-        const normalized = namespace.toLowerCase();
+        const normalized = namespace.replace(/-/g, "_").toLowerCase();
         if (![...this.values.values()].some((value) => (value.namespace || CORE_NAMESPACE) === normalized)) return null;
         return new Proxy({} as Record<string, T>, {
-            get: (_, prop: string | symbol) => typeof prop === "string" ? this.get(`${normalized}:${prop}`) ?? this.get(`${normalized}:${prop.replace(/_/g, "_").toLowerCase()}`) : undefined,
+            get: (_, prop: string | symbol) => typeof prop === "string" ? this.get(`${normalized}:${prop}`) : undefined,
         }) as RegistryNamespaceProxy<T>;
     }
 }

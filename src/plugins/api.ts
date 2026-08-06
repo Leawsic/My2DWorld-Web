@@ -117,10 +117,7 @@ export interface PluginApi {
 export class PluginRegistry implements PluginApi {
     readonly blocks = new Map<BlockType, BlockDefinition>();
     readonly plugins = new Map<string, GamePlugin>();
-    private installingNamespace: string | null = null;
-    get namespace(): string {
-        return this.installingNamespace || "my2dworld";
-    }
+    readonly namespace = "my2dworld";
     readonly Blocks = Blocks;
     readonly GameModes = GameModes;
     readonly Registries = Registries;
@@ -134,18 +131,18 @@ export class PluginRegistry implements PluginApi {
 
     use(plugin: GamePlugin): void {
         if (!plugin.id || !plugin.name) throw new Error("Plugin requires id and name");
-        if (this.plugins.has(plugin.id)) throw new Error(`Plugin already registered: ${plugin.id}`);
-        this.installingNamespace = plugin.id;
-        try {
-            plugin.install(this);
-        } finally {
-            this.installingNamespace = null;
-        }
-        this.plugins.set(plugin.id, plugin);
+        const namespace = this.normalizeNamespace(plugin.id);
+        if (plugin.id !== namespace) throw new Error(`Plugin id must use lowercase underscores: ${plugin.id}`);
+        if (this.plugins.has(namespace)) throw new Error(`Plugin already registered: ${namespace}`);
+        plugin.install(this.apiFor(namespace));
+        this.plugins.set(namespace, plugin);
     }
 
     registerBlock(definition: BlockDefinition): BlockDefinition {
-        const namespace = this.namespace;
+        return this.registerBlockFor(this.namespace, definition);
+    }
+
+    private registerBlockFor(namespace: string, definition: BlockDefinition): BlockDefinition {
         if (definition.id.includes(":") && !definition.id.startsWith(`${namespace}:`)) throw new Error(`Plugin ${namespace} cannot register outside its namespace: ${definition.id}`);
         const registered = blockRegistry.register({...definition, namespace});
         this.blocks.set(registered.id, registered);
@@ -167,9 +164,44 @@ export class PluginRegistry implements PluginApi {
     }
 
     asset(path: string): string {
+        return this.assetFor(this.namespace, path);
+    }
+
+    private assetFor(namespace: string, path: string): string {
         const clean = path.replace(/^\/+/, "");
         if (!clean || clean.split("/").some((part) => part === "." || part === "..")) throw new Error(`Invalid plugin asset path: ${path}`);
-        return `/plugins/${encodeURIComponent(this.namespace)}/${clean.split("/").map(encodeURIComponent).join("/")}`;
+        return `/plugins/${encodeURIComponent(namespace)}/${clean.split("/").map(encodeURIComponent).join("/")}`;
+    }
+
+    private apiFor(namespace: string): PluginApi {
+        return {
+            namespace,
+            Blocks: this.Blocks,
+            GameModes: this.GameModes,
+            Registries: this.Registries,
+            messages: this.messages,
+            registerBlock: (definition) => this.registerBlockFor(namespace, definition),
+            getBlock: (id) => this.getBlock(id),
+            block: (id) => this.block(id),
+            id: (path) => blockRegistry.id(path, namespace),
+            asset: (path) => this.assetFor(namespace, path),
+            onWorldCreated: (listener) => this.onWorldCreated(listener),
+            onGameStart: (listener) => this.onGameStart(listener),
+            onGameTick: (listener) => this.onGameTick(listener),
+            onGamePause: (listener) => this.onGamePause(listener),
+            onGameResume: (listener) => this.onGameResume(listener),
+            onBlockBroken: (listener) => this.onBlockBroken(listener),
+            onBlockPlaced: (listener) => this.onBlockPlaced(listener),
+            onPlayerRespawn: (listener) => this.onPlayerRespawn(listener),
+            onGameModeChanged: (listener) => this.onGameModeChanged(listener),
+            onGameStop: (listener) => this.onGameStop(listener),
+            onSpectateChanged: (listener) => this.onSpectateChanged(listener),
+            onFlyChanged: (listener) => this.onFlyChanged(listener),
+        };
+    }
+
+    private normalizeNamespace(id: string): string {
+        return id.replace(/-/g, "_").toLowerCase();
     }
 
     setMessageTarget(target: PlayerMessages | null): void {

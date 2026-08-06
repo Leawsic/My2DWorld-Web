@@ -68,7 +68,7 @@ const body = async (req) => {
     return text ? JSON.parse(text) : {};
 };
 
-const safePluginId = (value) => /^[a-z0-9][a-z0-9_-]*$/i.test(value) ? value.toLowerCase() : null;
+const safePluginId = (value) => /^[a-z0-9][a-z0-9_]*$/i.test(value) ? value.toLowerCase() : null;
 const pluginPackages = () => readdirSync(dirs.plugins, {withFileTypes: true})
     .filter((entry) => entry.isDirectory() && safePluginId(entry.name))
     .sort((a, b) => a.name.localeCompare(b.name))
