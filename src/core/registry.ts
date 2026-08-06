@@ -126,6 +126,7 @@ const builtinBlocks: Array<[BlockType, string, string, string]> = [
     ["cobblestone", "#626b6d", "圆石", "Cobblestone"],
     ["mossy_cobblestone", "#4c7564", "苔石", "Mossy Cobblestone"],
     ["bedrock", "#33363a", "基岩", "Bedrock"],
+    ["deepslate", "#41454a", "深板岩", "Deepslate"],
     ["coal_block", "#252525", "煤炭块", "Block of Coal"],
     ["iron_block", "#d5d5d5", "铁块", "Block of Iron"],
     ["gold_block", "#e0b52d", "金块", "Block of Gold"],

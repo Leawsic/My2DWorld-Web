@@ -12,6 +12,42 @@ export const STONE = Blocks.MY2DWORLD.STONE.id;
 export const COBBLESTONE = Blocks.MY2DWORLD.COBBLESTONE.id;
 export const MOSSY_COBBLESTONE = Blocks.MY2DWORLD.MOSSY_COBBLESTONE.id;
 export const BEDROCK = Blocks.MY2DWORLD.BEDROCK.id;
+export const DEEPSLATE = Blocks.MY2DWORLD.DEEPSLATE.id;
+
+/** Rock type below this depth becomes deepslate (aligned with 1.18). */
+const DEEPSLATE_TOP = 12;
+/** Vertical band over which stone and deepslate blend. */
+const DEEPSLATE_BAND = 4;
+
+/** Cheese-cave carving: fbm2D(x*fx, y*fy, seed) above this is hollowed. */
+const CAVE_X_FREQ = 0.05;
+const CAVE_Y_FREQ = 0.14;
+const CAVE_THRESHOLD = 0.66;
+const CAVE_OCTAVES = 3;
+const CAVE_SEED_MIX = 0xca7e;
+
+/** An ore vein: grid cells of `space` blocks spawn a compact disc cluster of ore with probability `chance`. */
+interface OreVein {
+    readonly type: BlockType;
+    readonly deep?: BlockType;
+    readonly minY: number;
+    readonly maxY: number;
+    readonly space: number;
+    readonly chance: number;
+    readonly radius: number;
+    readonly mix: number;
+}
+
+const ORE_VEINS: readonly OreVein[] = [
+    {type: Blocks.MY2DWORLD.COAL_ORE.id, deep: Blocks.MY2DWORLD.DEEPSLATE_COAL_ORE.id, minY: 4, maxY: 80, space: 16, chance: 0.45, radius: 1.9, mix: 0x111},
+    {type: Blocks.MY2DWORLD.IRON_ORE.id, deep: Blocks.MY2DWORLD.DEEPSLATE_IRON_ORE.id, minY: 4, maxY: 64, space: 18, chance: 0.33, radius: 1.8, mix: 0x222},
+    {type: Blocks.MY2DWORLD.COPPER_ORE.id, deep: Blocks.MY2DWORLD.DEEPSLATE_COPPER_ORE.id, minY: 4, maxY: 48, space: 18, chance: 0.3, radius: 1.7, mix: 0x333},
+    {type: Blocks.MY2DWORLD.GOLD_ORE.id, deep: Blocks.MY2DWORLD.DEEPSLATE_GOLD_ORE.id, minY: 1, maxY: 32, space: 22, chance: 0.25, radius: 1.6, mix: 0x444},
+    {type: Blocks.MY2DWORLD.REDSTONE_ORE.id, deep: Blocks.MY2DWORLD.DEEPSLATE_REDSTONE_ORE.id, minY: 1, maxY: 16, space: 22, chance: 0.28, radius: 1.5, mix: 0x555},
+    {type: Blocks.MY2DWORLD.LAPIS_ORE.id, deep: Blocks.MY2DWORLD.DEEPSLATE_LAPIS_ORE.id, minY: 1, maxY: 24, space: 24, chance: 0.26, radius: 1.6, mix: 0x666},
+    {type: Blocks.MY2DWORLD.DIAMOND_ORE.id, deep: Blocks.MY2DWORLD.DEEPSLATE_DIAMOND_ORE.id, minY: 1, maxY: 12, space: 26, chance: 0.22, radius: 1.5, mix: 0x777},
+    {type: Blocks.MY2DWORLD.EMERALD_ORE.id, deep: Blocks.MY2DWORLD.DEEPSLATE_EMERALD_ORE.id, minY: 1, maxY: 10, space: 28, chance: 0.2, radius: 1.4, mix: 0x888},
+];
 
 /** A surface generation profile shared by terrain height and block filling. */
 export interface Biome {
@@ -164,6 +200,41 @@ export function terrainHeight(x: number, seed = 0): number {
     return Math.max(1, Math.round(height));
 }
 
+function isCave(x: number, y: number, seed: number): boolean {
+    return fbm2D(x * CAVE_X_FREQ, y * CAVE_Y_FREQ, (seed ^ CAVE_SEED_MIX) >>> 0, CAVE_OCTAVES) > CAVE_THRESHOLD;
+}
+
+/** Ore type at a rock cell, or null. Deepslate cells use the deepslate ore variant when present. */
+function oreAt(x: number, y: number, seed: number, isDeep: boolean): BlockType | null {
+    for (const vein of ORE_VEINS) {
+        if (y < vein.minY || y > vein.maxY) continue;
+        const gx = Math.floor(x / vein.space);
+        const gy = Math.floor(y / vein.space);
+        if (hashNoise(gx * 7919 + gy * 104729 + vein.mix, seed) > vein.chance) continue;
+        const jx = 0.2 + hashNoise(gx * 31 + gy * 17 + vein.mix, seed) * 0.6;
+        const jy = 0.2 + hashNoise(gx * 13 + gy * 71 + vein.mix + 1, seed) * 0.6;
+        const ax = gx * vein.space + jx * vein.space;
+        const ay = gy * vein.space + jy * vein.space;
+        const dx = x - ax;
+        const dy = y - ay;
+        if (dx * dx + dy * dy > vein.radius * vein.radius) continue;
+        if (hashNoise(x * 7 + y * 13 + vein.mix, seed) > 0.82) continue;
+        return isDeep && vein.deep ? vein.deep : vein.type;
+    }
+    return null;
+}
+
+/** Base rock at a cell: deepslate below the transition band, stone (with biome variant) above. */
+function stoneOrDeepslate(x: number, y: number, seed: number): BlockType {
+    const biome = biomeAt(x, seed);
+    const variant = hashNoise(x * 131 + y * 2837, seed);
+    const stone = variant < biome.variantChance ? biome.stoneVariant : biome.stone;
+    if (y <= DEEPSLATE_TOP - DEEPSLATE_BAND) return DEEPSLATE;
+    if (y > DEEPSLATE_TOP) return stone;
+    const t = (y - (DEEPSLATE_TOP - DEEPSLATE_BAND)) / DEEPSLATE_BAND;
+    return hashNoise(x * 53 + y * 149 + 7, seed) < 1 - t ? DEEPSLATE : stone;
+}
+
 function generatedBlock(x: number, y: number, surface: number, seed = 0): BlockType | null {
     if (y <= 0) return null;
     if (y <= BEDROCK_THICKNESS) return BEDROCK;
@@ -172,8 +243,10 @@ function generatedBlock(x: number, y: number, surface: number, seed = 0): BlockT
     if (depth === 0) return biome.surface;
     if (depth <= biome.surfaceDepth) return biome.surface;
     if (depth <= biome.surfaceDepth + biome.subDepth) return biome.subSurface;
-    const variant = hashNoise(x * 131 + y * 2837, seed);
-    return variant < biome.variantChance ? biome.stoneVariant : biome.stone;
+    if (isCave(x, y, seed)) return null;
+    const base = stoneOrDeepslate(x, y, seed);
+    const ore = oreAt(x, y, seed, base === DEEPSLATE);
+    return ore ?? base;
 }
 
 export interface WorldChunkDelta {
