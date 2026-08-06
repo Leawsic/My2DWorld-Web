@@ -17,6 +17,22 @@ export interface GamePlugin {
     install(api: PluginApi): void;
 }
 
+export interface ChatMessageOptions {
+    color?: string;
+}
+
+export interface TitleMessageOptions {
+    color?: string;
+    subtitle?: string;
+    subtitleColor?: string;
+    duration?: number;
+}
+
+export interface PlayerMessages {
+    chat(text: string, options?: ChatMessageOptions): void;
+    title(title: string, options?: TitleMessageOptions): void;
+}
+
 export interface PluginGameContext {
     username: string;
     meta: WorldMeta;
@@ -25,6 +41,7 @@ export interface PluginGameContext {
     mode: string;
     spectate: boolean;
     flying: boolean;
+    messages: PlayerMessages;
 }
 
 export interface PluginTickContext extends PluginGameContext {
@@ -54,6 +71,7 @@ export interface PluginApi {
     readonly Blocks: typeof Blocks;
     readonly GameModes: typeof GameModes;
     readonly Registries: typeof Registries;
+    readonly messages: PlayerMessages;
 
     registerBlock(definition: BlockDefinition): void;
 
@@ -90,6 +108,11 @@ export class PluginRegistry implements PluginApi {
     readonly Blocks = Blocks;
     readonly GameModes = GameModes;
     readonly Registries = Registries;
+    private messageTarget: PlayerMessages | null = null;
+    readonly messages: PlayerMessages = {
+        chat: (text, options) => this.messageTarget?.chat(text, options),
+        title: (title, options) => this.messageTarget?.title(title, options),
+    };
     private readonly worldCreatedListeners: Array<(world: World) => void> = [];
     private readonly listeners = new Map<string, Array<(context: never) => void>>();
 
@@ -107,6 +130,10 @@ export class PluginRegistry implements PluginApi {
 
     getBlock(id: BlockType): BlockDefinition | undefined {
         return blockRegistry.get(id);
+    }
+
+    setMessageTarget(target: PlayerMessages | null): void {
+        this.messageTarget = target;
     }
 
     onWorldCreated(listener: (world: World) => void): void {

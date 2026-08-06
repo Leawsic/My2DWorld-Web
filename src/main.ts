@@ -19,6 +19,21 @@ let settings = storage.loadSettings();
 let language: Language = settings.language;
 let username = "steve";
 const plugins = new PluginRegistry();
+interface PluginLoadReport {
+    source: string;
+    plugin?: GamePlugin;
+    error?: string;
+    blocks: string[];
+    pending?: boolean;
+}
+const pluginReports: PluginLoadReport[] = [];
+
+function refreshPluginReports(): number {
+    const knownSources = new Set(pluginReports.map((report) => report.source));
+    const discovered = storage.listPlugins().filter((source) => !knownSources.has(source));
+    discovered.forEach((source) => pluginReports.push({source, blocks: [], pending: true}));
+    return discovered.length;
+}
 
 async function loadExternalPlugins(): Promise<void> {
     for (const url of storage.listPlugins()) {
@@ -26,9 +41,12 @@ async function loadExternalPlugins(): Promise<void> {
             const module = await import(/* @vite-ignore */ url) as { default?: GamePlugin; plugin?: GamePlugin };
             const plugin = module.default || module.plugin;
             if (!plugin) throw new Error("Module must export default or plugin");
+            const previousBlocks = new Set(plugins.blocks.keys());
             plugins.use(plugin);
+            pluginReports.push({source: url, plugin, blocks: [...plugins.blocks.keys()].filter((id) => !previousBlocks.has(id))});
             storage.log("Plugin loaded", {id: plugin.id, version: plugin.version || "unspecified"});
         } catch (error) {
+            pluginReports.push({source: url, error: String(error), blocks: []});
             console.error(`Failed to load plugin ${url}`, error);
             storage.log("Plugin load failed", {url, error: String(error)}, "error");
         }
@@ -87,7 +105,25 @@ function renderLogin(message = ""): void {
 function renderWorlds(message = ""): void {
     const worlds = storage.loadWorlds(username);
     const rows = worlds.map((world) => `<div class="world-row"><div><b>${world.name}</b><span>${world.mode === "creative" ? text("创造模式", "Creative") : text("旁观模式", "Spectator")} · ${text("种子", "Seed")} ${world.seed ?? 0}</span></div>${button(text("进入", "Enter"), `enter:${world.id}`, "primary")}${button(text("删除", "Delete"), `delete:${world.id}`, "small")}</div>`).join("");
-    shell(`<section class="world-screen"><header class="topbar"><div class="brand compact"><span>MY2D</span><strong>WORLD</strong></div><div class="top-actions"><span>${username}</span><button data-action="language">${language === "zh" ? "中" : "EN"}</button>${button(text("退出", "Log out"), "logout")}</div></header><div class="world-content"><div class="section-kicker">WORLD ARCHIVE / ${String(worlds.length).padStart(2, "0")}</div><h1>${text("我的世界", "My worlds")}</h1><p class="muted">${text("选择一个存档，或者从一片新的地平线开始。", "Choose a save, or start from a new horizon.")}</p><div class="world-list">${rows || `<div class="empty">${text("还没有世界。创建第一个世界。", "No worlds yet. Create your first one.")}</div>`}</div>${button(text("创建世界", "Create world"), "create-world", "primary create")}<div class="message">${message}</div></div></section>`);
+    shell(`<section class="world-screen"><header class="topbar"><div class="brand compact"><span>MY2D</span><strong>WORLD</strong></div><div class="top-actions"><span>${username}</span><button data-action="plugins">${text("插件", "Plugins")} · ${pluginReports.length}</button><button data-action="language">${language === "zh" ? "中" : "EN"}</button>${button(text("退出", "Log out"), "logout")}</div></header><div class="world-content"><div class="section-kicker">WORLD ARCHIVE / ${String(worlds.length).padStart(2, "0")}</div><h1>${text("我的世界", "My worlds")}</h1><p class="muted">${text("选择一个存档，或者从一片新的地平线开始。", "Choose a save, or start from a new horizon.")}</p><div class="world-list">${rows || `<div class="empty">${text("还没有世界。创建第一个世界。", "No worlds yet. Create your first one.")}</div>`}</div></div><div class="world-actions">${button(text("插件管理", "Plugin Manager"), "plugins")}${button(text("创建世界", "Create world"), "create-world", "primary create")}</div><div class="message">${message}</div></div></section>`);
+}
+
+function escapeHtml(value: string): string {
+    return value.replace(/[&<>'"]/g, (character) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", "\"": "&quot;"})[character]!);
+}
+
+function renderPlugins(message = ""): void {
+    const loaded = pluginReports.filter((report) => report.plugin).length;
+    const failed = pluginReports.filter((report) => report.error).length;
+    const cards = pluginReports.map((report) => {
+        const plugin = report.plugin;
+        const state = plugin ? text("已加载", "Loaded") : report.pending ? text("等待重新加载", "Reload required") : text("加载失败", "Failed");
+        const metadata = plugin
+            ? `<div class="plugin-metadata"><span>ID <b>${escapeHtml(plugin.id)}</b></span><span>${text("版本", "Version")} <b>${escapeHtml(plugin.version || "-")}</b></span><span>${text("作者", "Authors")} <b>${escapeHtml(plugin.authors?.join(", ") || "-")}</b></span><span>${text("注册方块", "Registered blocks")} <b>${escapeHtml(report.blocks.join(", ") || text("无", "None"))}</b></span></div><p>${escapeHtml(plugin.description || text("未提供描述。", "No description provided."))}</p>${plugin.website ? `<a href="${escapeHtml(plugin.website)}" target="_blank" rel="noreferrer">${escapeHtml(plugin.website)}</a>` : ""}`
+            : `<p class="plugin-error">${escapeHtml(report.error || text("插件已发现，重新加载页面后会安装。", "Plugin discovered. Reload the page to install it."))}</p>`;
+        return `<article class="plugin-card ${plugin ? "loaded" : report.pending ? "pending" : "failed"}"><div class="plugin-card-head"><div><span class="plugin-state">${state}</span><h2>${escapeHtml(plugin?.name || report.source.split("/").at(-1) || "plugin")}</h2></div><code>${escapeHtml(report.source.split("/").at(-1) || report.source)}</code></div>${metadata}</article>`;
+    }).join("");
+    shell(`<section class="plugin-screen"><header class="topbar"><div class="brand compact"><span>MY2D</span><strong>WORLD</strong></div><div class="top-actions"><button data-action="worlds">${text("返回世界", "Back to Worlds")}</button></div></header><main class="plugin-content"><div class="section-kicker">EXTENSION CONSOLE / ${String(pluginReports.length).padStart(2, "0")}</div><div class="plugin-heading"><div><h1>${text("插件管理", "Plugin Manager")}</h1><p class="muted">${text("新增或修改插件后，先扫描文件，再重新加载页面完成安装。", "After adding or changing a plugin, scan files and reload the page to install it.")}</p></div><div class="plugin-summary"><b>${loaded}</b><span>${text("已加载", "loaded")}</span><b>${failed}</b><span>${text("失败", "failed")}</span></div></div><div class="plugin-actions">${button(text("扫描插件文件", "Scan plugin files"), "plugins-rescan")}${button(text("重新加载页面", "Reload page"), "plugins-reload", "primary")}${button(text("返回世界", "Back to Worlds"), "worlds")}</div><div class="plugin-list">${cards || `<div class="empty">${text("plugins 文件夹中尚未发现 .mjs 插件。", "No .mjs plugins were found in the plugins directory.")}</div>`}</div><div class="message">${message}</div></main></section>`);
 }
 
 function renderCreate(): void {
@@ -117,7 +153,7 @@ class GameSession {
     private voidDamageTimer = 0;
     private notice = "";
     private noticeTimer = 0;
-    private menu: "pause" | "settings" | "bindings" | "display" | null = null;
+    private menu: "pause" | "settings" | "bindings" | "display" | "plugins" | null = null;
     private inventoryOpen = false;
     private heldInventoryItem: string | null = null;
     private bindingCapture: keyof KeyBindings | null = null;
@@ -171,6 +207,7 @@ class GameSession {
         this.resize();
         window.addEventListener("resize", this.resize);
         window.addEventListener("beforeunload", () => this.stop("browser-unload"));
+        plugins.setMessageTarget({chat: this.sendPluginChat, title: this.sendPluginTitle});
         plugins.notifyGameStart(this.pluginContext());
         storage.log("Game started", {world: meta.name, worldId: meta.id, mode: this.modeName});
         requestAnimationFrame(this.tick);
@@ -413,7 +450,7 @@ class GameSession {
     private lastMouseY = 0;
     private chatOpen = false;
     private chatText = "";
-    private chatMessages: Array<{ text: string; age: number }> = [];
+    private chatMessages: Array<{ text: string; color: string; age: number }> = [];
     private chatHistory: string[] = [];
     private chatHistoryCursor: number | null = null;
     private chatScroll = 0;
@@ -523,11 +560,32 @@ class GameSession {
         } else if (command === "seed") this.addChat(`Seed: ${this.meta.seed ?? 0}`); else this.addChat("Unknown or invalid command");
     }
 
-    private addChat(text: string): void {
-        this.chatMessages.push({text, age: 0});
+    private addChat(text: string, color = "#ffffff"): void {
+        this.chatMessages.push({text, color: this.messageColor(color), age: 0});
         this.chatMessages = this.chatMessages.slice(-200);
         this.chatScroll = 0;
     }
+
+    private titleMessage: {title: string; color: string; subtitle?: string; subtitleColor: string; age: number; duration: number} | null = null;
+
+    private messageColor(color?: string): string {
+        return color && /^#[0-9a-f]{6}$/i.test(color) ? color : "#ffffff";
+    }
+
+    private sendPluginChat = (text: string, options?: {color?: string}): void => {
+        this.addChat(text.slice(0, 160), options?.color);
+    };
+
+    private sendPluginTitle = (title: string, options?: {color?: string; subtitle?: string; subtitleColor?: string; duration?: number}): void => {
+        this.titleMessage = {
+            title: title.slice(0, 100),
+            color: this.messageColor(options?.color),
+            subtitle: options?.subtitle?.slice(0, 140),
+            subtitleColor: this.messageColor(options?.subtitleColor),
+            age: 0,
+            duration: Math.max(0.5, Math.min(15, options?.duration ?? 3)),
+        };
+    };
 
     private getSuggestions(): string[] {
         if (!this.chatText.startsWith("/")) return [];
@@ -599,6 +657,10 @@ class GameSession {
         this.chatMessages.forEach((message) => {
             message.age += dt;
         });
+        if (this.titleMessage) {
+            this.titleMessage.age += dt;
+            if (this.titleMessage.age >= this.titleMessage.duration) this.titleMessage = null;
+        }
         if (this.noticeTimer > 0) this.noticeTimer -= dt;
         if (!this.paused && !this.chatOpen && !this.inventoryOpen) {
             if (!this.spectate) this.mode.update({
@@ -679,7 +741,8 @@ class GameSession {
             player: this.player,
             mode: this.modeName,
             spectate: this.spectate,
-            flying: this.player.flying
+            flying: this.player.flying,
+            messages: plugins.messages,
         };
     }
 
@@ -688,6 +751,7 @@ class GameSession {
         this.active = false;
         this.save();
         plugins.notifyGameStop({...this.pluginContext(), reason});
+        plugins.setMessageTarget(null);
         storage.log("Game stopped", {world: this.meta.name, reason});
     }
 
@@ -758,11 +822,15 @@ class GameSession {
     private handleMenuClick(clientX: number, clientY: number): void {
         const boxW = Math.min(460, window.innerWidth - 40);
         const x = (window.innerWidth - boxW) / 2;
-        const menuHeight = this.menu === "bindings" ? 620 : this.menu === "settings" ? 540 : 410;
+        const menuHeight = this.menu === "bindings" ? 620 : this.menu === "settings" ? 540 : this.menu === "plugins" ? Math.min(620, window.innerHeight - 40) : this.menu === "pause" ? 476 : 410;
         const y = (window.innerHeight - menuHeight) / 2;
         if (clientX < x + 52 || clientX > x + boxW - 52) return;
+        if (this.menu === "plugins") {
+            if (clientY >= y + menuHeight - 72 && clientY <= y + menuHeight - 28) this.menu = "pause";
+            return;
+        }
         const index = Math.floor((clientY - (y + (this.menu === "bindings" ? 82 : 92))) / (this.menu === "bindings" ? 55 : 66));
-        if (index < 0 || index > (this.menu === "bindings" ? 8 : this.menu === "settings" ? 6 : this.menu === "display" ? 4 : 2)) return;
+        if (index < 0 || index > (this.menu === "bindings" ? 8 : this.menu === "settings" ? 6 : this.menu === "display" ? 4 : this.menu === "pause" ? 3 : 2)) return;
         const rowY = y + (this.menu === "bindings" ? 82 : 92) + index * (this.menu === "bindings" ? 55 : 66);
         const rowH = this.menu === "bindings" ? 42 : 44;
         if (clientY < rowY || clientY > rowY + rowH) return;
@@ -774,7 +842,8 @@ class GameSession {
                 storage.log("Game resumed", {world: this.meta.name});
             }
             if (index === 1) this.menu = "settings";
-            if (index === 2) {
+            if (index === 2) this.menu = "plugins";
+            if (index === 3) {
                 this.stop("world-list");
                 app!.innerHTML = "";
                 document.body.innerHTML = "";
@@ -1042,7 +1111,7 @@ class GameSession {
             const y = height - (this.chatOpen ? 54 : 18) - (visible.length - index) * 22;
             ctx.fillStyle = "rgba(0,0,0,.6)";
             ctx.fillRect(14, y, Math.min(width - 28, 600), 20);
-            ctx.fillStyle = "#fff";
+            ctx.fillStyle = message.color;
             ctx.fillText(message.text, 22, y + 14);
         });
         ctx.globalAlpha = 1;
@@ -1071,6 +1140,22 @@ class GameSession {
             ctx.textAlign = "center";
             ctx.fillStyle = "#f5dc8e";
             ctx.fillText(this.notice, width / 2, 42);
+            ctx.textAlign = "left";
+        }
+        if (this.titleMessage) {
+            const fade = Math.min(1, this.titleMessage.age / 0.2, (this.titleMessage.duration - this.titleMessage.age) / 0.35);
+            ctx.save();
+            ctx.globalAlpha = Math.max(0, fade);
+            ctx.textAlign = "center";
+            ctx.font = "700 36px 'LXGW WenKai', Manrope";
+            ctx.fillStyle = this.titleMessage.color;
+            ctx.fillText(this.titleMessage.title, width / 2, height * 0.36);
+            if (this.titleMessage.subtitle) {
+                ctx.font = "600 19px 'LXGW WenKai', Manrope";
+                ctx.fillStyle = this.titleMessage.subtitleColor;
+                ctx.fillText(this.titleMessage.subtitle, width / 2, height * 0.36 + 34);
+            }
+            ctx.restore();
             ctx.textAlign = "left";
         }
         if (this.inventoryOpen) this.renderInventory(ctx);
@@ -1124,7 +1209,7 @@ class GameSession {
         ctx.fillRect(0, 0, width, height);
         const bindingMode = this.menu === "bindings";
         const boxW = Math.min(460, width - 40);
-        const boxH = bindingMode ? 620 : this.menu === "settings" ? 540 : 410;
+        const boxH = bindingMode ? 620 : this.menu === "settings" ? 540 : this.menu === "plugins" ? Math.min(620, height - 40) : this.menu === "pause" ? 476 : 410;
         const x = (width - boxW) / 2;
         const y = (height - boxH) / 2;
         ctx.fillStyle = "#13252d";
@@ -1134,7 +1219,7 @@ class GameSession {
         ctx.fillStyle = "#f8f4e7";
         ctx.textAlign = "center";
         ctx.font = "700 30px Georgia";
-        const title = bindingMode ? t(language, "settings_keybindings") : this.menu === "settings" ? t(language, "settings_title") : this.menu === "display" ? t(language, "settings_display") : t(language, "pause_title");
+        const title = bindingMode ? t(language, "settings_keybindings") : this.menu === "settings" ? t(language, "settings_title") : this.menu === "display" ? t(language, "settings_display") : this.menu === "plugins" ? t(language, "plugins_title") : t(language, "pause_title");
         ctx.fillText(title, width / 2, y + 54);
         ctx.font = "14px 'LXGW WenKai', Manrope";
         if (bindingMode) {
@@ -1158,6 +1243,45 @@ class GameSession {
             ctx.textAlign = "center";
             ctx.fillStyle = "#e7eee5";
             ctx.fillText(t(language, "settings_back"), width / 2, by + 27);
+        } else if (this.menu === "plugins") {
+            if (!pluginReports.length) {
+                ctx.fillStyle = "#b9d2ca";
+                ctx.textAlign = "center";
+                ctx.fillText(t(language, "plugins_none"), width / 2, y + 112);
+            }
+            pluginReports.slice(0, 4).forEach((report, index) => {
+                const by = y + 78 + index * 108;
+                const plugin = report.plugin;
+                ctx.fillStyle = plugin ? "#28434a" : "#4c2b2b";
+                ctx.fillRect(x + 28, by, boxW - 56, 94);
+                ctx.textAlign = "left";
+                ctx.font = "700 16px 'LXGW WenKai', Manrope";
+                ctx.fillStyle = "#f8f4e7";
+                ctx.fillText(plugin?.name || report.source.split("/").at(-1) || "plugin", x + 42, by + 24);
+                ctx.textAlign = "right";
+                ctx.fillStyle = plugin ? "#8de0a5" : "#f39494";
+                ctx.fillText(plugin ? t(language, "plugins_loaded") : t(language, "plugins_failed"), x + boxW - 42, by + 24);
+                ctx.textAlign = "left";
+                ctx.font = "12px 'LXGW WenKai', Manrope";
+                ctx.fillStyle = "#b9d2ca";
+                const details = plugin
+                    ? `${plugin.id}  |  ${t(language, "plugins_version")} ${plugin.version || "-"}  |  ${t(language, "plugins_authors")} ${(plugin.authors || []).join(", ") || "-"}`
+                    : `${t(language, "plugins_source")}: ${report.source.split("/").at(-1)} | ${report.error || "Unknown error"}`;
+                ctx.fillText(details.slice(0, 62), x + 42, by + 46);
+                const description = plugin?.description || plugin?.website || `${t(language, "plugins_source")}: ${report.source.split("/").at(-1)}`;
+                ctx.fillStyle = "#e7eee5";
+                ctx.fillText(description.slice(0, 68), x + 42, by + 68);
+                if (plugin?.website) {
+                    ctx.fillStyle = "#e2bc68";
+                    ctx.fillText(`${t(language, "plugins_website")}: ${plugin.website}`.slice(0, 68), x + 42, by + 86);
+                }
+            });
+            const by = y + boxH - 72;
+            ctx.fillStyle = "#28434a";
+            ctx.fillRect(x + 52, by, boxW - 104, 44);
+            ctx.textAlign = "center";
+            ctx.fillStyle = "#e7eee5";
+            ctx.fillText(t(language, "settings_back"), width / 2, by + 28);
         } else {
             const labels = this.menu === "settings"
                 ? [
@@ -1177,7 +1301,7 @@ class GameSession {
                         `${t(language, "display_spectate_brightness")}: ${Math.round(settings.spectateBrightness * 100)}%`,
                         t(language, "settings_back"),
                     ]
-                    : [t(language, "pause_resume"), t(language, "settings_title"), t(language, "pause_homepage")];
+                    : [t(language, "pause_resume"), t(language, "settings_title"), t(language, "pause_plugins"), t(language, "pause_homepage")];
             labels.forEach((label, index) => {
                 const by = y + 92 + index * 66;
                 ctx.fillStyle = "#28434a";
@@ -1229,7 +1353,10 @@ app.addEventListener("click", (event) => {
             return;
         }
         renderLogin(text("注册成功，请登录", "Registered, please log in"));
-    } else if (action === "logout") renderLogin(); else if (action === "create-world") renderCreate(); else if (action === "worlds") renderWorlds(); else if (action === "save-world") {
+    } else if (action === "logout") renderLogin(); else if (action === "plugins") renderPlugins(); else if (action === "plugins-rescan") {
+        const count = refreshPluginReports();
+        renderPlugins(count ? text(`发现 ${count} 个新插件文件，请重新加载页面安装。`, `Found ${count} new plugin file(s). Reload the page to install.`) : text("未发现新的插件文件。", "No new plugin files found."));
+    } else if (action === "plugins-reload") window.location.reload(); else if (action === "create-world") renderCreate(); else if (action === "worlds") renderWorlds(); else if (action === "save-world") {
         const get = (id: string) => document.querySelector<HTMLInputElement>(`#${id}`)?.value || "";
         const seedInput = get("world-seed").trim();
         const numericSeed = Number(seedInput);

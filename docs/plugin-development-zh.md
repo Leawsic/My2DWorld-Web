@@ -189,6 +189,24 @@ api.onBlockPlaced(({ type }) => {
 
 `api.Registries` 提供底层注册表集合：`api.Registries.blocks` 和 `api.Registries.gameModes`。核心代码从 `src/registry.ts` 导出 `Blocks`、`GameModes`、`Registries`、`blockRegistry` 和 `gameModeRegistry`。每个注册表的 `get(id)`、`has(id)`、`list()` 方法可用于动态查找和枚举对象。
 
+## 玩家消息 API
+
+插件可以通过 `api.messages` 或生命周期回调中的 `context.messages` 向当前玩家发送消息。消息仅在玩家已进入世界时显示；颜色必须为 `#RRGGBB`，非法颜色会回退为白色。
+
+```js
+api.onGameStart((context) => {
+  context.messages.chat("欢迎进入水晶世界", { color: "#8be9fd" });
+  context.messages.title("水晶世界", {
+    color: "#f2ca52",
+    subtitle: "新的旅程开始了",
+    subtitleColor: "#d8edda",
+    duration: 4
+  });
+});
+```
+
+`chat(text, options)` 会将文字加入游戏聊天框，聊天框关闭时按正常规则淡出。`title(title, options)` 会在屏幕中央显示标题和可选副标题；`duration` 单位为秒，范围会被限制在 0.5 到 15 秒。
+
 ## 可用 World 操作
 
 当前插件可以使用 `World` 的公开方法：

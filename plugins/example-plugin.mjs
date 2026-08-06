@@ -10,7 +10,11 @@ export default {
     description: "展示自动加载插件和游戏生命周期钩子。",
 
     install(api) {
-        api.onGameStart((context) => console.info(`[ExamplePlugin] ${context.meta.name} started`));
+        api.onGameStart((context) => {
+            console.info(`[ExamplePlugin] ${context.meta.name} started`);
+            context.messages.chat("Example plugin online", {color: "#8be9fd"});
+            context.messages.title("My2DWorld", {color: "#f2ca52", subtitle: "Example plugin loaded", subtitleColor: "#d8edda"});
+        });
         api.onGameStop((context) => console.info(`[ExamplePlugin] ${context.meta.name} stopped: ${context.reason}`));
     }
 };

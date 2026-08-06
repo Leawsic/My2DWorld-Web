@@ -245,6 +245,42 @@ input, select {
     min-width: 190px;
 }
 
+.world-actions, .plugin-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.world-actions {
+    width: min(760px, calc(100% - 48px));
+    margin: -8px auto 0;
+}
+
+.plugin-screen { min-height: 100vh; }
+.plugin-content { width: min(980px, calc(100% - 48px)); margin: 9vh auto; }
+.plugin-heading { display: flex; justify-content: space-between; align-items: end; gap: 28px; margin: 18px 0 24px; }
+.plugin-heading h1 { margin: 0; font-size: 36px; }
+.plugin-heading p { max-width: 600px; margin-bottom: 0; }
+.plugin-summary { display: grid; grid-template-columns: auto auto; gap: 2px 12px; min-width: 120px; color: #9fb5b2; font: 11px 'DM Mono', monospace; text-transform: uppercase; }
+.plugin-summary b { color: #e2bc68; font-size: 25px; text-align: right; }
+.plugin-summary span { align-self: end; padding-bottom: 4px; }
+.plugin-list { display: grid; gap: 12px; margin-top: 28px; }
+.plugin-card { padding: 20px 22px; background: rgba(17, 37, 47, .78); border-left: 4px solid #547276; border-top: 1px solid #385458; border-right: 1px solid #385458; border-bottom: 1px solid #385458; }
+.plugin-card.loaded { border-left-color: #7ebc88; }
+.plugin-card.pending { border-left-color: #e2bc68; }
+.plugin-card.failed { border-left-color: #d95f55; }
+.plugin-card-head { display: flex; justify-content: space-between; gap: 18px; align-items: start; }
+.plugin-card h2 { margin: 5px 0 0; font-size: 22px; }
+.plugin-card code { color: #88a49f; font: 11px 'DM Mono', monospace; overflow-wrap: anywhere; text-align: right; }
+.plugin-state { color: #e2bc68; font: 11px 'DM Mono', monospace; letter-spacing: .08em; text-transform: uppercase; }
+.plugin-card.loaded .plugin-state { color: #8de0a5; }
+.plugin-card.failed .plugin-state { color: #f39494; }
+.plugin-metadata { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 16px 0 10px; color: #9fb5b2; font: 11px 'DM Mono', monospace; }
+.plugin-metadata b { color: #e7eee5; font-weight: 500; }
+.plugin-card p { margin: 8px 0; color: #c2d1cd; line-height: 1.55; }
+.plugin-card a { color: #e2bc68; font: 12px 'DM Mono', monospace; overflow-wrap: anywhere; }
+.plugin-error { color: #f1aaa5 !important; font-family: 'DM Mono', monospace; overflow-wrap: anywhere; }
+
 .create-screen {
     min-height: 100vh;
     display: grid;
@@ -299,6 +335,28 @@ input, select {
 
     .world-content {
         margin-top: 56px;
+    }
+
+    .plugin-content {
+        margin-top: 56px;
+    }
+
+    .plugin-heading {
+        display: block;
+    }
+
+    .plugin-summary {
+        margin-top: 18px;
+    }
+
+    .plugin-card-head {
+        display: block;
+    }
+
+    .plugin-card code {
+        display: block;
+        margin-top: 12px;
+        text-align: left;
     }
 
     .world-row {
