@@ -1,7 +1,7 @@
 import "./style.css";
 import {type KeyState, Player} from "./core/player";
 import {storage, type PluginPackage} from "./core/storage";
-import {hashSeed, spawnX, World} from "./core/world";
+import {biomeAt, hashSeed, spawnX, World} from "./core/world";
 import {clampSpectateOffset} from "./core/spectate";
 import type {GameModeName, KeyBindings, Language, WorldMeta} from "./core/types";
 import {createMode} from "./modes";
@@ -18,6 +18,7 @@ let settings = storage.loadSettings();
 let language: Language = settings.language;
 let username = "steve";
 const plugins = new PluginRegistry();
+
 interface PluginLoadReport {
     source: string;
     package?: PluginPackage;
@@ -26,25 +27,39 @@ interface PluginLoadReport {
     blocks: string[];
     pending?: boolean;
 }
+
 const pluginReports: PluginLoadReport[] = [];
 
 function refreshPluginReports(): number {
     const knownSources = new Set(pluginReports.map((report) => report.source));
     const discovered = storage.listPlugins().filter((plugin) => !knownSources.has(plugin.entry));
-    discovered.forEach((plugin) => pluginReports.push({source: plugin.entry, package: plugin, blocks: [], pending: true}));
+    discovered.forEach((plugin) => pluginReports.push({
+        source: plugin.entry,
+        package: plugin,
+        blocks: [],
+        pending: true
+    }));
     return discovered.length;
 }
 
 async function loadExternalPlugins(): Promise<void> {
     for (const packageInfo of storage.listPlugins()) {
         try {
-            const module = await import(/* @vite-ignore */ packageInfo.entry) as { default?: GamePlugin; plugin?: GamePlugin };
+            const module = await import(/* @vite-ignore */ packageInfo.entry) as {
+                default?: GamePlugin;
+                plugin?: GamePlugin
+            };
             const plugin = module.default || module.plugin;
             if (!plugin) throw new Error("Module must export default or plugin");
             if (plugin.id !== packageInfo.id) throw new Error(`Manifest id ${packageInfo.id} does not match exported plugin id ${plugin.id}`);
             const previousBlocks = new Set(plugins.blocks.keys());
             plugins.use(plugin);
-            pluginReports.push({source: packageInfo.entry, package: packageInfo, plugin, blocks: [...plugins.blocks.keys()].filter((id) => !previousBlocks.has(id))});
+            pluginReports.push({
+                source: packageInfo.entry,
+                package: packageInfo,
+                plugin,
+                blocks: [...plugins.blocks.keys()].filter((id) => !previousBlocks.has(id))
+            });
             storage.log("Plugin loaded", {id: plugin.id, version: plugin.version || "unspecified"});
         } catch (error) {
             pluginReports.push({source: packageInfo.entry, package: packageInfo, error: String(error), blocks: []});
@@ -110,7 +125,13 @@ function renderWorlds(message = ""): void {
 }
 
 function escapeHtml(value: string): string {
-    return value.replace(/[&<>'"]/g, (character) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", "\"": "&quot;"})[character]!);
+    return value.replace(/[&<>'"]/g, (character) => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        "'": "&#39;",
+        "\"": "&quot;"
+    })[character]!);
 }
 
 function renderPlugins(message = ""): void {
@@ -147,8 +168,8 @@ class GameSession {
     private last = performance.now();
     private frame = 0;
     private autosaveElapsed = 0;
-      private hotbar: Array<string | null> = [Blocks.MY2DWORLD.GRASS_BLOCK_SIDE, Blocks.MY2DWORLD.DIRT, Blocks.MY2DWORLD.STONE, Blocks.MY2DWORLD.COBBLESTONE, Blocks.MY2DWORLD.MOSSY_COBBLESTONE, Blocks.MY2DWORLD.COAL_BLOCK, Blocks.MY2DWORLD.IRON_BLOCK, Blocks.MY2DWORLD.GOLD_BLOCK, Blocks.MY2DWORLD.DIAMOND_BLOCK].map((block) => block.id);
-      private inventorySlots: Array<string | null> = [Blocks.MY2DWORLD.DIAMOND_BLOCK, Blocks.MY2DWORLD.COAL_ORE, Blocks.MY2DWORLD.IRON_ORE, Blocks.MY2DWORLD.GOLD_ORE, Blocks.MY2DWORLD.DIAMOND_ORE, Blocks.MY2DWORLD.EMERALD_ORE, Blocks.MY2DWORLD.LAPIS_ORE, Blocks.MY2DWORLD.REDSTONE_ORE, Blocks.MY2DWORLD.COPPER_ORE, Blocks.MY2DWORLD.BEDROCK, Blocks.MY2DWORLD.DEEPSLATE_COAL_ORE, Blocks.MY2DWORLD.DEEPSLATE_IRON_ORE, Blocks.MY2DWORLD.DEEPSLATE_GOLD_ORE, Blocks.MY2DWORLD.DEEPSLATE_DIAMOND_ORE, Blocks.MY2DWORLD.DEEPSLATE_EMERALD_ORE, Blocks.MY2DWORLD.DEEPSLATE_LAPIS_ORE, Blocks.MY2DWORLD.DEEPSLATE_REDSTONE_ORE, Blocks.MY2DWORLD.DEEPSLATE_COPPER_ORE, Blocks.MY2DWORLD.RAW_IRON_BLOCK, Blocks.MY2DWORLD.RAW_GOLD_BLOCK, Blocks.MY2DWORLD.NETHER_QUARTZ_ORE, Blocks.MY2DWORLD.NETHER_GOLD_ORE, Blocks.MY2DWORLD.IRON_BARS, Blocks.MY2DWORLD.IRON_CHAIN, Blocks.MY2DWORLD.MOSSY_COBBLESTONE, Blocks.MY2DWORLD.IRON_BLOCK, Blocks.MY2DWORLD.GOLD_BLOCK].map((block) => block.id);
+    private hotbar: Array<string | null> = [Blocks.MY2DWORLD.GRASS_BLOCK_SIDE, Blocks.MY2DWORLD.DIRT, Blocks.MY2DWORLD.STONE, Blocks.MY2DWORLD.COBBLESTONE, Blocks.MY2DWORLD.MOSSY_COBBLESTONE, Blocks.MY2DWORLD.COAL_BLOCK, Blocks.MY2DWORLD.IRON_BLOCK, Blocks.MY2DWORLD.GOLD_BLOCK, Blocks.MY2DWORLD.DIAMOND_BLOCK].map((block) => block.id);
+    private inventorySlots: Array<string | null> = [Blocks.MY2DWORLD.DIAMOND_BLOCK, Blocks.MY2DWORLD.COAL_ORE, Blocks.MY2DWORLD.IRON_ORE, Blocks.MY2DWORLD.GOLD_ORE, Blocks.MY2DWORLD.DIAMOND_ORE, Blocks.MY2DWORLD.EMERALD_ORE, Blocks.MY2DWORLD.LAPIS_ORE, Blocks.MY2DWORLD.REDSTONE_ORE, Blocks.MY2DWORLD.COPPER_ORE, Blocks.MY2DWORLD.BEDROCK, Blocks.MY2DWORLD.DEEPSLATE_COAL_ORE, Blocks.MY2DWORLD.DEEPSLATE_IRON_ORE, Blocks.MY2DWORLD.DEEPSLATE_GOLD_ORE, Blocks.MY2DWORLD.DEEPSLATE_DIAMOND_ORE, Blocks.MY2DWORLD.DEEPSLATE_EMERALD_ORE, Blocks.MY2DWORLD.DEEPSLATE_LAPIS_ORE, Blocks.MY2DWORLD.DEEPSLATE_REDSTONE_ORE, Blocks.MY2DWORLD.DEEPSLATE_COPPER_ORE, Blocks.MY2DWORLD.RAW_IRON_BLOCK, Blocks.MY2DWORLD.RAW_GOLD_BLOCK, Blocks.MY2DWORLD.NETHER_QUARTZ_ORE, Blocks.MY2DWORLD.NETHER_GOLD_ORE, Blocks.MY2DWORLD.IRON_BARS, Blocks.MY2DWORLD.IRON_CHAIN, Blocks.MY2DWORLD.MOSSY_COBBLESTONE, Blocks.MY2DWORLD.IRON_BLOCK, Blocks.MY2DWORLD.GOLD_BLOCK].map((block) => block.id);
     private selected = 0;
     private health = 20;
     private voidDamageTimer = 0;
@@ -235,7 +256,7 @@ class GameSession {
                 this.handleChatKey(event);
                 return;
             }
-     if (event.code === "KeyE" && this.modeName === GameModes.CREATIVE.id) {
+            if (event.code === "KeyE" && this.modeName === GameModes.CREATIVE.id) {
                 this.toggleInventory();
                 event.preventDefault();
                 return;
@@ -567,17 +588,29 @@ class GameSession {
         this.chatScroll = 0;
     }
 
-    private titleMessage: {title: string; color: string; subtitle?: string; subtitleColor: string; age: number; duration: number} | null = null;
+    private titleMessage: {
+        title: string;
+        color: string;
+        subtitle?: string;
+        subtitleColor: string;
+        age: number;
+        duration: number
+    } | null = null;
 
     private messageColor(color?: string): string {
         return color && /^#[0-9a-f]{6}$/i.test(color) ? color : "#ffffff";
     }
 
-    private sendPluginChat = (text: string, options?: {color?: string}): void => {
+    private sendPluginChat = (text: string, options?: { color?: string }): void => {
         this.addChat(text.slice(0, 160), options?.color);
     };
 
-    private sendPluginTitle = (title: string, options?: {color?: string; subtitle?: string; subtitleColor?: string; duration?: number}): void => {
+    private sendPluginTitle = (title: string, options?: {
+        color?: string;
+        subtitle?: string;
+        subtitleColor?: string;
+        duration?: number
+    }): void => {
         this.titleMessage = {
             title: title.slice(0, 100),
             color: this.messageColor(options?.color),
@@ -934,7 +967,7 @@ class GameSession {
                 const sy = Math.round((cameraY - y) * this.blockSize + height / 2);
                 const image = this.blockImages.get(block.id);
                 if (image?.complete && image.naturalWidth) ctx.drawImage(image, sx, sy, this.blockSize, this.blockSize); else {
-                     ctx.fillStyle = block.color;
+                    ctx.fillStyle = block.color;
                     ctx.fillRect(sx, sy, this.blockSize, this.blockSize);
                 }
             }
@@ -1080,7 +1113,7 @@ class GameSession {
         });
         if (this.debug) {
             ctx.fillStyle = "#102229";
-            ctx.fillRect(18, 124, 370, 240);
+            ctx.fillRect(18, 124, 370, 304);
             ctx.fillStyle = "#d8e4df";
             ctx.font = "12px ui-monospace";
             const target = this.hovered();
@@ -1089,6 +1122,7 @@ class GameSession {
                 `${t(language, "debug_mode")} ${t(language, this.modeName === "creative" ? "mode_creative" : "mode_spectator")}`,
                 `${t(language, "debug_world")} ${this.meta.name}`,
                 `${t(language, "debug_seed")} ${this.meta.seed ?? 0}`,
+                `${t(language, "debug_biome")} ${t(language, `biome_${biomeAt(Math.floor(this.player.x), this.meta.seed ?? 0).id}`)}`,
                 `${t(language, "debug_player")} ${this.player.x.toFixed(1)}, ${this.player.y.toFixed(1)}`,
                 `${t(language, "debug_velocity")} ${this.player.velocityX.toFixed(2)}, ${this.player.velocityY.toFixed(2)}`,
                 `${t(language, "debug_camera")} ${(this.player.x + this.cameraOffsetX).toFixed(1)}, ${(this.player.y + this.cameraOffsetY).toFixed(1)}`,
