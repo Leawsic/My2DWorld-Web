@@ -1,7 +1,7 @@
 import "./style.css";
 import {type KeyState, Player} from "./core/player";
 import {storage, type PluginPackage} from "./core/storage";
-import {biomeAt, hashSeed, spawnX, World} from "./core/world";
+import {biomeAt, hashSeed, spawnX, World, WORLD_HEIGHT} from "./core/world";
 import {clampSpectateOffset} from "./core/spectate";
 import {
     DEFAULT_SETTINGS,
@@ -969,7 +969,7 @@ class GameSession {
         const top = Math.ceil(cameraY + height / this.blockSize / 2 + 1);
         for (const [chunkX, chunk] of this.world.chunks) {
             if (chunkX * 16 > right || (chunkX + 1) * 16 < left) continue;
-            for (let x = Math.max(left, chunk.start); x < Math.min(right, chunk.start + 16); x += 1) for (let y = bottom; y <= Math.min(top, chunk.surfaces[x - chunk.start]); y += 1) {
+            for (let x = Math.max(left, chunk.start); x < Math.min(right, chunk.start + 16); x += 1) for (let y = bottom; y <= Math.min(top, WORLD_HEIGHT - 1); y += 1) {
                 const id = this.world.getBlockId(x, y);
                 if (!id) continue;
                 const sx = Math.round((x - cameraX) * this.blockSize + width / 2);
