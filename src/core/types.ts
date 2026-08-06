@@ -22,8 +22,8 @@ export interface WorldSave {
     playerX: number;
     playerY: number;
     mode: GameModeName;
-    brokenBlocks: [number, number][];
-    placedBlocks: [number, number, BlockType][];
+    idTable: string[];
+    chunks: Record<string, string>;
 }
 
 export interface PlayerSettings {

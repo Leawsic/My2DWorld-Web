@@ -67,20 +67,22 @@ Web 版本有意不使用 `localStorage`。所有可变数据都以 JSON 文件�
 run/accounts/<用户名>.json          加盐 SHA-256 账号记录
 run/config/<用户名>.json            用户界面、移动参数和按键绑定
 run/worlds/<用户名>.json            世界列表和每个世界的物理参数
-run/worlds/<用户名>_<世界ID>.json   玩家位置、模式、破坏和放置的方块
+run/worlds/<用户名>_<世界ID>.json   玩家位置、模式、方块数字 ID 表
+run/worlds/<用户名>_<世界ID>.chunk.<区块X>.<区块Y>.dat   被修改区块的原始字节
 ```
 
-世界 ID 使用 UUID，因此修改显示名称不会影响存档路径。世界存档格式如下：
+世界 ID 使用 UUID，因此修改显示名称不会影响存档路径。存档采用"只存被修改区块"的脏区块模型：未触碰区块在进入视距时由种子重建，玩家破坏/放置只标记所在区块，自动保存仅上传脏区块。世界状态 JSON 记录玩家位置、模式与 `idTable`（数字方块 ID → 资源 ID 的映射），每个脏区块存为独立的二进制 `.dat` 文件（原始 Uint16Array 小端字节，可还原为 base64 传输）：
 
 ```json
 {
   "playerX": 0,
   "playerY": 45.001,
   "mode": "creative",
-  "brokenBlocks": [[2, 40]],
-  "placedBlocks": [[3, 42, "my2dworld:stone"]]
+  "idTable": ["my2dworld:grass_block_side", "my2dworld:dirt"]
 }
 ```
+
+加载时先按种子重建区块，再用 `idTable` 把存档中的数字 ID 重映射到当前插件集的方块。旧版"重建 + 差异"存档格式不再识别，直接视为全新世界。
 
 服务端只允许文件名组件使用单词字符、连字符和下划线，以阻止路径遍历。
 

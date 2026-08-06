@@ -3,7 +3,15 @@ import {type KeyState, Player} from "./core/player";
 import {storage, type PluginPackage} from "./core/storage";
 import {biomeAt, hashSeed, spawnX, World} from "./core/world";
 import {clampSpectateOffset} from "./core/spectate";
-import type {GameModeName, KeyBindings, Language, WorldMeta} from "./core/types";
+import {
+    DEFAULT_SETTINGS,
+    type GameModeName,
+    type KeyBindings,
+    type Language,
+    type PlayerSettings,
+    type WorldMeta,
+    type WorldSave
+} from "./core/types";
 import {createMode} from "./modes";
 import type {GameMode} from "./modes/base";
 import {CreativeMode} from "./modes/creative";
@@ -14,7 +22,7 @@ import {Blocks, GameModes, blockRegistry} from "./registry";
 const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("App root is missing");
 
-let settings = storage.loadSettings();
+let settings: PlayerSettings = DEFAULT_SETTINGS;
 let language: Language = settings.language;
 let username = "steve";
 const plugins = new PluginRegistry();
@@ -30,9 +38,9 @@ interface PluginLoadReport {
 
 const pluginReports: PluginLoadReport[] = [];
 
-function refreshPluginReports(): number {
+async function refreshPluginReports(): Promise<number> {
     const knownSources = new Set(pluginReports.map((report) => report.source));
-    const discovered = storage.listPlugins().filter((plugin) => !knownSources.has(plugin.entry));
+    const discovered = (await storage.listPlugins()).filter((plugin) => !knownSources.has(plugin.entry));
     discovered.forEach((plugin) => pluginReports.push({
         source: plugin.entry,
         package: plugin,
@@ -43,7 +51,7 @@ function refreshPluginReports(): number {
 }
 
 async function loadExternalPlugins(): Promise<void> {
-    for (const packageInfo of storage.listPlugins()) {
+    for (const packageInfo of await storage.listPlugins()) {
         try {
             const module = await import(/* @vite-ignore */ packageInfo.entry) as {
                 default?: GamePlugin;
@@ -118,8 +126,8 @@ function renderLogin(message = ""): void {
     shell(`<section class="login-screen"><div class="brand"><span>MY2D</span><strong>WORLD</strong><small>an endless block journal</small></div><div class="login-panel"><div class="eyebrow">LOCAL SESSION / 01</div><h1>${text("进入世界", "Enter your world")}</h1><p>${text("在浏览器中继续你的无限地形旅程。", "Continue your infinite terrain journey in the browser.")}</p><input id="username" placeholder="${text("账号", "Username")}" /><input id="password" type="password" placeholder="${text("密码", "Password")}" /><div class="actions">${button(text("登录", "Login"), "login", "primary")}${button(text("注册", "Register"), "register")}</div><div class="login-tools"><button data-action="language">${language === "zh" ? "中文" : "English"}</button><button data-action="demo">${text("使用默认账号", "Use demo account")}</button></div><div class="message">${message}</div></div></section>`);
 }
 
-function renderWorlds(message = ""): void {
-    const worlds = storage.loadWorlds(username);
+async function renderWorlds(message = ""): Promise<void> {
+    const worlds = await storage.loadWorlds(username);
     const rows = worlds.map((world) => `<div class="world-row"><div><b>${world.name}</b><span>${world.mode === "creative" ? text("创造模式", "Creative") : text("旁观模式", "Spectator")} · ${text("种子", "Seed")} ${world.seed ?? 0}</span></div>${button(text("进入", "Enter"), `enter:${world.id}`, "primary")}${button(text("删除", "Delete"), `delete:${world.id}`, "small")}</div>`).join("");
     shell(`<section class="world-screen"><header class="topbar"><div class="brand compact"><span>MY2D</span><strong>WORLD</strong></div><div class="top-actions"><span>${username}</span><button data-action="plugins">${text("插件", "Plugins")} · ${pluginReports.length}</button><button data-action="language">${language === "zh" ? "中" : "EN"}</button>${button(text("退出", "Log out"), "logout")}</div></header><div class="world-content"><div class="section-kicker">WORLD ARCHIVE / ${String(worlds.length).padStart(2, "0")}</div><h1>${text("我的世界", "My worlds")}</h1><p class="muted">${text("选择一个存档，或者从一片新的地平线开始。", "Choose a save, or start from a new horizon.")}</p><div class="world-list">${rows || `<div class="empty">${text("还没有世界。创建第一个世界。", "No worlds yet. Create your first one.")}</div>`}</div></div><div class="world-actions">${button(text("插件管理", "Plugin Manager"), "plugins")}${button(text("创建世界", "Create world"), "create-world", "primary create")}</div><div class="message">${message}</div></div></section>`);
 }
@@ -200,17 +208,16 @@ class GameSession {
     private modeComboPending = false;
     private modeComboConsumed = false;
 
-    constructor(readonly meta: WorldMeta) {
+    constructor(readonly meta: WorldMeta, private readonly initialSave: WorldSave | null) {
         this.modeName = meta.mode;
         this.world = new World(8, meta.seed ?? 0);
-        const save = storage.loadWorld(meta.id);
-        const x = save?.playerX ?? spawnX(meta.seed ?? 0);
-        const y = save?.playerY ?? this.world.getSurfaceHeight(x) + 0.001;
+        const x = this.initialSave?.playerX ?? spawnX(meta.seed ?? 0);
+        const y = this.initialSave?.playerY ?? this.world.getSurfaceHeight(x) + 0.001;
         this.world.updateView(x);
-        this.world.restore(save?.brokenBlocks ?? [], save?.placedBlocks ?? []);
+        this.world.restore(this.initialSave);
         plugins.notifyWorldCreated(this.world);
         this.player = new Player(x, y, meta.physics);
-        if (save?.mode) this.modeName = save.mode;
+        if (this.initialSave?.mode) this.modeName = this.initialSave.mode;
         this.mode = createMode(this.modeName);
         [...new Set([...this.inventorySlots, ...this.hotbar, ...plugins.blocks.keys()].filter((type): type is string => type !== null))].forEach((type) => this.loadBlock(type));
         this.loadGui("mode_creative", "/assets/gui/gamemode/creative.png");
@@ -517,7 +524,7 @@ class GameSession {
             if (input) {
                 this.chatHistory.push(input);
                 this.chatHistory = this.chatHistory.slice(-200);
-                this.submitChat(input);
+                void this.submitChat(input);
             }
             this.chatOpen = false;
             this.chatText = "";
@@ -544,7 +551,7 @@ class GameSession {
         event.preventDefault();
     }
 
-    private submitChat(input: string): void {
+    private async submitChat(input: string): Promise<void> {
         this.addChat(`> ${input}`);
         if (!input.startsWith("/")) {
             this.addChat(input);
@@ -570,8 +577,8 @@ class GameSession {
             this.meta.physics.walkSpeed = speed;
             settings.movement.walkSpeed = speed;
             storage.saveSettings(settings);
-            const worlds = storage.loadWorlds(username).map((world) => world.id === this.meta.id ? this.meta : world);
-            storage.saveWorlds(worlds, username);
+            const worlds = (await storage.loadWorlds(username)).map((world) => world.id === this.meta.id ? this.meta : world);
+            await storage.saveWorlds(worlds, username);
             this.save();
             this.addChat(`Movement speed set to ${speed}`);
         } else if (command === "debug" && ["on", "off", "true", "false"].includes(parts[1])) {
@@ -884,7 +891,7 @@ class GameSession {
                 app!.innerHTML = "";
                 document.body.innerHTML = "";
                 document.body.appendChild(app!);
-                renderWorlds();
+                void renderWorlds();
             }
             return;
         }
@@ -938,12 +945,14 @@ class GameSession {
 
     private save = (): void => {
         const changes = this.world.serializeChanges();
-        storage.saveWorld(this.meta.id, {
+        void storage.saveWorld(this.meta.id, {
             playerX: this.player.x,
             playerY: this.player.y,
             mode: this.modeName,
-            ...changes,
+            idTable: changes.idTable,
+            chunks: changes.chunks,
         });
+        this.world.clearDirty();
     };
 
     private render(): void {
@@ -960,27 +969,17 @@ class GameSession {
         const top = Math.ceil(cameraY + height / this.blockSize / 2 + 1);
         for (const [chunkX, chunk] of this.world.chunks) {
             if (chunkX * 16 > right || (chunkX + 1) * 16 < left) continue;
-            for (let x = Math.max(left, chunk.start); x < Math.min(right, chunk.start + 16); x += 1) for (let y = bottom; y <= Math.min(top, chunk.surfaces.get(x) ?? 0); y += 1) {
-                const block = this.world.getBlock(x, y);
-                if (!block) continue;
+            for (let x = Math.max(left, chunk.start); x < Math.min(right, chunk.start + 16); x += 1) for (let y = bottom; y <= Math.min(top, chunk.surfaces[x - chunk.start]); y += 1) {
+                const id = this.world.getBlockId(x, y);
+                if (!id) continue;
                 const sx = Math.round((x - cameraX) * this.blockSize + width / 2);
                 const sy = Math.round((cameraY - y) * this.blockSize + height / 2);
-                const image = this.blockImages.get(block.id);
+                const image = this.blockImages.get(id);
                 if (image?.complete && image.naturalWidth) ctx.drawImage(image, sx, sy, this.blockSize, this.blockSize); else {
-                    ctx.fillStyle = block.color;
+                    const definition = blockRegistry.get(id);
+                    ctx.fillStyle = definition?.color ?? "#000000";
                     ctx.fillRect(sx, sy, this.blockSize, this.blockSize);
                 }
-            }
-        }
-        for (const [cell, block] of this.world.placedBlocks) {
-            const [x, y] = World.parseCell(cell);
-            if (x < left || x > right || y < bottom || y > top) continue;
-            const sx = Math.round((x - cameraX) * this.blockSize + width / 2);
-            const sy = Math.round((cameraY - y) * this.blockSize + height / 2);
-            const image = this.blockImages.get(block.id);
-            if (image?.complete && image.naturalWidth) ctx.drawImage(image, sx, sy, this.blockSize, this.blockSize); else {
-                ctx.fillStyle = "#cc39b7";
-                ctx.fillRect(sx, sy, this.blockSize, this.blockSize);
             }
         }
         const target = this.hovered();
@@ -1349,11 +1348,12 @@ class GameSession {
     }
 }
 
-function startGame(meta: WorldMeta): void {
-    new GameSession(meta);
+async function startGame(meta: WorldMeta): Promise<void> {
+    const save = await storage.loadWorld(meta.id);
+    new GameSession(meta, save);
 }
 
-app.addEventListener("click", (event) => {
+app.addEventListener("click", async (event) => {
     const target = event.target as HTMLElement;
     const action = target.dataset.action;
     if (!action) return;
@@ -1369,28 +1369,28 @@ app.addEventListener("click", (event) => {
             return;
         }
         if (action === "demo" && !window.confirm(text("确定使用默认账号 steve 登录吗？", "Log in with the demo account steve?"))) return;
-        if (!storage.account(candidate, password?.value || "1234asdf", "login")) {
+        if (!(await storage.account(candidate, password?.value || "1234asdf", "login"))) {
             renderLogin(text("账号或密码错误", "Wrong username or password"));
             return;
         }
         username = candidate;
         storage.setUser(username);
-        settings = storage.loadSettings();
+        settings = await storage.loadSettings();
         language = settings.language;
-        renderWorlds();
+        await renderWorlds();
     } else if (action === "register") {
         const input = document.querySelector<HTMLInputElement>("#username");
         const password = document.querySelector<HTMLInputElement>("#password");
         const candidate = input?.value.trim() || "";
-        if (!candidate || !password?.value || password.value.length < 4 || !storage.account(candidate, password.value, "register")) {
+        if (!candidate || !password?.value || password.value.length < 4 || !(await storage.account(candidate, password.value, "register"))) {
             renderLogin(text("注册失败：账号已存在或密码少于4位", "Registration failed: account exists or password is too short"));
             return;
         }
         renderLogin(text("注册成功，请登录", "Registered, please log in"));
     } else if (action === "logout") renderLogin(); else if (action === "plugins") renderPlugins(); else if (action === "plugins-rescan") {
-        const count = refreshPluginReports();
+        const count = await refreshPluginReports();
         renderPlugins(count ? text(`发现 ${count} 个新插件文件，请重新加载页面安装。`, `Found ${count} new plugin file(s). Reload the page to install.`) : text("未发现新的插件文件。", "No new plugin files found."));
-    } else if (action === "plugins-reload") window.location.reload(); else if (action === "create-world") renderCreate(); else if (action === "worlds") renderWorlds(); else if (action === "save-world") {
+    } else if (action === "plugins-reload") window.location.reload(); else if (action === "create-world") renderCreate(); else if (action === "worlds") void renderWorlds(); else if (action === "save-world") {
         const get = (id: string) => document.querySelector<HTMLInputElement>(`#${id}`)?.value || "";
         const seedInput = get("world-seed").trim();
         const numericSeed = Number(seedInput);
@@ -1408,16 +1408,16 @@ app.addEventListener("click", (event) => {
             seed,
             createdAt: new Date().toISOString()
         };
-        storage.saveWorlds([...storage.loadWorlds(username), meta], username);
-        startGame(meta);
+        await storage.saveWorlds([...(await storage.loadWorlds(username)), meta], username);
+        await startGame(meta);
     } else if (action.startsWith("enter:")) {
-        const meta = storage.loadWorlds(username).find((item) => item.id === action.slice(6));
-        if (meta) startGame(meta);
+        const meta = (await storage.loadWorlds(username)).find((item) => item.id === action.slice(6));
+        if (meta) await startGame(meta);
     } else if (action.startsWith("delete:")) {
         const id = action.slice(7);
-        storage.removeWorld(id, username);
-        storage.saveWorlds(storage.loadWorlds(username).filter((item) => item.id !== id), username);
-        renderWorlds();
+        await storage.removeWorld(id, username);
+        await storage.saveWorlds((await storage.loadWorlds(username)).filter((item) => item.id !== id), username);
+        void renderWorlds();
     }
 });
 
@@ -1434,9 +1434,16 @@ document.addEventListener("keydown", (event) => {
             const newPassword = document.querySelector<HTMLInputElement>("#password");
             if (newUsername) newUsername.value = usernameInput || "";
             if (newPassword && passwordInput) newPassword.value = passwordInput;
-        } else if (document.querySelector(".world-screen")) renderWorlds();
+        } else if (document.querySelector(".world-screen")) void renderWorlds();
         else if (document.querySelector(".create-screen")) renderCreate();
     }
 }, true);
 
-void loadExternalPlugins().finally(() => renderLogin());
+async function boot(): Promise<void> {
+    settings = await storage.loadSettings();
+    language = settings.language;
+    await loadExternalPlugins();
+    renderLogin();
+}
+
+void boot();

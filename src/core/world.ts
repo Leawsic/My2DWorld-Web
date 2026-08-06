@@ -79,36 +79,59 @@ export function biomeAt(x: number, seed = 0): Biome {
 const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
 const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
 
+export const WORLD_HEIGHT = 128;
+
 export class Chunk {
     readonly start: number;
-    readonly blocks = new Map<string, Block>();
-    readonly surfaces = new Map<number, number>();
+    /** Column-major numeric block ids: index = localX * WORLD_HEIGHT + y; air = 0. */
+    readonly blocks = new Uint16Array(CHUNK_SIZE * WORLD_HEIGHT);
+    readonly surfaces = new Int16Array(CHUNK_SIZE);
 
-    constructor(readonly x: number, readonly seed = 0) {
+    constructor(readonly x: number, readonly numFor: (type: BlockType) => number, readonly seed: number) {
         this.start = x * CHUNK_SIZE;
-        for (let worldX = this.start; worldX < this.start + CHUNK_SIZE; worldX += 1) {
+        for (let local = 0; local < CHUNK_SIZE; local += 1) {
+            const worldX = this.start + local;
             const surface = terrainHeight(worldX, seed);
-            this.surfaces.set(worldX, surface);
+            this.surfaces[local] = surface;
+            const column = local * WORLD_HEIGHT;
             for (let y = 1; y <= surface; y += 1) {
                 const type = generatedBlock(worldX, y, surface, seed);
-                if (type) this.blocks.set(World.cell(worldX, y), new Block(blockRegistry.get(type)!, worldX, y));
+                if (type) this.blocks[column + y] = numFor(type);
             }
         }
     }
 
-    getBlock(cell: string): Block | null {
-        return this.blocks.get(cell) ?? null;
+    blockAt(localX: number, y: number): number {
+        return this.blocks[localX * WORLD_HEIGHT + y];
     }
 
-    setBlock(block: Block): void {
-        this.blocks.set(World.cell(block.x, block.y), block);
+    setBlock(localX: number, y: number, num: number): void {
+        this.blocks[localX * WORLD_HEIGHT + y] = num;
     }
 
-    removeBlock(x: number, y: number): Block | null {
-        const cell = World.cell(x, y);
-        const block = this.blocks.get(cell) ?? null;
-        this.blocks.delete(cell);
-        return block;
+    encode(): string {
+        const bytes = new Uint8Array(this.blocks.length * 2);
+        const view = new DataView(bytes.buffer);
+        for (let i = 0; i < this.blocks.length; i += 1) view.setUint16(i * 2, this.blocks[i], true);
+        let binary = "";
+        for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+        return btoa(binary);
+    }
+}
+
+/** Decodes a base64 chunk into a Uint16Array of the expected length, or null. */
+export function decodeChunk(base64: string): Uint16Array | null {
+    try {
+        const binary = atob(base64);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+        if (bytes.length % 2 !== 0 || bytes.length / 2 !== CHUNK_SIZE * WORLD_HEIGHT) return null;
+        const data = new Uint16Array(bytes.length / 2);
+        const view = new DataView(bytes.buffer);
+        for (let i = 0; i < data.length; i += 1) data[i] = view.getUint16(i * 2, true);
+        return data;
+    } catch {
+        return null;
     }
 }
 
@@ -153,13 +176,27 @@ function generatedBlock(x: number, y: number, surface: number, seed = 0): BlockT
     return variant < biome.variantChance ? biome.stoneVariant : biome.stone;
 }
 
+export interface WorldChunkDelta {
+    idTable: string[];
+    chunks: Record<string, string>;
+}
+
 export class World {
     readonly chunks = new Map<number, Chunk>();
-    readonly brokenBlocks = new Set<string>();
-    readonly placedBlocks = new Map<string, Block>();
-    private centerChunk: number | null = null;
+    /** Chunks modified since the last save, keyed by "cx,0". */
+    readonly dirty = new Set<string>();
+    /** Latest block data for chunks that differ from generated terrain. */
+    private readonly editedChunks = new Map<string, Uint16Array>();
+    private readonly typeToNum = new Map<BlockType, number>();
+    private readonly numToType = new Map<number, BlockType>();
+    private centerChunk = 0;
+    private loaded = false;
 
     constructor(private readonly viewDistance = 8, readonly seed = 0) {
+        blockRegistry.list().forEach((definition, index) => {
+            this.typeToNum.set(definition.id, index + 1);
+            this.numToType.set(index + 1, definition.id);
+        });
     }
 
     static cell(x: number, y: number): string {
@@ -170,83 +207,123 @@ export class World {
         return cell.split(",").map(Number) as [number, number];
     }
 
+    numFor(type: BlockType): number {
+        return this.typeToNum.get(type) ?? 0;
+    }
+
+    typeFor(num: number): BlockType | null {
+        return this.numToType.get(num) ?? null;
+    }
+
     getChunk(x: number): Chunk | null {
         return this.chunks.get(Math.floor(x / CHUNK_SIZE)) ?? null;
     }
 
     updateView(cameraX: number): void {
         const center = Math.floor(cameraX / CHUNK_SIZE);
-        if (center === this.centerChunk) return;
+        if (center === this.centerChunk && this.loaded) return;
         this.centerChunk = center;
+        this.loaded = true;
         for (let x = center - this.viewDistance; x <= center + this.viewDistance; x += 1) this.loadChunk(x);
-        for (const x of this.chunks.keys()) if (Math.abs(x - center) > this.viewDistance + 2) this.chunks.delete(x);
+        for (const x of this.chunks.keys()) {
+            if (Math.abs(x - center) > this.viewDistance + 2) {
+                const cell = World.cell(x, 0);
+                const chunk = this.chunks.get(x);
+                if (chunk && (this.dirty.has(cell) || this.editedChunks.has(cell))) this.editedChunks.set(cell, chunk.blocks.slice());
+                this.chunks.delete(x);
+            }
+        }
     }
 
     getBlock(x: number, y: number): Block | null {
-        const cell = World.cell(x, y);
-        return this.placedBlocks.get(cell) ?? this.chunks.get(Math.floor(x / CHUNK_SIZE))?.blocks.get(cell) ?? null;
+        const id = this.getBlockId(x, y);
+        if (!id) return null;
+        const definition = blockRegistry.get(id);
+        return definition ? new Block(definition, x, y) : null;
     }
 
     getBlockId(x: number, y: number): BlockType | null {
-        return this.getBlock(x, y)?.id ?? null;
+        const chunk = this.chunks.get(Math.floor(x / CHUNK_SIZE));
+        if (!chunk || y < 1 || y >= WORLD_HEIGHT) return null;
+        const num = chunk.blockAt(x - chunk.start, y);
+        return num ? this.typeFor(num) : null;
     }
 
     breakBlock(x: number, y: number): Block | null {
-        const cell = World.cell(x, y);
-        const type = this.placedBlocks.get(cell) ?? this.chunks.get(Math.floor(x / CHUNK_SIZE))?.blocks.get(cell) ?? null;
-        if (!type) return null;
-        this.placedBlocks.delete(cell);
-        this.chunks.get(Math.floor(x / CHUNK_SIZE))?.removeBlock(x, y);
-        this.brokenBlocks.add(cell);
-        return type;
+        const block = this.getBlock(x, y);
+        if (!block) return null;
+        const chunk = this.chunks.get(Math.floor(x / CHUNK_SIZE));
+        if (!chunk) return null;
+        chunk.setBlock(x - chunk.start, y, 0);
+        this.markEdited(Math.floor(x / CHUNK_SIZE));
+        return block;
     }
 
     placeBlock(x: number, y: number, type: BlockType | Block): boolean {
-        if (y < 1 || this.getBlock(x, y)) return false;
-        const block = typeof type === "string" ? blockRegistry.get(type) : type.definition;
-        if (!block) return false;
-        this.placedBlocks.set(World.cell(x, y), new Block(block, x, y));
-        this.brokenBlocks.delete(World.cell(x, y));
+        if (y < 1 || y >= WORLD_HEIGHT || this.getBlock(x, y)) return false;
+        const id = typeof type === "string" ? type : type.id;
+        const num = this.typeToNum.get(id);
+        if (!num) return false;
+        const chunk = this.chunks.get(Math.floor(x / CHUNK_SIZE));
+        if (!chunk) return false;
+        chunk.setBlock(x - chunk.start, y, num);
+        this.markEdited(Math.floor(x / CHUNK_SIZE));
         return true;
     }
 
     getSurfaceHeight(x: number): number {
-        return this.chunks.get(Math.floor(x / CHUNK_SIZE))?.surfaces.get(x) ?? terrainHeight(x, this.seed);
+        const chunk = this.chunks.get(Math.floor(x / CHUNK_SIZE));
+        return chunk ? chunk.surfaces[x - chunk.start] : terrainHeight(x, this.seed);
     }
 
-    serializeChanges(): {
-        brokenBlocks: [number, number][];
-        placedBlocks: [number, number, BlockType][];
-    } {
-        return {
-            brokenBlocks: [...this.brokenBlocks].map(World.parseCell),
-            placedBlocks: [...this.placedBlocks].map(([cell, block]) => {
-                const [x, y] = World.parseCell(cell);
-                return [x, y, block.id];
-            }),
-        };
-    }
-
-    restore(brokenBlocks: [number, number][], placedBlocks: [number, number, BlockType][]): void {
-        for (const [x, y] of brokenBlocks) this.brokenBlocks.add(World.cell(x, y));
-        for (const [x, y, type] of placedBlocks) {
-            const definition = blockRegistry.get(type);
-            if (definition) this.placedBlocks.set(World.cell(x, y), new Block(definition, x, y));
+    serializeChanges(): WorldChunkDelta {
+        const chunks: Record<string, string> = {};
+        for (const cell of this.dirty) {
+            const [cx] = World.parseCell(cell);
+            const chunk = this.chunks.get(cx);
+            if (chunk) chunks[cell] = chunk.encode();
         }
-        for (const chunk of this.chunks.values()) this.applyChanges(chunk);
+        return {idTable: blockRegistry.list().map((definition) => definition.id), chunks};
+    }
+
+    clearDirty(): void {
+        this.dirty.clear();
+    }
+
+    restore(save: { idTable?: string[]; chunks?: Record<string, string> } | null): void {
+        if (!save || !save.chunks) return;
+        const savedTable = Array.isArray(save.idTable) ? save.idTable : [];
+        for (const [cell, encoded] of Object.entries(save.chunks)) {
+            const data = decodeChunk(encoded);
+            if (!data) continue;
+            for (let i = 0; i < data.length; i += 1) {
+                const num = data[i];
+                if (!num) continue;
+                const type = savedTable[num - 1];
+                data[i] = type ? this.typeToNum.get(type) ?? 0 : 0;
+            }
+            this.editedChunks.set(cell, data);
+        }
+        for (const [cell, data] of this.editedChunks) {
+            const [cx] = World.parseCell(cell);
+            const chunk = this.chunks.get(cx);
+            if (chunk) chunk.blocks.set(data);
+        }
+    }
+
+    private markEdited(cx: number): void {
+        const cell = World.cell(cx, 0);
+        const chunk = this.chunks.get(cx);
+        if (!chunk) return;
+        this.editedChunks.set(cell, chunk.blocks.slice());
+        this.dirty.add(cell);
     }
 
     private loadChunk(x: number): void {
         if (this.chunks.has(x)) return;
-        const chunk = new Chunk(x, this.seed);
-        this.applyChanges(chunk);
+        const chunk = new Chunk(x, (type) => this.typeToNum.get(type) ?? 0, this.seed);
+        const edited = this.editedChunks.get(World.cell(x, 0));
+        if (edited) chunk.blocks.set(edited);
         this.chunks.set(x, chunk);
-    }
-
-    private applyChanges(chunk: Chunk): void {
-        for (const cell of this.brokenBlocks) {
-            const [x] = World.parseCell(cell);
-            if (x >= chunk.start && x < chunk.start + CHUNK_SIZE) chunk.blocks.delete(cell);
-        }
     }
 }
