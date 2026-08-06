@@ -364,9 +364,9 @@ class GameSession {
     const rowH = this.menu === "bindings" ? 42 : 44;
     if (clientY < rowY || clientY > rowY + rowH) return;
     if (this.menu === "pause") {
-      if (index === 0) { this.menu = null; this.paused = false; }
+      if (index === 0) { this.menu = null; this.paused = false; plugins.notifyGameResume(this.pluginContext()); storage.log("Game resumed", { world: this.meta.name }); }
       if (index === 1) this.menu = "settings";
-      if (index === 2) { this.stop("menu-exit"); app!.innerHTML = ""; document.body.innerHTML = ""; document.body.appendChild(app!); renderWorlds(); }
+      if (index === 2) { this.stop("world-list"); app!.innerHTML = ""; document.body.innerHTML = ""; document.body.appendChild(app!); renderWorlds(); }
       return;
     }
     if (this.menu === "settings") {
