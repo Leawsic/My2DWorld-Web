@@ -189,6 +189,15 @@ api.onBlockPlaced(({ type }) => {
 
 `api.Registries` 提供底层注册表集合：`api.Registries.blocks` 和 `api.Registries.gameModes`。核心代码从 `src/registry.ts` 导出 `Blocks`、`GameModes`、`Registries`、`blockRegistry` 和 `gameModeRegistry`。每个注册表的 `get(id)`、`has(id)`、`list()` 方法可用于动态查找和枚举对象。
 
+运行时对象通过插件上下文提供：`context.world` 是当前 `World`，`context.player` 是当前 `Player`。`World.getBlock(x, y)` 返回对应的 `Block` 实例，实例包含 `id`、`x`、`y`、`color`、`label` 和 `definition`；需要保存或传递类型 ID 时使用 `block.id`。`World.getBlockId(x, y)` 适用于只需要查询类型的代码。`BlockDefinition` 描述注册表中的共享类型，`Block` 描述放置到世界中的具体实例。
+
+```js
+api.onGameTick(({world, player}) => {
+  const block = world.getBlock(Math.floor(player.x), Math.floor(player.y));
+  if (block) console.info(`${block.id} at ${block.x},${block.y}`);
+});
+```
+
 ## 玩家消息 API
 
 插件可以通过 `api.messages` 或生命周期回调中的 `context.messages` 向当前玩家发送消息。消息仅在玩家已进入世界时显示；颜色必须为 `#RRGGBB`，非法颜色会回退为白色。

@@ -10,7 +10,6 @@ import {CreativeMode} from "./modes/creative";
 import {type GamePlugin, type PluginGameContext, PluginRegistry} from "./plugins/api";
 import {keyName, t} from "./i18n";
 import {Blocks, GameModes} from "./registry";
-import {blockRegistry} from "./core/registry";
 
 const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("App root is missing");
@@ -416,8 +415,8 @@ class GameSession {
         const [x, y] = this.worldAtMouse();
         const wx = Math.floor(x);
         const wy = Math.ceil(y);
-        const type = this.world.getBlock(wx, wy);
-        return type && this.inReach(wx + 0.5, wy - 0.5) ? [wx, wy, type] : null;
+        const block = this.world.getBlock(wx, wy);
+        return block && this.inReach(wx + 0.5, wy - 0.5) ? [wx, wy, block.id] : null;
     }
 
     private getPlacementTarget(): [number, number] | null {
@@ -901,15 +900,12 @@ class GameSession {
     }
 
     private save = (): void => {
+        const changes = this.world.serializeChanges();
         storage.saveWorld(this.meta.id, {
             playerX: this.player.x,
             playerY: this.player.y,
             mode: this.modeName,
-            brokenBlocks: [...this.world.brokenBlocks].map(World.parseCell),
-            placedBlocks: [...this.world.placedBlocks].map(([cell, type]) => {
-                const [x, y] = World.parseCell(cell);
-                return [x, y, type] as [number, number, string];
-            }),
+            ...changes,
         });
     };
 
@@ -928,23 +924,23 @@ class GameSession {
         for (const [chunkX, chunk] of this.world.chunks) {
             if (chunkX * 16 > right || (chunkX + 1) * 16 < left) continue;
             for (let x = Math.max(left, chunk.start); x < Math.min(right, chunk.start + 16); x += 1) for (let y = bottom; y <= Math.min(top, chunk.surfaces.get(x) ?? 0); y += 1) {
-                const type = this.world.getBlock(x, y);
-                if (!type) continue;
+                const block = this.world.getBlock(x, y);
+                if (!block) continue;
                 const sx = Math.round((x - cameraX) * this.blockSize + width / 2);
                 const sy = Math.round((cameraY - y) * this.blockSize + height / 2);
-                const image = this.blockImages.get(type);
+                const image = this.blockImages.get(block.id);
                 if (image?.complete && image.naturalWidth) ctx.drawImage(image, sx, sy, this.blockSize, this.blockSize); else {
-                     ctx.fillStyle = blockRegistry.get(type)?.color ?? "#cc39b7";
+                     ctx.fillStyle = block.color;
                     ctx.fillRect(sx, sy, this.blockSize, this.blockSize);
                 }
             }
         }
-        for (const [cell, type] of this.world.placedBlocks) {
+        for (const [cell, block] of this.world.placedBlocks) {
             const [x, y] = World.parseCell(cell);
             if (x < left || x > right || y < bottom || y > top) continue;
             const sx = Math.round((x - cameraX) * this.blockSize + width / 2);
             const sy = Math.round((cameraY - y) * this.blockSize + height / 2);
-            const image = this.blockImages.get(type);
+            const image = this.blockImages.get(block.id);
             if (image?.complete && image.naturalWidth) ctx.drawImage(image, sx, sy, this.blockSize, this.blockSize); else {
                 ctx.fillStyle = "#cc39b7";
                 ctx.fillRect(sx, sy, this.blockSize, this.blockSize);

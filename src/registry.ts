@@ -9,3 +9,5 @@ export {
     type GameModeObject,
     type RegistryObject,
 } from "./core/registry";
+export {Block} from "./core/block";
+export type {BlockDefinition} from "./core/block";

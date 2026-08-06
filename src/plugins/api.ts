@@ -1,10 +1,11 @@
 import type {BlockType} from "../core/types";
+import type {Block, BlockDefinition} from "../core/block";
 import type {Player} from "../core/player";
 import type {World} from "../core/world";
 import type {WorldMeta} from "../core/types";
-import {blockRegistry, Blocks, type BlockObject, GameModes, Registries} from "../core/registry";
+import {blockRegistry, Blocks, GameModes, Registries} from "../core/registry";
 
-export type BlockDefinition = BlockObject;
+export type {Block, BlockDefinition};
 
 export interface GamePlugin {
     id: string;

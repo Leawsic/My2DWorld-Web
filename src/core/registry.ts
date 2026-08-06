@@ -1,4 +1,5 @@
 import type {BlockType, GameModeName} from "./types";
+import type {BlockDefinition} from "./block";
 
 export interface RegistryObject {
     readonly id: string;
@@ -35,11 +36,7 @@ export class Registry<T extends RegistryObject> {
     }
 }
 
-export interface BlockObject extends RegistryObject {
-    readonly id: BlockType;
-    readonly color: string;
-    readonly label: { zh: string; en: string };
-}
+export type BlockObject = BlockDefinition & RegistryObject;
 
 export interface GameModeObject extends RegistryObject {
     readonly id: GameModeName;

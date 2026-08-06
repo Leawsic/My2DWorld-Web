@@ -37,8 +37,9 @@ web/
 │   ├── main.ts                界面状态、输入、Canvas 主循环、HUD、聊天
 │   ├── i18n.ts                集中的中英文显示文案
 │   ├── core/
-│   │   ├── world.ts           地形、区块、放置和破坏方块状态
-│   │   ├── player.ts          物理、碰撞、二段跳和飞行
+│   │   ├── world.ts           World/Chunk 对象、地形、区块和方块状态
+│   │   ├── block.ts           Block 运行时对象和 BlockDefinition
+│   │   ├── player.ts          Player 对象、物理、碰撞、二段跳和飞行
 │   │   ├── particles.ts       从纹理采样的方块破坏粒子
 │   │   ├── storage.ts         同步本地 API 客户端
 │   │   └── types.ts           稳定的游戏数据类型
@@ -55,6 +56,8 @@ web/
 ```
 
 `main.ts` 负责浏览器专属逻辑；可复用的游戏规则放在 `core/`；新游戏模式放在 `modes/`。游戏对象统一从 `registry.ts` 的 `Blocks`、`GameModes` 和 `Registries` 获取；插件应通过 `plugins/api.ts` 扩展，不应直接依赖游戏内部状态。
+
+核心运行时按对象职责组织：`Block` 表示世界中的一个方块实例，持有类型定义和坐标；`Chunk` 管理 16 格宽的区块与区块内方块；`World` 管理区块流送、世界修改和存档转换；`Player` 管理位置、状态和移动物理；`GameMode` 只编排模式规则。运行时使用对象，存档仍只保存方块 ID、坐标和基础数据，避免把类实例直接序列化。
 
 ## 运行数据
 

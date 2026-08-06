@@ -1,5 +1,7 @@
 import type {BlockType} from "./types";
 import {Blocks} from "./registry";
+import {Block} from "./block";
+import {blockRegistry} from "./registry";
 
 export const CHUNK_SIZE = 16;
 const DIRT_DEPTH = 15;
@@ -10,6 +12,39 @@ export const STONE = Blocks.STONE.id;
 export const COBBLESTONE = Blocks.COBBLESTONE.id;
 export const MOSSY_COBBLESTONE = Blocks.MOSSY_COBBLESTONE.id;
 export const BEDROCK = Blocks.BEDROCK.id;
+
+export class Chunk {
+    readonly start: number;
+    readonly blocks = new Map<string, Block>();
+    readonly surfaces = new Map<number, number>();
+
+    constructor(readonly x: number, readonly seed = 0) {
+        this.start = x * CHUNK_SIZE;
+        for (let worldX = this.start; worldX < this.start + CHUNK_SIZE; worldX += 1) {
+            const surface = terrainHeight(worldX, seed);
+            this.surfaces.set(worldX, surface);
+            for (let y = 1; y <= surface; y += 1) {
+                const type = generatedBlock(worldX, y, surface, seed);
+                if (type) this.blocks.set(World.cell(worldX, y), new Block(blockRegistry.get(type)!, worldX, y));
+            }
+        }
+    }
+
+    getBlock(cell: string): Block | null {
+        return this.blocks.get(cell) ?? null;
+    }
+
+    setBlock(block: Block): void {
+        this.blocks.set(World.cell(block.x, block.y), block);
+    }
+
+    removeBlock(x: number, y: number): Block | null {
+        const cell = World.cell(x, y);
+        const block = this.blocks.get(cell) ?? null;
+        this.blocks.delete(cell);
+        return block;
+    }
+}
 
 export function hashNoise(x: number, seed = 0): number {
     let h = Math.imul(x ^ seed, 374761393) + 668265263;
@@ -51,28 +86,10 @@ function generatedBlock(x: number, y: number, surface: number, seed = 0): BlockT
     return variant < 0.05 ? MOSSY_COBBLESTONE : variant < 0.15 ? COBBLESTONE : STONE;
 }
 
-class Chunk {
-    readonly start: number;
-    readonly blocks = new Map<string, BlockType>();
-    readonly surfaces = new Map<number, number>();
-
-    constructor(readonly x: number, readonly seed = 0) {
-        this.start = x * CHUNK_SIZE;
-        for (let worldX = this.start; worldX < this.start + CHUNK_SIZE; worldX += 1) {
-            const surface = terrainHeight(worldX, seed);
-            this.surfaces.set(worldX, surface);
-            for (let y = 1; y <= surface; y += 1) {
-                const type = generatedBlock(worldX, y, surface, seed);
-                if (type) this.blocks.set(World.cell(worldX, y), type);
-            }
-        }
-    }
-}
-
 export class World {
     readonly chunks = new Map<number, Chunk>();
     readonly brokenBlocks = new Set<string>();
-    readonly placedBlocks = new Map<string, BlockType>();
+    readonly placedBlocks = new Map<string, Block>();
     private centerChunk: number | null = null;
 
     constructor(private readonly viewDistance = 8, readonly seed = 0) {
@@ -86,6 +103,10 @@ export class World {
         return cell.split(",").map(Number) as [number, number];
     }
 
+    getChunk(x: number): Chunk | null {
+        return this.chunks.get(Math.floor(x / CHUNK_SIZE)) ?? null;
+    }
+
     updateView(cameraX: number): void {
         const center = Math.floor(cameraX / CHUNK_SIZE);
         if (center === this.centerChunk) return;
@@ -94,24 +115,30 @@ export class World {
         for (const x of this.chunks.keys()) if (Math.abs(x - center) > this.viewDistance + 2) this.chunks.delete(x);
     }
 
-    getBlock(x: number, y: number): BlockType | null {
+    getBlock(x: number, y: number): Block | null {
         const cell = World.cell(x, y);
         return this.placedBlocks.get(cell) ?? this.chunks.get(Math.floor(x / CHUNK_SIZE))?.blocks.get(cell) ?? null;
     }
 
-    breakBlock(x: number, y: number): BlockType | null {
+    getBlockId(x: number, y: number): BlockType | null {
+        return this.getBlock(x, y)?.id ?? null;
+    }
+
+    breakBlock(x: number, y: number): Block | null {
         const cell = World.cell(x, y);
         const type = this.placedBlocks.get(cell) ?? this.chunks.get(Math.floor(x / CHUNK_SIZE))?.blocks.get(cell) ?? null;
         if (!type) return null;
         this.placedBlocks.delete(cell);
-        this.chunks.get(Math.floor(x / CHUNK_SIZE))?.blocks.delete(cell);
+        this.chunks.get(Math.floor(x / CHUNK_SIZE))?.removeBlock(x, y);
         this.brokenBlocks.add(cell);
         return type;
     }
 
-    placeBlock(x: number, y: number, type: BlockType): boolean {
+    placeBlock(x: number, y: number, type: BlockType | Block): boolean {
         if (y < 1 || this.getBlock(x, y)) return false;
-        this.placedBlocks.set(World.cell(x, y), type);
+        const block = typeof type === "string" ? blockRegistry.get(type) : type.definition;
+        if (!block) return false;
+        this.placedBlocks.set(World.cell(x, y), new Block(block, x, y));
         this.brokenBlocks.delete(World.cell(x, y));
         return true;
     }
@@ -120,9 +147,25 @@ export class World {
         return this.chunks.get(Math.floor(x / CHUNK_SIZE))?.surfaces.get(x) ?? terrainHeight(x, this.seed);
     }
 
+    serializeChanges(): {
+        brokenBlocks: [number, number][];
+        placedBlocks: [number, number, BlockType][];
+    } {
+        return {
+            brokenBlocks: [...this.brokenBlocks].map(World.parseCell),
+            placedBlocks: [...this.placedBlocks].map(([cell, block]) => {
+                const [x, y] = World.parseCell(cell);
+                return [x, y, block.id];
+            }),
+        };
+    }
+
     restore(brokenBlocks: [number, number][], placedBlocks: [number, number, BlockType][]): void {
         for (const [x, y] of brokenBlocks) this.brokenBlocks.add(World.cell(x, y));
-        for (const [x, y, type] of placedBlocks) this.placedBlocks.set(World.cell(x, y), type);
+        for (const [x, y, type] of placedBlocks) {
+            const definition = blockRegistry.get(type);
+            if (definition) this.placedBlocks.set(World.cell(x, y), new Block(definition, x, y));
+        }
         for (const chunk of this.chunks.values()) this.applyChanges(chunk);
     }
 
