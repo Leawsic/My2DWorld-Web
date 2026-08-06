@@ -6,8 +6,8 @@ export const SPECTATE_LIMIT = 32;
 
 /** 将视角偏移钳制到 [ -SPECTATE_LIMIT, SPECTATE_LIMIT ] 范围内。 */
 export function clampSpectateOffset(offsetX: number, offsetY: number): [number, number] {
-  return [
-    Math.max(-SPECTATE_LIMIT, Math.min(SPECTATE_LIMIT, offsetX)),
-    Math.max(-SPECTATE_LIMIT, Math.min(SPECTATE_LIMIT, offsetY)),
-  ];
+    return [
+        Math.max(-SPECTATE_LIMIT, Math.min(SPECTATE_LIMIT, offsetX)),
+        Math.max(-SPECTATE_LIMIT, Math.min(SPECTATE_LIMIT, offsetY)),
+    ];
 }
