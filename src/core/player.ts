@@ -82,6 +82,17 @@ export class Player {
         return this.velocityX ? Math.floor(this.animationTime * 10) % 4 : 0;
     }
 
+    setPosition(x: number, y: number): void {
+        this.x = x;
+        this.y = y;
+    }
+
+    setFlying(flying: boolean): void {
+        this.flying = flying;
+        this.velocityY = 0;
+        this.jumpsUsed = 0;
+    }
+
     private moveX(world: World, dt: number): void {
         const dx = this.velocityX * dt;
         this.x += dx;

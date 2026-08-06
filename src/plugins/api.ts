@@ -1,10 +1,11 @@
 import type {BlockType} from "../core/types";
+import type {Block, BlockDefinition} from "../core/block";
 import type {Player} from "../core/player";
 import type {World} from "../core/world";
 import type {WorldMeta} from "../core/types";
-import {blockRegistry, Blocks, type BlockObject, GameModes, Registries} from "../core/registry";
+import {blockRegistry, Blocks, GameModes, Registries} from "../core/registry";
 
-export type BlockDefinition = BlockObject;
+export type {Block, BlockDefinition};
 
 export interface GamePlugin {
     id: string;
@@ -68,14 +69,25 @@ export interface PluginFlyContext extends PluginGameContext {
 }
 
 export interface PluginApi {
+    /** Namespace assigned from the plugin manifest id. */
+    readonly namespace: string;
     readonly Blocks: typeof Blocks;
     readonly GameModes: typeof GameModes;
     readonly Registries: typeof Registries;
     readonly messages: PlayerMessages;
 
-    registerBlock(definition: BlockDefinition): void;
+    /** Registers a block under this plugin's namespace unless id is fully qualified. */
+    registerBlock(definition: BlockDefinition): BlockDefinition;
 
     getBlock(id: BlockType): BlockDefinition | undefined;
+
+    block(id: BlockType): BlockDefinition;
+
+    /** Creates a fully qualified id in this plugin's namespace. */
+    id(path: string): BlockType;
+
+    /** Resolves a file contained in this plugin package. */
+    asset(path: string): string;
 
     onWorldCreated(listener: (world: World) => void): void;
 
@@ -105,6 +117,7 @@ export interface PluginApi {
 export class PluginRegistry implements PluginApi {
     readonly blocks = new Map<BlockType, BlockDefinition>();
     readonly plugins = new Map<string, GamePlugin>();
+    readonly namespace = "my2dworld";
     readonly Blocks = Blocks;
     readonly GameModes = GameModes;
     readonly Registries = Registries;
@@ -118,18 +131,77 @@ export class PluginRegistry implements PluginApi {
 
     use(plugin: GamePlugin): void {
         if (!plugin.id || !plugin.name) throw new Error("Plugin requires id and name");
-        if (this.plugins.has(plugin.id)) throw new Error(`Plugin already registered: ${plugin.id}`);
-        plugin.install(this);
-        this.plugins.set(plugin.id, plugin);
+        const namespace = this.normalizeNamespace(plugin.id);
+        if (plugin.id !== namespace) throw new Error(`Plugin id must use lowercase underscores: ${plugin.id}`);
+        if (this.plugins.has(namespace)) throw new Error(`Plugin already registered: ${namespace}`);
+        plugin.install(this.apiFor(namespace));
+        this.plugins.set(namespace, plugin);
     }
 
-    registerBlock(definition: BlockDefinition): void {
-        blockRegistry.register(definition);
-        this.blocks.set(definition.id, definition);
+    registerBlock(definition: BlockDefinition): BlockDefinition {
+        return this.registerBlockFor(this.namespace, definition);
+    }
+
+    private registerBlockFor(namespace: string, definition: BlockDefinition): BlockDefinition {
+        if (definition.id.includes(":") && !definition.id.startsWith(`${namespace}:`)) throw new Error(`Plugin ${namespace} cannot register outside its namespace: ${definition.id}`);
+        const registered = blockRegistry.register({...definition, namespace});
+        this.blocks.set(registered.id, registered);
+        return registered;
     }
 
     getBlock(id: BlockType): BlockDefinition | undefined {
         return blockRegistry.get(id);
+    }
+
+    block(id: BlockType): BlockDefinition {
+        const def = blockRegistry.get(id);
+        if (!def) throw new Error(`Unknown block: ${id}`);
+        return def;
+    }
+
+    id(path: string): BlockType {
+        return blockRegistry.id(path, this.namespace);
+    }
+
+    asset(path: string): string {
+        return this.assetFor(this.namespace, path);
+    }
+
+    private assetFor(namespace: string, path: string): string {
+        const clean = path.replace(/^\/+/, "");
+        if (!clean || clean.split("/").some((part) => part === "." || part === "..")) throw new Error(`Invalid plugin asset path: ${path}`);
+        return `/plugins/${encodeURIComponent(namespace)}/${clean.split("/").map(encodeURIComponent).join("/")}`;
+    }
+
+    private apiFor(namespace: string): PluginApi {
+        return {
+            namespace,
+            Blocks: this.Blocks,
+            GameModes: this.GameModes,
+            Registries: this.Registries,
+            messages: this.messages,
+            registerBlock: (definition) => this.registerBlockFor(namespace, definition),
+            getBlock: (id) => this.getBlock(id),
+            block: (id) => this.block(id),
+            id: (path) => blockRegistry.id(path, namespace),
+            asset: (path) => this.assetFor(namespace, path),
+            onWorldCreated: (listener) => this.onWorldCreated(listener),
+            onGameStart: (listener) => this.onGameStart(listener),
+            onGameTick: (listener) => this.onGameTick(listener),
+            onGamePause: (listener) => this.onGamePause(listener),
+            onGameResume: (listener) => this.onGameResume(listener),
+            onBlockBroken: (listener) => this.onBlockBroken(listener),
+            onBlockPlaced: (listener) => this.onBlockPlaced(listener),
+            onPlayerRespawn: (listener) => this.onPlayerRespawn(listener),
+            onGameModeChanged: (listener) => this.onGameModeChanged(listener),
+            onGameStop: (listener) => this.onGameStop(listener),
+            onSpectateChanged: (listener) => this.onSpectateChanged(listener),
+            onFlyChanged: (listener) => this.onFlyChanged(listener),
+        };
+    }
+
+    private normalizeNamespace(id: string): string {
+        return id.replace(/-/g, "_").toLowerCase();
     }
 
     setMessageTarget(target: PlayerMessages | null): void {

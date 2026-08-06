@@ -37,8 +37,9 @@ web/
 │   ├── main.ts                界面状态、输入、Canvas 主循环、HUD、聊天
 │   ├── i18n.ts                集中的中英文显示文案
 │   ├── core/
-│   │   ├── world.ts           地形、区块、放置和破坏方块状态
-│   │   ├── player.ts          物理、碰撞、二段跳和飞行
+│   │   ├── world.ts           World/Chunk 对象、地形、区块和方块状态
+│   │   ├── block.ts           Block 运行时对象和 BlockDefinition
+│   │   ├── player.ts          Player 对象、物理、碰撞、二段跳和飞行
 │   │   ├── particles.ts       从纹理采样的方块破坏粒子
 │   │   ├── storage.ts         同步本地 API 客户端
 │   │   └── types.ts           稳定的游戏数据类型
@@ -55,6 +56,8 @@ web/
 ```
 
 `main.ts` 负责浏览器专属逻辑；可复用的游戏规则放在 `core/`；新游戏模式放在 `modes/`。游戏对象统一从 `registry.ts` 的 `Blocks`、`GameModes` 和 `Registries` 获取；插件应通过 `plugins/api.ts` 扩展，不应直接依赖游戏内部状态。
+
+核心运行时按对象职责组织：`Block` 表示世界中的一个方块实例，持有类型定义和坐标；`Chunk` 管理 16 格宽的区块与区块内方块；`World` 管理区块流送、世界修改和存档转换；`Player` 管理位置、状态和移动物理；`GameMode` 只编排模式规则。运行时使用对象，存档仍只保存方块 ID、坐标和基础数据，避免把类实例直接序列化。
 
 ## 运行数据
 
@@ -75,7 +78,7 @@ run/worlds/<用户名>_<世界ID>.json   玩家位置、模式、破坏和放置
   "playerY": 45.001,
   "mode": "creative",
   "brokenBlocks": [[2, 40]],
-  "placedBlocks": [[3, 42, "stone"]]
+  "placedBlocks": [[3, 42, "my2dworld:stone"]]
 }
 ```
 
@@ -151,9 +154,9 @@ run/worlds/<用户名>_<世界ID>.json   玩家位置、模式、破坏和放置
 
 新增方块时：
 
-1. 在 `public/assets/block/` 下添加 PNG 纹理。
-2. 在 `src/i18n.ts` 中添加中英文显示名称。
-3. 插件拥有的内容通过 `PluginRegistry.registerBlock()` 注册，并使用 `api.Blocks.MY_BLOCK` 这类注册表对象引用。
+1. 本体方块在 `public/assets/block/` 下添加 PNG 纹理；插件方块将 PNG 放在自己的 `plugins/<插件ID>/assets/` 下，并使用 `api.asset()` 引用。
+2. 本体内容在 `src/i18n.ts` 中添加中英文显示名称；插件方块直接在 `label` 中提供名称。
+3. 插件拥有的内容通过 `PluginRegistry.registerBlock()` 注册。使用本体内容时引用 `api.Blocks.MY2DWORLD.STONE`，使用自身内容时引用 `api.Blocks.<PLUGIN_ID>.MY_BLOCK` 或注册结果的 `.id`。
 4. 只有需要默认出现的方块才加入地形生成或快捷栏逻辑。
 
 新增游戏模式时：
