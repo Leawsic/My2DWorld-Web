@@ -23,7 +23,7 @@ web/
 /// <reference path="./my2dworld-plugin-api.d.ts" />
 ```
 
-并在 `install` 前加入 `/** @param {PluginApi} api */`。此后 IDE 会将 `api` 识别为游戏 API，并为 `api.Blocks.DIRT`、`api.Blocks.DIAMOND_BLOCK`、`context.world`、`context.player` 等提供真实对象补全，不会再把 i18n 文案 ID 作为候选。
+并在 `install` 前加入 `/** @param {PluginApi} api */`。此后 IDE 会将 `api` 识别为游戏 API，并为 `api.Blocks.DIRT`、`api.Blocks.DIAMOND_BLOCK`、`context.world`、`context.player` 等提供真实对象补全。
 
 内置对象采用 MC 风格的大写常量：
 
@@ -61,7 +61,7 @@ export default {
 
 `id` 和 `name` 是必填项。`id` 必须在所有已加载插件中唯一，推荐使用小写短横线命名，例如 `my-plugin`。`version`、`authors`、`description` 和 `website` 是可选元数据，供日志、插件管理界面和未来兼容性检查使用。
 
-目前插件元数据会保存在运行时注册表中，但游戏尚未提供插件列表界面，也未实现版本依赖解析、签名校验或沙箱。插件与游戏运行在同一个浏览器上下文中，因此只能安装可信插件。
+目前插件元数据会保存在运行时注册表中，但游戏尚未实现版本依赖解析、签名校验或沙箱。插件与游戏运行在同一个浏览器上下文中，因此只能安装可信插件。
 
 ## 方块注册
 
