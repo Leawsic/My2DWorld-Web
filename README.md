@@ -78,7 +78,7 @@ run/worlds/<用户名>_<世界ID>.json   玩家位置、模式、破坏和放置
   "playerY": 45.001,
   "mode": "creative",
   "brokenBlocks": [[2, 40]],
-  "placedBlocks": [[3, 42, "stone"]]
+  "placedBlocks": [[3, 42, "my2dworld:stone"]]
 }
 ```
 
@@ -154,9 +154,9 @@ run/worlds/<用户名>_<世界ID>.json   玩家位置、模式、破坏和放置
 
 新增方块时：
 
-1. 在 `public/assets/block/` 下添加 PNG 纹理。
-2. 在 `src/i18n.ts` 中添加中英文显示名称。
-3. 插件拥有的内容通过 `PluginRegistry.registerBlock()` 注册，并使用 `api.Blocks.MY_BLOCK` 这类注册表对象引用。
+1. 本体方块在 `public/assets/block/` 下添加 PNG 纹理；插件方块将 PNG 放在自己的 `plugins/<插件ID>/assets/` 下，并使用 `api.asset()` 引用。
+2. 本体内容在 `src/i18n.ts` 中添加中英文显示名称；插件方块直接在 `label` 中提供名称。
+3. 插件拥有的内容通过 `PluginRegistry.registerBlock()` 注册。使用本体内容时引用 `api.Blocks.MY2DWORLD.STONE`，使用自身内容时引用 `api.Blocks.<PLUGIN_ID>.MY_BLOCK` 或注册结果的 `.id`。
 4. 只有需要默认出现的方块才加入地形生成或快捷栏逻辑。
 
 新增游戏模式时：

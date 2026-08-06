@@ -1,0 +1,6 @@
+{
+  "id": "example-plugin",
+  "name": "示例插件",
+  "version": "1.0.0",
+  "entry": "src/index.mjs"
+}

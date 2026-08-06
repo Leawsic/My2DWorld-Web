@@ -1,12 +1,12 @@
 /**
  * My2DWorld 插件 API 类型定义。
  *
- * 插件 .mjs 文件在顶部添加以下三行即可获得 IDE 自动补全：
+ * 插件 .mjs 文件在顶部添加以下行即可获得 IDE 自动补全：
  *
  *   /// <reference path="./my2dworld-plugin-api.d.ts" />
  *
  * 这样 `api.Blocks.DIRT`、`context.player.x`、`context.world.getBlock(x, y)` 等
- * 都会被 IDE 识别为真实游戏对象，而不是 i18n 字符串。
+ * 都会被 IDE 识别为真实游戏对象并支持补全
  */
 
 /** 方块类型 id。 */
@@ -18,6 +18,9 @@ declare type GameModeName = "creative" | "spectator";
 /** 方块类型定义（注册表中的共享对象）。 */
 declare interface BlockDefinition {
     readonly id: BlockType;
+    readonly namespace?: string;
+    readonly path?: string;
+    readonly texture?: string;
     readonly color: string;
     readonly label: { readonly zh: string; readonly en: string };
     readonly solid?: boolean;
@@ -96,8 +99,8 @@ declare interface RegistryNamespace<T extends RegistryObject> {
     readonly [key: string]: T;
 }
 
-/** 方块注册表。内置方块以 MC 风格大写常量提供。 */
-declare interface BlocksNamespace extends RegistryNamespace<BlockDefinition> {
+/** 本体方块常量。 */
+declare interface CoreBlocksNamespace extends RegistryNamespace<BlockDefinition> {
     readonly GRASS_BLOCK_SIDE: BlockDefinition;
     readonly DIRT: BlockDefinition;
     readonly STONE: BlockDefinition;
@@ -130,6 +133,11 @@ declare interface BlocksNamespace extends RegistryNamespace<BlockDefinition> {
     readonly NETHER_GOLD_ORE: BlockDefinition;
     readonly IRON_BARS: BlockDefinition;
     readonly IRON_CHAIN: BlockDefinition;
+}
+
+/** 方块注册表。内容按 namespace 分组。 */
+declare interface BlocksNamespace extends RegistryNamespace<BlockDefinition> {
+    readonly MY2DWORLD: CoreBlocksNamespace;
 }
 
 /** 游戏模式注册表。 */
@@ -228,13 +236,17 @@ declare interface GamePlugin {
 
 /** 插件可用的 API。 */
 declare interface PluginApi {
+    /** This plugin's namespace, derived from its manifest id. */
+    readonly namespace: string;
     readonly Blocks: BlocksNamespace;
     readonly GameModes: GameModesNamespace;
     readonly messages: PlayerMessages;
 
-    registerBlock(definition: BlockDefinition): void;
+    registerBlock(definition: BlockDefinition): BlockDefinition;
     getBlock(id: BlockType): BlockDefinition | undefined;
     block(id: BlockType): BlockDefinition;
+    id(path: string): BlockType;
+    asset(path: string): string;
 
     onWorldCreated(listener: (world: World) => void): void;
     onGameStart(listener: (context: PluginGameContext) => void): void;

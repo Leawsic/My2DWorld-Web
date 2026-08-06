@@ -6,12 +6,12 @@ import {blockRegistry} from "./registry";
 export const CHUNK_SIZE = 16;
 const DIRT_DEPTH = 15;
 const BEDROCK_THICKNESS = 2;
-export const GRASS = Blocks.GRASS_BLOCK_SIDE.id;
-export const DIRT = Blocks.DIRT.id;
-export const STONE = Blocks.STONE.id;
-export const COBBLESTONE = Blocks.COBBLESTONE.id;
-export const MOSSY_COBBLESTONE = Blocks.MOSSY_COBBLESTONE.id;
-export const BEDROCK = Blocks.BEDROCK.id;
+export const GRASS = Blocks.MY2DWORLD.GRASS_BLOCK_SIDE.id;
+export const DIRT = Blocks.MY2DWORLD.DIRT.id;
+export const STONE = Blocks.MY2DWORLD.STONE.id;
+export const COBBLESTONE = Blocks.MY2DWORLD.COBBLESTONE.id;
+export const MOSSY_COBBLESTONE = Blocks.MY2DWORLD.MOSSY_COBBLESTONE.id;
+export const BEDROCK = Blocks.MY2DWORLD.BEDROCK.id;
 
 export class Chunk {
     readonly start: number;

@@ -1,6 +1,6 @@
 import "./style.css";
 import {type KeyState, Player} from "./core/player";
-import {storage} from "./core/storage";
+import {storage, type PluginPackage} from "./core/storage";
 import {hashSeed, spawnX, World} from "./core/world";
 import {clampSpectateOffset} from "./core/spectate";
 import type {GameModeName, KeyBindings, Language, WorldMeta} from "./core/types";
@@ -9,7 +9,7 @@ import type {GameMode} from "./modes/base";
 import {CreativeMode} from "./modes/creative";
 import {type GamePlugin, type PluginGameContext, PluginRegistry} from "./plugins/api";
 import {keyName, t} from "./i18n";
-import {Blocks, GameModes} from "./registry";
+import {Blocks, GameModes, blockRegistry} from "./registry";
 
 const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("App root is missing");
@@ -20,6 +20,7 @@ let username = "steve";
 const plugins = new PluginRegistry();
 interface PluginLoadReport {
     source: string;
+    package?: PluginPackage;
     plugin?: GamePlugin;
     error?: string;
     blocks: string[];
@@ -29,25 +30,26 @@ const pluginReports: PluginLoadReport[] = [];
 
 function refreshPluginReports(): number {
     const knownSources = new Set(pluginReports.map((report) => report.source));
-    const discovered = storage.listPlugins().filter((source) => !knownSources.has(source));
-    discovered.forEach((source) => pluginReports.push({source, blocks: [], pending: true}));
+    const discovered = storage.listPlugins().filter((plugin) => !knownSources.has(plugin.entry));
+    discovered.forEach((plugin) => pluginReports.push({source: plugin.entry, package: plugin, blocks: [], pending: true}));
     return discovered.length;
 }
 
 async function loadExternalPlugins(): Promise<void> {
-    for (const url of storage.listPlugins()) {
+    for (const packageInfo of storage.listPlugins()) {
         try {
-            const module = await import(/* @vite-ignore */ url) as { default?: GamePlugin; plugin?: GamePlugin };
+            const module = await import(/* @vite-ignore */ packageInfo.entry) as { default?: GamePlugin; plugin?: GamePlugin };
             const plugin = module.default || module.plugin;
             if (!plugin) throw new Error("Module must export default or plugin");
+            if (plugin.id !== packageInfo.id) throw new Error(`Manifest id ${packageInfo.id} does not match exported plugin id ${plugin.id}`);
             const previousBlocks = new Set(plugins.blocks.keys());
             plugins.use(plugin);
-            pluginReports.push({source: url, plugin, blocks: [...plugins.blocks.keys()].filter((id) => !previousBlocks.has(id))});
+            pluginReports.push({source: packageInfo.entry, package: packageInfo, plugin, blocks: [...plugins.blocks.keys()].filter((id) => !previousBlocks.has(id))});
             storage.log("Plugin loaded", {id: plugin.id, version: plugin.version || "unspecified"});
         } catch (error) {
-            pluginReports.push({source: url, error: String(error), blocks: []});
-            console.error(`Failed to load plugin ${url}`, error);
-            storage.log("Plugin load failed", {url, error: String(error)}, "error");
+            pluginReports.push({source: packageInfo.entry, package: packageInfo, error: String(error), blocks: []});
+            console.error(`Failed to load plugin ${packageInfo.id}`, error);
+            storage.log("Plugin load failed", {plugin: packageInfo.id, error: String(error)}, "error");
         }
     }
 }
@@ -145,8 +147,8 @@ class GameSession {
     private last = performance.now();
     private frame = 0;
     private autosaveElapsed = 0;
-     private hotbar: Array<string | null> = [Blocks.GRASS_BLOCK_SIDE, Blocks.DIRT, Blocks.STONE, Blocks.COBBLESTONE, Blocks.MOSSY_COBBLESTONE, Blocks.COAL_BLOCK, Blocks.IRON_BLOCK, Blocks.GOLD_BLOCK, Blocks.DIAMOND_BLOCK].map((block) => block.id);
-     private inventorySlots: Array<string | null> = [Blocks.DIAMOND_BLOCK, Blocks.COAL_ORE, Blocks.IRON_ORE, Blocks.GOLD_ORE, Blocks.DIAMOND_ORE, Blocks.EMERALD_ORE, Blocks.LAPIS_ORE, Blocks.REDSTONE_ORE, Blocks.COPPER_ORE, Blocks.BEDROCK, Blocks.DEEPSLATE_COAL_ORE, Blocks.DEEPSLATE_IRON_ORE, Blocks.DEEPSLATE_GOLD_ORE, Blocks.DEEPSLATE_DIAMOND_ORE, Blocks.DEEPSLATE_EMERALD_ORE, Blocks.DEEPSLATE_LAPIS_ORE, Blocks.DEEPSLATE_REDSTONE_ORE, Blocks.DEEPSLATE_COPPER_ORE, Blocks.RAW_IRON_BLOCK, Blocks.RAW_GOLD_BLOCK, Blocks.NETHER_QUARTZ_ORE, Blocks.NETHER_GOLD_ORE, Blocks.IRON_BARS, Blocks.IRON_CHAIN, Blocks.MOSSY_COBBLESTONE, Blocks.IRON_BLOCK, Blocks.GOLD_BLOCK].map((block) => block.id);
+      private hotbar: Array<string | null> = [Blocks.MY2DWORLD.GRASS_BLOCK_SIDE, Blocks.MY2DWORLD.DIRT, Blocks.MY2DWORLD.STONE, Blocks.MY2DWORLD.COBBLESTONE, Blocks.MY2DWORLD.MOSSY_COBBLESTONE, Blocks.MY2DWORLD.COAL_BLOCK, Blocks.MY2DWORLD.IRON_BLOCK, Blocks.MY2DWORLD.GOLD_BLOCK, Blocks.MY2DWORLD.DIAMOND_BLOCK].map((block) => block.id);
+      private inventorySlots: Array<string | null> = [Blocks.MY2DWORLD.DIAMOND_BLOCK, Blocks.MY2DWORLD.COAL_ORE, Blocks.MY2DWORLD.IRON_ORE, Blocks.MY2DWORLD.GOLD_ORE, Blocks.MY2DWORLD.DIAMOND_ORE, Blocks.MY2DWORLD.EMERALD_ORE, Blocks.MY2DWORLD.LAPIS_ORE, Blocks.MY2DWORLD.REDSTONE_ORE, Blocks.MY2DWORLD.COPPER_ORE, Blocks.MY2DWORLD.BEDROCK, Blocks.MY2DWORLD.DEEPSLATE_COAL_ORE, Blocks.MY2DWORLD.DEEPSLATE_IRON_ORE, Blocks.MY2DWORLD.DEEPSLATE_GOLD_ORE, Blocks.MY2DWORLD.DEEPSLATE_DIAMOND_ORE, Blocks.MY2DWORLD.DEEPSLATE_EMERALD_ORE, Blocks.MY2DWORLD.DEEPSLATE_LAPIS_ORE, Blocks.MY2DWORLD.DEEPSLATE_REDSTONE_ORE, Blocks.MY2DWORLD.DEEPSLATE_COPPER_ORE, Blocks.MY2DWORLD.RAW_IRON_BLOCK, Blocks.MY2DWORLD.RAW_GOLD_BLOCK, Blocks.MY2DWORLD.NETHER_QUARTZ_ORE, Blocks.MY2DWORLD.NETHER_GOLD_ORE, Blocks.MY2DWORLD.IRON_BARS, Blocks.MY2DWORLD.IRON_CHAIN, Blocks.MY2DWORLD.MOSSY_COBBLESTONE, Blocks.MY2DWORLD.IRON_BLOCK, Blocks.MY2DWORLD.GOLD_BLOCK].map((block) => block.id);
     private selected = 0;
     private health = 20;
     private voidDamageTimer = 0;
@@ -716,7 +718,9 @@ class GameSession {
 
     private loadBlock(type: string): void {
         const image = new Image();
-        image.src = `/assets/block/${type}.png`;
+        const block = blockRegistry.get(type);
+        const texture = block?.texture || block?.path || type;
+        image.src = texture.startsWith("/") ? texture : `/assets/block/${texture}.png`;
         this.blockImages.set(type, image);
     }
 

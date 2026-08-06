@@ -10,7 +10,7 @@ import {
     unlinkSync,
     appendFileSync
 } from "node:fs";
-import {dirname, join} from "node:path";
+import {dirname, extname, join, normalize, relative, sep} from "node:path";
 import {fileURLToPath} from "node:url";
 import {createServer as createViteServer} from "vite";
 
@@ -68,6 +68,26 @@ const body = async (req) => {
     return text ? JSON.parse(text) : {};
 };
 
+const safePluginId = (value) => /^[a-z0-9][a-z0-9_-]*$/i.test(value) ? value.toLowerCase() : null;
+const pluginPackages = () => readdirSync(dirs.plugins, {withFileTypes: true})
+    .filter((entry) => entry.isDirectory() && safePluginId(entry.name))
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .flatMap((entry) => {
+        const id = safePluginId(entry.name);
+        const packageDir = join(dirs.plugins, entry.name);
+        const manifest = readJson(join(packageDir, "plugin.json"), null);
+        if (!manifest || manifest.id !== id || typeof manifest.entry !== "string" || !/^[\w./-]+\.mjs$/.test(manifest.entry)) {
+            log("warn", "Plugin package skipped", {package: entry.name, reason: "invalid manifest"});
+            return [];
+        }
+        const entryPath = normalize(join(packageDir, manifest.entry));
+        if (!entryPath.startsWith(`${packageDir}${sep}`) || !existsSync(entryPath) || !statSync(entryPath).isFile()) {
+            log("warn", "Plugin package skipped", {package: entry.name, reason: "entry missing"});
+            return [];
+        }
+        return [{id, name: String(manifest.name || id), version: typeof manifest.version === "string" ? manifest.version : undefined, entry: `/plugins/${encodeURIComponent(id)}/${manifest.entry.split("/").map(encodeURIComponent).join("/")}`}];
+    });
+
 const api = async (req, res) => {
     const url = new URL(req.url, "http://localhost");
     if (!url.pathname.startsWith("/api/")) return false;
@@ -105,7 +125,7 @@ const api = async (req, res) => {
             return send(res, 200, {ok: true});
         }
         if (url.pathname === "/api/plugins" && req.method === "GET") {
-            const plugins = readdirSync(dirs.plugins).filter((name) => name.endsWith(".mjs") && statSync(join(dirs.plugins, name)).isFile()).sort().map((name) => `/plugins/${encodeURIComponent(name)}`);
+            const plugins = pluginPackages();
             log("info", "Plugin scan", {count: plugins.length});
             return send(res, 200, {plugins});
         }
@@ -142,11 +162,15 @@ const api = async (req, res) => {
 const pluginFile = (req, res) => {
     const url = new URL(req.url, "http://localhost");
     if (!url.pathname.startsWith("/plugins/") || req.method !== "GET") return false;
-    const name = url.pathname.slice("/plugins/".length);
-    if (!/^[\w.-]+\.mjs$/.test(name)) return send(res, 404, {error: "Plugin not found"});
-    const path = join(dirs.plugins, name);
-    if (!existsSync(path) || !statSync(path).isFile()) return send(res, 404, {error: "Plugin not found"});
-    res.writeHead(200, {"Content-Type": "text/javascript; charset=utf-8", "Cache-Control": "no-store"});
+    const parts = url.pathname.slice("/plugins/".length).split("/").map(decodeURIComponent);
+    const [id, ...resource] = parts;
+    const namespace = safePluginId(id);
+    if (!namespace || !resource.length || resource.some((part) => !part || part === "." || part === "..")) return send(res, 404, {error: "Plugin resource not found"});
+    const packageDir = join(dirs.plugins, namespace);
+    const path = normalize(join(packageDir, ...resource));
+    if (relative(packageDir, path).startsWith("..") || !existsSync(path) || !statSync(path).isFile()) return send(res, 404, {error: "Plugin resource not found"});
+    const mime = {".mjs": "text/javascript", ".js": "text/javascript", ".json": "application/json", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif", ".css": "text/css"}[extname(path).toLowerCase()] || "application/octet-stream";
+    res.writeHead(200, {"Content-Type": `${mime}; charset=utf-8`, "Cache-Control": "no-store"});
     res.end(readFileSync(path));
     return true;
 };

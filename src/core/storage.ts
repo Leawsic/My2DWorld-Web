@@ -2,6 +2,13 @@ import {DEFAULT_SETTINGS, type PlayerSettings, type WorldMeta, type WorldSave} f
 
 let activeUser = "steve";
 
+export interface PluginPackage {
+    id: string;
+    name: string;
+    version?: string;
+    entry: string;
+}
+
 function request<T>(url: string, method = "GET", value?: unknown): T {
     const xhr = new XMLHttpRequest();
     xhr.open(method, url, false);
@@ -64,7 +71,7 @@ export const storage = {
     log(event: string, details: Record<string, unknown> = {}, level: "info" | "warn" | "error" = "info"): void {
         request(`/api/log?user=${encodeURIComponent(activeUser)}`, "POST", {event, details, level});
     },
-    listPlugins(): string[] {
-        return request<{ plugins?: string[] }>("/api/plugins")?.plugins || [];
+    listPlugins(): PluginPackage[] {
+        return request<{ plugins?: PluginPackage[] }>("/api/plugins")?.plugins || [];
     },
 };

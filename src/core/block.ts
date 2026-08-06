@@ -2,6 +2,10 @@ import type {BlockType, Language} from "./types";
 
 export interface BlockDefinition {
     readonly id: BlockType;
+    readonly namespace?: string;
+    readonly path?: string;
+    /** Asset filename without the namespace. Defaults to the block path. */
+    readonly texture?: string;
     readonly color: string;
     readonly label: { zh: string; en: string };
     readonly solid?: boolean;

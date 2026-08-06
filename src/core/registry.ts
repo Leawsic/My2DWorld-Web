@@ -3,8 +3,13 @@ import type {BlockDefinition} from "./block";
 
 export interface RegistryObject {
     readonly id: string;
+    readonly namespace?: string;
+    readonly path?: string;
 }
 
+export const CORE_NAMESPACE = "my2dworld";
+
+/** Runtime namespaces may contain nested namespace groups or registry objects. */
 export type RegistryNamespace<T extends RegistryObject> = Record<string, T>;
 
 /** Proxy-backed namespace that resolves any casing of an id to its object. */
@@ -16,13 +21,15 @@ export class Registry<T extends RegistryObject> {
     readonly values = new Map<string, T>();
     readonly namespace: RegistryNamespaceProxy<T>;
 
-    constructor() {
+    constructor(private readonly namespaced = true) {
         const target = this;
         this.namespace = new Proxy({} as Record<string, T>, {
             get(_, prop: string | symbol): T | undefined {
                 if (typeof prop !== "string") return undefined;
+                const group = target.namespaced ? target.group(prop) : null;
+                if (group) return group as unknown as T;
                 const upper = prop.replace(/[^a-zA-Z0-9_$]/g, "_").toUpperCase();
-                return target.values.get(prop) ?? target.values.get(upper) ?? [...target.values.values()].find((value) => value.id.replace(/[^a-zA-Z0-9_$]/g, "_").toUpperCase() === upper);
+                return target.get(prop) ?? target.values.get(upper) ?? [...target.values.values()].find((value) => target.key(target.namespaced ? value.path || value.id : value.id) === upper && (!target.namespaced || (value.namespace || CORE_NAMESPACE) === CORE_NAMESPACE));
             },
             ownKeys(): Array<string | symbol> {
                 const keys = new Set<string>();
@@ -41,21 +48,63 @@ export class Registry<T extends RegistryObject> {
 
     register(value: T): T {
         if (!value.id) throw new Error("Registry objects require an id");
-        if (this.values.has(value.id)) throw new Error(`Object already registered: ${value.id}`);
-        this.values.set(value.id, value);
-        return value;
+        if (!this.namespaced) {
+            if (this.values.has(value.id)) throw new Error(`Object already registered: ${value.id}`);
+            this.values.set(value.id, value);
+            return value;
+        }
+        const [namespace, path] = this.parts(value.id, value.namespace ?? CORE_NAMESPACE);
+        const id = `${namespace}:${path}`;
+        if (this.values.has(id)) throw new Error(`Object already registered: ${id}`);
+        const registered = {...value, id, namespace, path} as T;
+        this.values.set(id, registered);
+        return registered;
     }
 
-    get(id: string): T | undefined {
-        return this.values.get(id);
+    get(id: string, defaultNamespace = CORE_NAMESPACE): T | undefined {
+        if (!this.namespaced) return this.values.get(id);
+        const [namespace, path] = this.parts(id, defaultNamespace);
+        return this.values.get(`${namespace}:${path}`);
+    }
+
+    /** Returns all objects owned by a namespace. */
+    inNamespace(namespace: string): readonly T[] {
+        const normalized = namespace.toLowerCase();
+        return this.list().filter((value) => value.namespace === normalized);
     }
 
     has(id: string): boolean {
-        return this.values.has(id);
+        return !!this.get(id);
     }
 
     list(): readonly T[] {
         return [...this.values.values()];
+    }
+
+    id(path: string, namespace = CORE_NAMESPACE): string {
+        if (!this.namespaced) return path;
+        return this.parts(path, namespace).join(":");
+    }
+
+    private parts(id: string, defaultNamespace: string): [string, string] {
+        const separator = id.indexOf(":");
+        const namespace = separator < 0 ? defaultNamespace : id.slice(0, separator);
+        const path = separator < 0 ? id : id.slice(separator + 1);
+        if (!/^[a-z0-9][a-z0-9_-]*$/i.test(namespace) || !/^[a-z0-9][a-z0-9_/-]*$/i.test(path)) throw new Error(`Invalid resource id: ${id}`);
+        return [namespace.toLowerCase(), path.toLowerCase()];
+    }
+
+    private key(id: string): string {
+        return id.replace(/[^a-zA-Z0-9_$]/g, "_").toUpperCase();
+    }
+
+    private group(namespace: string): RegistryNamespaceProxy<T> | null {
+        if (!this.namespaced) return null;
+        const normalized = namespace.toLowerCase();
+        if (![...this.values.values()].some((value) => (value.namespace || CORE_NAMESPACE) === normalized)) return null;
+        return new Proxy({} as Record<string, T>, {
+            get: (_, prop: string | symbol) => typeof prop === "string" ? this.get(`${normalized}:${prop}`) ?? this.get(`${normalized}:${prop.replace(/_/g, "_").toLowerCase()}`) : undefined,
+        }) as RegistryNamespaceProxy<T>;
     }
 }
 
@@ -67,7 +116,8 @@ export interface GameModeObject extends RegistryObject {
 }
 
 export const blockRegistry = new Registry<BlockObject>();
-export const Blocks = blockRegistry.namespace as RegistryNamespace<BlockObject>;
+/** Dynamic resource namespace, for example Blocks.MY2DWORLD.DIRT. */
+export const Blocks: Record<string, any> = blockRegistry.namespace;
 
 const builtinBlocks: Array<[BlockType, string, string, string]> = [
     ["grass_block_side", "#62a941", "草方块", "Grass Block"],
@@ -106,8 +156,8 @@ const builtinBlocks: Array<[BlockType, string, string, string]> = [
 
 builtinBlocks.forEach(([id, color, zh, en]) => blockRegistry.register({id, color, label: {zh, en}}));
 
-export const gameModeRegistry = new Registry<GameModeObject>();
-export const GameModes = gameModeRegistry.namespace as RegistryNamespace<GameModeObject>;
+export const gameModeRegistry = new Registry<GameModeObject>(false);
+export const GameModes: Record<string, any> = gameModeRegistry.namespace;
 
 export const Registries = {
     blocks: blockRegistry,
