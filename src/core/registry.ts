@@ -7,15 +7,42 @@ export interface RegistryObject {
 
 export type RegistryNamespace<T extends RegistryObject> = Record<string, T>;
 
+/** Proxy-backed namespace that resolves any casing of an id to its object. */
+export type RegistryNamespaceProxy<T extends RegistryObject> = Record<string, T> & {
+    readonly [key: string]: T;
+};
+
 export class Registry<T extends RegistryObject> {
     readonly values = new Map<string, T>();
-    readonly namespace: RegistryNamespace<T> = {};
+    readonly namespace: RegistryNamespaceProxy<T>;
+
+    constructor() {
+        const target = this;
+        this.namespace = new Proxy({} as Record<string, T>, {
+            get(_, prop: string | symbol): T | undefined {
+                if (typeof prop !== "string") return undefined;
+                const upper = prop.replace(/[^a-zA-Z0-9_$]/g, "_").toUpperCase();
+                return target.values.get(prop) ?? target.values.get(upper) ?? [...target.values.values()].find((value) => value.id.replace(/[^a-zA-Z0-9_$]/g, "_").toUpperCase() === upper);
+            },
+            ownKeys(): Array<string | symbol> {
+                const keys = new Set<string>();
+                for (const id of target.values.keys()) keys.add(id.replace(/[^a-zA-Z0-9_$]/g, "_").toUpperCase());
+                return [...keys];
+            },
+            getOwnPropertyDescriptor(_t: Record<string, T>, prop: string | symbol): PropertyDescriptor | undefined {
+                if (typeof prop !== "string") return undefined;
+                const upper = prop.replace(/[^a-zA-Z0-9_$]/g, "_").toUpperCase();
+                const value = target.values.get(prop) ?? target.values.get(upper) ?? [...target.values.values()].find((entry) => entry.id.replace(/[^a-zA-Z0-9_$]/g, "_").toUpperCase() === upper);
+                if (!value) return undefined;
+                return {configurable: true, enumerable: true, value, writable: false};
+            },
+        }) as RegistryNamespaceProxy<T>;
+    }
 
     register(value: T): T {
         if (!value.id) throw new Error("Registry objects require an id");
         if (this.values.has(value.id)) throw new Error(`Object already registered: ${value.id}`);
         this.values.set(value.id, value);
-        this.namespace[this.key(value.id)] = value;
         return value;
     }
 
@@ -29,10 +56,6 @@ export class Registry<T extends RegistryObject> {
 
     list(): readonly T[] {
         return [...this.values.values()];
-    }
-
-    private key(id: string): string {
-        return id.replace(/[^a-zA-Z0-9_$]/g, "_").toUpperCase();
     }
 }
 

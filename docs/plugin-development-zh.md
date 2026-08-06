@@ -15,11 +15,33 @@ web/
 
 插件目录不递归扫描，只加载 `.mjs` 普通文件。服务只会将这个目录中的文件通过 `/plugins/<文件名>` 提供给浏览器，禁止路径遍历。
 
+## IDE 自动补全与游戏对象常量
+
+插件目录附带 `my2dworld-plugin-api.d.ts`。每个插件文件的第一行加入：
+
+```js
+/// <reference path="./my2dworld-plugin-api.d.ts" />
+```
+
+并在 `install` 前加入 `/** @param {PluginApi} api */`。此后 IDE 会将 `api` 识别为游戏 API，并为 `api.Blocks.DIRT`、`api.Blocks.DIAMOND_BLOCK`、`context.world`、`context.player` 等提供真实对象补全，不会再把 i18n 文案 ID 作为候选。
+
+内置对象采用 MC 风格的大写常量：
+
+```js
+api.Blocks.DIRT
+api.Blocks.GRASS_BLOCK_SIDE
+api.GameModes.CREATIVE
+```
+
+对于由其他插件注册、在编辑时无法确定的方块，使用 `api.block("plugin:block_id")`。该方法找不到 id 时会直接抛出明确错误；若希望自行处理不存在的情况，使用 `api.getBlock(id)`。
+
 ## 最小插件
 
 创建 `web/plugins/my-plugin.mjs`：
 
 ```js
+/// <reference path="./my2dworld-plugin-api.d.ts" />
+
 export default {
   id: "my-plugin",
   name: "我的插件",
@@ -28,6 +50,7 @@ export default {
   description: "一个自动加载的 My2DWorld 插件。",
   website: "https://example.com/my-plugin",
 
+  /** @param {PluginApi} api */
   install(api) {
     api.onGameStart((context) => {
       console.info(`[my-plugin] 进入世界：${context.meta.name}`);

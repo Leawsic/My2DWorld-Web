@@ -78,6 +78,8 @@ export interface PluginApi {
 
     getBlock(id: BlockType): BlockDefinition | undefined;
 
+    block(id: BlockType): BlockDefinition;
+
     onWorldCreated(listener: (world: World) => void): void;
 
     onGameStart(listener: (context: PluginGameContext) => void): void;
@@ -131,6 +133,12 @@ export class PluginRegistry implements PluginApi {
 
     getBlock(id: BlockType): BlockDefinition | undefined {
         return blockRegistry.get(id);
+    }
+
+    block(id: BlockType): BlockDefinition {
+        const def = blockRegistry.get(id);
+        if (!def) throw new Error(`Unknown block: ${id}`);
+        return def;
     }
 
     setMessageTarget(target: PlayerMessages | null): void {
