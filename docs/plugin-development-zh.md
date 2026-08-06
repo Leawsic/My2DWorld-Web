@@ -278,7 +278,7 @@ const surfaceY = world.getSurfaceHeight(x);
 world.updateView(cameraX);
 ```
 
-`placeBlock()` 在目标位置已有方块或 `y < 1` 时会返回 `false`。不应直接修改 `chunks`、`brokenBlocks` 或 `placedBlocks`，这些字段属于核心世界状态，直接修改可能破坏区块加载和存档语义。
+`placeBlock()` 在目标位置已有方块、`y < 1` 或超出世界高度时会返回 `false`。不应直接修改 `chunks`、`dirty` 或 `editedChunks`，这些字段属于核心世界状态，直接修改可能破坏区块加载和存档语义。
 
 ## 日志和调试
 

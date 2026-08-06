@@ -85,7 +85,12 @@ const pluginPackages = () => readdirSync(dirs.plugins, {withFileTypes: true})
             log("warn", "Plugin package skipped", {package: entry.name, reason: "entry missing"});
             return [];
         }
-        return [{id, name: String(manifest.name || id), version: typeof manifest.version === "string" ? manifest.version : undefined, entry: `/plugins/${encodeURIComponent(id)}/${manifest.entry.split("/").map(encodeURIComponent).join("/")}`}];
+        return [{
+            id,
+            name: String(manifest.name || id),
+            version: typeof manifest.version === "string" ? manifest.version : undefined,
+            entry: `/plugins/${encodeURIComponent(id)}/${manifest.entry.split("/").map(encodeURIComponent).join("/")}`
+        }];
     });
 
 const api = async (req, res) => {
@@ -107,14 +112,56 @@ const api = async (req, res) => {
         }
         const world = safe(url.searchParams.get("world"));
         const savePath = join(dirs.worlds, `${user}_${world}.json`);
-        if (url.pathname === "/api/world-save" && req.method === "GET") return send(res, 200, readJson(savePath, null));
+        const chunkPrefix = `${user}_${world}.chunk.`;
+        const chunkFilePath = (cx, cy) => join(dirs.worlds, `${chunkPrefix}${cx}.${cy}.dat`);
+        const listChunkFiles = () => readdirSync(dirs.worlds).filter((file) => file.startsWith(chunkPrefix) && /\.chunk\.-?\d+\.-?\d+\.dat$/.test(file));
+        if (url.pathname === "/api/world-save" && req.method === "GET") {
+            const state = readJson(savePath, null);
+            if (!state) return send(res, 200, null);
+            const chunks = {};
+            for (const file of listChunkFiles()) {
+                const match = file.match(/\.chunk\.(-?\d+)\.(-?\d+)\.dat$/);
+                if (!match) continue;
+                try {
+                    chunks[`${match[1]},${match[2]}`] = readFileSync(join(dirs.worlds, file)).toString("base64");
+                } catch (error) {
+                    log("warn", "Chunk read failed", {user, world, file, error: String(error)});
+                }
+            }
+            return send(res, 200, {...state, chunks});
+        }
         if (url.pathname === "/api/world-save" && req.method === "POST") {
-            writeFileSync(savePath, JSON.stringify(await body(req), null, 2));
-            log("info", "World saved", {user, world});
+            const data = await body(req);
+            writeFileSync(savePath, JSON.stringify({
+                playerX: Number(data.playerX) || 0,
+                playerY: Number(data.playerY) || 0,
+                mode: data.mode === "spectator" ? "spectator" : "creative",
+                idTable: Array.isArray(data.idTable) ? data.idTable : []
+            }, null, 2));
+            if (data.chunks && typeof data.chunks === "object") {
+                for (const [cell, encoded] of Object.entries(data.chunks)) {
+                    if (!/^-?\d+,-?\d+$/.test(cell) || typeof encoded !== "string") continue;
+                    const [cx, cy] = cell.split(",").map(Number);
+                    if (!Number.isInteger(cx) || !Number.isInteger(cy)) continue;
+                    try {
+                        writeFileSync(chunkFilePath(cx, cy), Buffer.from(encoded, "base64"));
+                    } catch (error) {
+                        log("warn", "Chunk write failed", {user, world, cell, error: String(error)});
+                    }
+                }
+            }
+            log("info", "World saved", {user, world, chunks: Object.keys(data.chunks || {}).length});
             return send(res, 200, {ok: true});
         }
         if (url.pathname === "/api/world-save" && req.method === "DELETE") {
             if (existsSync(savePath)) unlinkSync(savePath);
+            for (const file of listChunkFiles()) {
+                try {
+                    unlinkSync(join(dirs.worlds, file));
+                } catch (error) {
+                    log("warn", "Chunk delete failed", {user, world, file, error: String(error)});
+                }
+            }
             log("info", "World save deleted", {user, world});
             return send(res, 200, {ok: true});
         }
@@ -169,7 +216,17 @@ const pluginFile = (req, res) => {
     const packageDir = join(dirs.plugins, namespace);
     const path = normalize(join(packageDir, ...resource));
     if (relative(packageDir, path).startsWith("..") || !existsSync(path) || !statSync(path).isFile()) return send(res, 404, {error: "Plugin resource not found"});
-    const mime = {".mjs": "text/javascript", ".js": "text/javascript", ".json": "application/json", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif", ".css": "text/css"}[extname(path).toLowerCase()] || "application/octet-stream";
+    const mime = {
+        ".mjs": "text/javascript",
+        ".js": "text/javascript",
+        ".json": "application/json",
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".webp": "image/webp",
+        ".gif": "image/gif",
+        ".css": "text/css"
+    }[extname(path).toLowerCase()] || "application/octet-stream";
     res.writeHead(200, {"Content-Type": `${mime}; charset=utf-8`, "Cache-Control": "no-store"});
     res.end(readFileSync(path));
     return true;

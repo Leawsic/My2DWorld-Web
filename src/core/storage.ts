@@ -9,20 +9,18 @@ export interface PluginPackage {
     entry: string;
 }
 
-function request<T>(url: string, method = "GET", value?: unknown): T {
-    const xhr = new XMLHttpRequest();
-    xhr.open(method, url, false);
-    xhr.setRequestHeader("Content-Type", "application/json");
+async function request<T>(url: string, method = "GET", value?: unknown): Promise<T | null> {
     try {
-        xhr.send(value === undefined ? undefined : JSON.stringify(value));
+        const response = await fetch(url, {
+            method,
+            headers: {"Content-Type": "application/json"},
+            body: value === undefined ? undefined : JSON.stringify(value),
+        });
+        if (!response.ok) return null;
+        const text = await response.text();
+        return text ? JSON.parse(text) as T : (null as T);
     } catch {
-        return null as T;
-    }
-    if (xhr.status < 200 || xhr.status >= 300) return null as T;
-    try {
-        return xhr.responseText ? JSON.parse(xhr.responseText) as T : (null as T);
-    } catch {
-        return null as T;
+        return null;
     }
 }
 
@@ -30,11 +28,11 @@ export const storage = {
     setUser(username: string): void {
         activeUser = username || "steve";
     },
-    account(username: string, password: string, action: "login" | "register"): boolean {
-        return Boolean(request<{ ok?: boolean }>("/api/account", "POST", {username, password, action})?.ok);
+    async account(username: string, password: string, action: "login" | "register"): Promise<boolean> {
+        return Boolean((await request<{ ok?: boolean }>("/api/account", "POST", {username, password, action}))?.ok);
     },
-    loadSettings(): PlayerSettings {
-        const saved = request<Partial<PlayerSettings>>(`/api/settings?user=${encodeURIComponent(activeUser)}`) || {};
+    async loadSettings(): Promise<PlayerSettings> {
+        const saved = (await request<Partial<PlayerSettings>>(`/api/settings?user=${encodeURIComponent(activeUser)}`)) || {};
         return {
             ...DEFAULT_SETTINGS,
             ...saved,
@@ -48,30 +46,34 @@ export const storage = {
             spectateBrightness: typeof saved.spectateBrightness === "number" && saved.spectateBrightness >= 0 && saved.spectateBrightness <= 1 ? saved.spectateBrightness : DEFAULT_SETTINGS.spectateBrightness,
         };
     },
-    saveSettings(settings: PlayerSettings): void {
-        request(`/api/settings?user=${encodeURIComponent(activeUser)}`, "POST", settings);
+    async saveSettings(settings: PlayerSettings): Promise<boolean> {
+        return Boolean(await request(`/api/settings?user=${encodeURIComponent(activeUser)}`, "POST", settings));
     },
-    loadWorlds(username = "steve"): WorldMeta[] {
-        return request<{
+    async loadWorlds(username = "steve"): Promise<WorldMeta[]> {
+        return (await request<{
             worlds?: WorldMeta[]
-        }>(`/api/worlds?user=${encodeURIComponent(username || activeUser)}`)?.worlds || [];
+        }>(`/api/worlds?user=${encodeURIComponent(username || activeUser)}`))?.worlds || [];
     },
-    saveWorlds(worlds: WorldMeta[], username = "steve"): void {
-        request(`/api/worlds?user=${encodeURIComponent(username || activeUser)}`, "POST", {worlds});
+    async saveWorlds(worlds: WorldMeta[], username = "steve"): Promise<boolean> {
+        return Boolean(await request(`/api/worlds?user=${encodeURIComponent(username || activeUser)}`, "POST", {worlds}));
     },
-    loadWorld(id: string, username = "steve"): WorldSave | null {
+    async loadWorld(id: string, username = "steve"): Promise<WorldSave | null> {
         return request<WorldSave | null>(`/api/world-save?user=${encodeURIComponent(username || activeUser)}&world=${encodeURIComponent(id)}`);
     },
-    saveWorld(id: string, save: WorldSave, username = "steve"): void {
-        request(`/api/world-save?user=${encodeURIComponent(username || activeUser)}&world=${encodeURIComponent(id)}`, "POST", save);
+    async saveWorld(id: string, save: WorldSave, username = "steve"): Promise<boolean> {
+        return Boolean(await request(`/api/world-save?user=${encodeURIComponent(username || activeUser)}&world=${encodeURIComponent(id)}`, "POST", save));
     },
-    removeWorld(id: string, username = "steve"): void {
-        request(`/api/world-save?user=${encodeURIComponent(username || activeUser)}&world=${encodeURIComponent(id)}`, "DELETE");
+    async removeWorld(id: string, username = "steve"): Promise<boolean> {
+        return Boolean(await request(`/api/world-save?user=${encodeURIComponent(username || activeUser)}&world=${encodeURIComponent(id)}`, "DELETE"));
     },
-    log(event: string, details: Record<string, unknown> = {}, level: "info" | "warn" | "error" = "info"): void {
-        request(`/api/log?user=${encodeURIComponent(activeUser)}`, "POST", {event, details, level});
+    async log(event: string, details: Record<string, unknown> = {}, level: "info" | "warn" | "error" = "info"): Promise<boolean> {
+        return Boolean(await request(`/api/log?user=${encodeURIComponent(activeUser)}`, "POST", {
+            event,
+            details,
+            level
+        }));
     },
-    listPlugins(): PluginPackage[] {
-        return request<{ plugins?: PluginPackage[] }>("/api/plugins")?.plugins || [];
+    async listPlugins(): Promise<PluginPackage[]> {
+        return (await request<{ plugins?: PluginPackage[] }>("/api/plugins"))?.plugins || [];
     },
 };
