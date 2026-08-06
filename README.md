@@ -43,7 +43,8 @@ web/
 │   │   ├── storage.ts         同步本地 API 客户端
 │   │   └── types.ts           稳定的游戏数据类型
 │   ├── modes/                 旁观和创造模式实现
-│   └── plugins/api.ts         初始插件扩展注册表
+│   ├── registry.ts             Blocks/GameModes 统一注册表入口
+│   └── plugins/api.ts         插件扩展注册表与生命周期 API
 ├── public/assets/             从 Python 版迁移的纹理、字体和背景
 ├── plugins/                   自动扫描并加载的外部 ESM 插件
 └── run/                       由 server.mjs 创建的本地运行数据
@@ -53,7 +54,7 @@ web/
     └── worlds/
 ```
 
-`main.ts` 负责浏览器专属逻辑；可复用的游戏规则放在 `core/`；新游戏模式放在 `modes/`。插件应通过 `plugins/api.ts` 扩展，不应直接依赖游戏内部状态。
+`main.ts` 负责浏览器专属逻辑；可复用的游戏规则放在 `core/`；新游戏模式放在 `modes/`。游戏对象统一从 `registry.ts` 的 `Blocks`、`GameModes` 和 `Registries` 获取；插件应通过 `plugins/api.ts` 扩展，不应直接依赖游戏内部状态。
 
 ## 运行数据
 
@@ -152,7 +153,7 @@ run/worlds/<用户名>_<世界ID>.json   玩家位置、模式、破坏和放置
 
 1. 在 `public/assets/block/` 下添加 PNG 纹理。
 2. 在 `src/i18n.ts` 中添加中英文显示名称。
-3. 插件拥有的内容通过 `PluginRegistry.registerBlock()` 注册。
+3. 插件拥有的内容通过 `PluginRegistry.registerBlock()` 注册，并使用 `api.Blocks.MY_BLOCK` 这类注册表对象引用。
 4. 只有需要默认出现的方块才加入地形生成或快捷栏逻辑。
 
 新增游戏模式时：

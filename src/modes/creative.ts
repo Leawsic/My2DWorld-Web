@@ -1,8 +1,9 @@
 import {ParticleSystem} from "../core/particles";
 import {GameMode, type ModeContext} from "./base";
+import {GameModes} from "../core/registry";
 
 export class CreativeMode extends GameMode {
-    readonly name = "creative" as const;
+    readonly name = GameModes.CREATIVE.id;
     readonly particles = new ParticleSystem();
     private readonly stand = this.loadImage("/assets/player/steve/stand/1.png");
     private readonly move = [1, 2, 3, 4].map((frame) => this.loadImage(`/assets/player/steve/move/${frame}.png`));

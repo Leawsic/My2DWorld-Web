@@ -1,14 +1,15 @@
 import type {BlockType} from "./types";
+import {Blocks} from "./registry";
 
 export const CHUNK_SIZE = 16;
 const DIRT_DEPTH = 15;
 const BEDROCK_THICKNESS = 2;
-export const GRASS = "grass_block_side";
-export const DIRT = "dirt";
-export const STONE = "stone";
-export const COBBLESTONE = "cobblestone";
-export const MOSSY_COBBLESTONE = "mossy_cobblestone";
-export const BEDROCK = "bedrock";
+export const GRASS = Blocks.GRASS_BLOCK_SIDE.id;
+export const DIRT = Blocks.DIRT.id;
+export const STONE = Blocks.STONE.id;
+export const COBBLESTONE = Blocks.COBBLESTONE.id;
+export const MOSSY_COBBLESTONE = Blocks.MOSSY_COBBLESTONE.id;
+export const BEDROCK = Blocks.BEDROCK.id;
 
 export function hashNoise(x: number, seed = 0): number {
     let h = Math.imul(x ^ seed, 374761393) + 668265263;

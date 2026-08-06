@@ -2,12 +2,9 @@ import type {BlockType} from "../core/types";
 import type {Player} from "../core/player";
 import type {World} from "../core/world";
 import type {WorldMeta} from "../core/types";
+import {blockRegistry, Blocks, type BlockObject, GameModes, Registries} from "../core/registry";
 
-export interface BlockDefinition {
-    id: BlockType;
-    color: string;
-    label: { zh: string; en: string };
-}
+export type BlockDefinition = BlockObject;
 
 export interface GamePlugin {
     id: string;
@@ -54,7 +51,13 @@ export interface PluginFlyContext extends PluginGameContext {
 }
 
 export interface PluginApi {
+    readonly Blocks: typeof Blocks;
+    readonly GameModes: typeof GameModes;
+    readonly Registries: typeof Registries;
+
     registerBlock(definition: BlockDefinition): void;
+
+    getBlock(id: BlockType): BlockDefinition | undefined;
 
     onWorldCreated(listener: (world: World) => void): void;
 
@@ -84,6 +87,9 @@ export interface PluginApi {
 export class PluginRegistry implements PluginApi {
     readonly blocks = new Map<BlockType, BlockDefinition>();
     readonly plugins = new Map<string, GamePlugin>();
+    readonly Blocks = Blocks;
+    readonly GameModes = GameModes;
+    readonly Registries = Registries;
     private readonly worldCreatedListeners: Array<(world: World) => void> = [];
     private readonly listeners = new Map<string, Array<(context: never) => void>>();
 
@@ -95,8 +101,12 @@ export class PluginRegistry implements PluginApi {
     }
 
     registerBlock(definition: BlockDefinition): void {
-        if (this.blocks.has(definition.id)) throw new Error(`Block already registered: ${definition.id}`);
+        blockRegistry.register(definition);
         this.blocks.set(definition.id, definition);
+    }
+
+    getBlock(id: BlockType): BlockDefinition | undefined {
+        return blockRegistry.get(id);
     }
 
     onWorldCreated(listener: (world: World) => void): void {

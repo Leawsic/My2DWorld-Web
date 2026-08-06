@@ -9,6 +9,8 @@ import type {GameMode} from "./modes/base";
 import {CreativeMode} from "./modes/creative";
 import {type GamePlugin, type PluginGameContext, PluginRegistry} from "./plugins/api";
 import {keyName, t} from "./i18n";
+import {Blocks, GameModes} from "./registry";
+import {blockRegistry} from "./core/registry";
 
 const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("App root is missing");
@@ -108,8 +110,8 @@ class GameSession {
     private last = performance.now();
     private frame = 0;
     private autosaveElapsed = 0;
-    private hotbar: Array<string | null> = ["grass_block_side", "dirt", "stone", "cobblestone", "mossy_cobblestone", "coal_block", "iron_block", "gold_block", "diamond_block"];
-    private inventorySlots: Array<string | null> = ["diamond_block", "coal_ore", "iron_ore", "gold_ore", "diamond_ore", "emerald_ore", "lapis_ore", "redstone_ore", "copper_ore", "bedrock", "deepslate_coal_ore", "deepslate_iron_ore", "deepslate_gold_ore", "deepslate_diamond_ore", "deepslate_emerald_ore", "deepslate_lapis_ore", "deepslate_redstone_ore", "deepslate_copper_ore", "raw_iron_block", "raw_gold_block", "nether_quartz_ore", "nether_gold_ore", "iron_bars", "iron_chain", "mossy_cobblestone", "iron_block", "gold_block"];
+     private hotbar: Array<string | null> = [Blocks.GRASS_BLOCK_SIDE, Blocks.DIRT, Blocks.STONE, Blocks.COBBLESTONE, Blocks.MOSSY_COBBLESTONE, Blocks.COAL_BLOCK, Blocks.IRON_BLOCK, Blocks.GOLD_BLOCK, Blocks.DIAMOND_BLOCK].map((block) => block.id);
+     private inventorySlots: Array<string | null> = [Blocks.DIAMOND_BLOCK, Blocks.COAL_ORE, Blocks.IRON_ORE, Blocks.GOLD_ORE, Blocks.DIAMOND_ORE, Blocks.EMERALD_ORE, Blocks.LAPIS_ORE, Blocks.REDSTONE_ORE, Blocks.COPPER_ORE, Blocks.BEDROCK, Blocks.DEEPSLATE_COAL_ORE, Blocks.DEEPSLATE_IRON_ORE, Blocks.DEEPSLATE_GOLD_ORE, Blocks.DEEPSLATE_DIAMOND_ORE, Blocks.DEEPSLATE_EMERALD_ORE, Blocks.DEEPSLATE_LAPIS_ORE, Blocks.DEEPSLATE_REDSTONE_ORE, Blocks.DEEPSLATE_COPPER_ORE, Blocks.RAW_IRON_BLOCK, Blocks.RAW_GOLD_BLOCK, Blocks.NETHER_QUARTZ_ORE, Blocks.NETHER_GOLD_ORE, Blocks.IRON_BARS, Blocks.IRON_CHAIN, Blocks.MOSSY_COBBLESTONE, Blocks.IRON_BLOCK, Blocks.GOLD_BLOCK].map((block) => block.id);
     private selected = 0;
     private health = 20;
     private voidDamageTimer = 0;
@@ -195,7 +197,7 @@ class GameSession {
                 this.handleChatKey(event);
                 return;
             }
-            if (event.code === "KeyE" && this.modeName === "creative") {
+     if (event.code === "KeyE" && this.modeName === GameModes.CREATIVE.id) {
                 this.toggleInventory();
                 event.preventDefault();
                 return;
@@ -863,15 +865,7 @@ class GameSession {
                 const sy = Math.round((cameraY - y) * this.blockSize + height / 2);
                 const image = this.blockImages.get(type);
                 if (image?.complete && image.naturalWidth) ctx.drawImage(image, sx, sy, this.blockSize, this.blockSize); else {
-                    const palette: Record<string, string> = {
-                        grass_block_side: "#62a941",
-                        dirt: "#8d613c",
-                        stone: "#777d82",
-                        cobblestone: "#626b6d",
-                        mossy_cobblestone: "#4c7564",
-                        bedrock: "#303940"
-                    };
-                    ctx.fillStyle = palette[type] ?? "#cc39b7";
+                     ctx.fillStyle = blockRegistry.get(type)?.color ?? "#cc39b7";
                     ctx.fillRect(sx, sy, this.blockSize, this.blockSize);
                 }
             }

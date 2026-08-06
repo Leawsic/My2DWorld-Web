@@ -148,6 +148,47 @@ export default {
 
 `onWorldCreated` 在每次进入世界时都会运行，不只在首次创建世界时运行。涉及世界写入的钩子应保持幂等，例如先检查 `world.getBlock(x, y)` 再放置，避免重复进入世界时覆盖玩家建筑。
 
+## Registry 对象注册表
+
+游戏对象统一通过注册表暴露。插件的 `install(api)` 会收到两个只读命名空间：
+
+- `api.Blocks`：方块对象，例如 `api.Blocks.DIRT`、`api.Blocks.DIAMOND_BLOCK`。
+- `api.GameModes`：游戏模式对象，例如 `api.GameModes.CREATIVE`、`api.GameModes.SPECTATOR`。
+
+注册表对象使用 `.id` 作为存档和世界数据中的稳定值，不要把对象本身写入存档：
+
+```js
+api.onBlockPlaced((context) => {
+  if (context.type === api.Blocks.DIRT.id) {
+    console.info("放置了泥土");
+  }
+});
+
+api.onGameModeChanged((context) => {
+  if (context.mode === api.GameModes.CREATIVE.id) {
+    console.info("进入创造模式");
+  }
+});
+```
+
+插件方块使用 `registerBlock()` 注册后，会同时出现在 `api.Blocks` 中。命名空间名称由 id 转换为大写键名，例如 `my_block` 变为 `MY_BLOCK`。重复 id 会被拒绝，以避免不同插件覆盖已有对象。
+
+```js
+api.registerBlock({
+  id: "crystal_block",
+  color: "#8be9fd",
+  label: { zh: "水晶块", en: "Crystal Block" }
+});
+
+api.onBlockPlaced(({ type }) => {
+  if (type === api.Blocks.CRYSTAL_BLOCK.id) {
+    console.info("放置了水晶块");
+  }
+});
+```
+
+`api.Registries` 提供底层注册表集合：`api.Registries.blocks` 和 `api.Registries.gameModes`。核心代码从 `src/registry.ts` 导出 `Blocks`、`GameModes`、`Registries`、`blockRegistry` 和 `gameModeRegistry`。每个注册表的 `get(id)`、`has(id)`、`list()` 方法可用于动态查找和枚举对象。
+
 ## 可用 World 操作
 
 当前插件可以使用 `World` 的公开方法：
