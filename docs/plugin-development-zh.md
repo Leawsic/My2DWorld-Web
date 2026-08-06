@@ -90,22 +90,26 @@ public/assets/block/crystal_block.png
 | `onBlockPlaced(listener)` | 创造模式成功放置一个方块后。 |
 | `onPlayerRespawn(listener)` | 玩家因坠入虚空而重生后。 |
 | `onGameStop(listener)` | 返回世界列表或浏览器页面卸载前。 |
+| `onSpectateChanged(listener)` | 创造模式按 `F7` 切换灵魂出窍时。 |
+| `onFlyChanged(listener)` | 玩家飞行状态变化时（双击 `Space` 切换、坠入虚空重生等）。 |
 
 除 `onWorldCreated` 外，生命周期回调都会收到游戏上下文：
 
 ```js
 api.onGameTick((context) => {
-  const { username, meta, world, player, mode, dt } = context;
+  const { username, meta, world, player, mode, spectate, flying, dt } = context;
   // username: 当前用户名
   // meta: 当前世界元数据，包括 id、名称、模式和物理参数
   // world: 当前 World 实例
   // player: 当前 Player 实例
   // mode: 当前模式名称
+  // spectate: 是否处于灵魂出窍状态（玩家本体冻结）
+  // flying: 玩家当前是否在飞行
   // dt: 本帧秒数，仅 onGameTick 提供
 });
 ```
 
-方块事件额外提供 `x`、`y` 和 `type`。模式切换事件额外提供 `previousMode` 和切换后的 `mode`。游戏停止事件额外提供 `reason`，当前可能值为 `world-list` 或 `browser-unload`。
+方块事件额外提供 `x`、`y` 和 `type`。模式切换事件额外提供 `previousMode` 和切换后的 `mode`。游戏停止事件额外提供 `reason`，当前可能值为 `world-list` 或 `browser-unload`。灵魂出窍事件额外提供切换后的 `spectate` 布尔值；飞行事件额外提供切换后的 `flying` 布尔值。
 
 ## 生命周期示例
 
