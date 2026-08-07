@@ -4,6 +4,7 @@ import {MobManager, MOB_KINDS, MOB_RENDER_RADIUS, type Mob} from "./core/entity"
 import {storage, type PluginPackage} from "./core/storage";
 import {biomeAt, hashSeed, spawnX, World, WORLD_HEIGHT} from "./core/world";
 import {clampSpectateOffset} from "./core/spectate";
+import {ParticleSystem} from "./core/particles";
 import {
     DEFAULT_SETTINGS,
     type GameModeName,
@@ -192,6 +193,7 @@ class GameSession {
     private readonly guiImages = new Map<string, HTMLImageElement>();
     private readonly mobImages = new Map<string, HTMLImageElement>();
     private readonly mobs: MobManager;
+    private readonly fx = new ParticleSystem();
     private readonly inventoryBackground = this.loadImage("/assets/gui/creative_inventory/tab_inventory.png");
     private placement: [number, number] | null = null;
     private active = true;
@@ -731,7 +733,13 @@ class GameSession {
             }
             this.world.updateView(this.player.x);
             this.updateVoid(dt);
-            this.mobs.update(dt, this.world, this.player, (amount) => this.damagePlayer(amount), (kind, x, y) => {
+            this.fx.update(dt);
+            const damagePlayer = this.modeName === "creative" ? () => undefined : (amount: number) => this.damagePlayer(amount);
+            this.mobs.update(dt, this.world, this.player, damagePlayer, (kind, x, y) => {
+                const deathImage = this.entityImage(MOB_KINDS[kind].dir, "stand", 1);
+                this.fx.burst(x, y, deathImage);
+                const name = kind === "zombie" ? text("僵尸", "Zombie") : kind === "husk" ? text("尸壳", "Husk") : text("溺尸", "Drowned");
+                this.addChat(text("你击败了", "You slew") + ` ${name}`, "#ffd24a");
                 plugins.notifyMobKilled({...this.pluginContext(), kind, x, y});
                 storage.log("Mob killed", {world: this.meta.name, kind, x, y});
             });
@@ -1049,6 +1057,7 @@ class GameSession {
             ctx.strokeRect(sx + 1, sy + 1, this.blockSize - 2, this.blockSize - 2);
         }
         if (this.mode instanceof CreativeMode) this.mode.particles.render(ctx, cameraX, cameraY, this.blockSize);
+        this.fx.render(ctx, cameraX, cameraY, this.blockSize);
         const playerContext: ModeContext = {
             player: this.player,
             world: this.world,
@@ -1072,9 +1081,9 @@ class GameSession {
             drawables.push({
                 depth: mob.y + mob.height / 2,
                 draw: () => {
-                    const hurtAlpha = mob.hurtTimer > 0 ? Math.min(0.85, mob.hurtTimer * 2.5) : 0;
-                    if (hurtAlpha > 0) {
-                        this.drawGhost(ctx, image, sx, sy, spriteWidth, spriteHeight, 1, hurtAlpha, mob.facing < 0);
+                    const hurtT = mob.hurtTimer > 0 ? Math.min(1, mob.hurtTimer / 0.35) : 0;
+                    if (hurtT > 0) {
+                        this.drawGhost(ctx, image, sx, sy, spriteWidth, spriteHeight, 1, 1 - hurtT * 0.75, mob.facing < 0, "#ff2d20");
                         return;
                     }
                     ctx.save();
@@ -1100,7 +1109,7 @@ class GameSession {
         this.renderCursor();
     }
 
-    private drawGhost(ctx: CanvasRenderingContext2D, image: HTMLImageElement | undefined, x: number, y: number, w: number, h: number, alpha: number, brightness: number, flip = false): void {
+    private drawGhost(ctx: CanvasRenderingContext2D, image: HTMLImageElement | undefined, x: number, y: number, w: number, h: number, alpha: number, brightness: number, flip = false, tint = "#000"): void {
         if (!image?.complete || !image.naturalWidth) return;
         ctx.save();
         if (flip) {
@@ -1113,7 +1122,7 @@ class GameSession {
         ctx.drawImage(image, x, y, w, h);
         ctx.globalCompositeOperation = "source-atop";
         ctx.globalAlpha = 1 - brightness;
-        ctx.fillStyle = "#000";
+        ctx.fillStyle = tint;
         ctx.fillRect(x, y, w, h);
         ctx.globalCompositeOperation = "source-over";
         ctx.globalAlpha = 1;
