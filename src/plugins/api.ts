@@ -3,6 +3,7 @@ import type {Block, BlockDefinition} from "../core/block";
 import type {Player} from "../core/player";
 import type {World} from "../core/world";
 import type {WorldMeta} from "../core/types";
+import type {MobKind} from "../core/entity";
 import {blockRegistry, Blocks, GameModes, Registries} from "../core/registry";
 
 export type {Block, BlockDefinition};
@@ -68,6 +69,17 @@ export interface PluginFlyContext extends PluginGameContext {
     flying: boolean;
 }
 
+export interface PluginMobContext extends PluginGameContext {
+    kind: MobKind;
+    x: number;
+    y: number;
+}
+
+export interface PluginPlayerHurtContext extends PluginGameContext {
+    amount: number;
+    health: number;
+}
+
 export interface PluginApi {
     /** Namespace assigned from the plugin manifest id. */
     readonly namespace: string;
@@ -112,6 +124,10 @@ export interface PluginApi {
     onSpectateChanged(listener: (context: PluginSpectateContext) => void): void;
 
     onFlyChanged(listener: (context: PluginFlyContext) => void): void;
+
+    onMobKilled(listener: (context: PluginMobContext) => void): void;
+
+    onPlayerHurt(listener: (context: PluginPlayerHurtContext) => void): void;
 }
 
 export class PluginRegistry implements PluginApi {
@@ -197,6 +213,8 @@ export class PluginRegistry implements PluginApi {
             onGameStop: (listener) => this.onGameStop(listener),
             onSpectateChanged: (listener) => this.onSpectateChanged(listener),
             onFlyChanged: (listener) => this.onFlyChanged(listener),
+            onMobKilled: (listener) => this.onMobKilled(listener),
+            onPlayerHurt: (listener) => this.onPlayerHurt(listener),
         };
     }
 
@@ -260,6 +278,14 @@ export class PluginRegistry implements PluginApi {
         this.on("flyChanged", listener);
     }
 
+    onMobKilled(listener: (context: PluginMobContext) => void): void {
+        this.on("mobKilled", listener);
+    }
+
+    onPlayerHurt(listener: (context: PluginPlayerHurtContext) => void): void {
+        this.on("playerHurt", listener);
+    }
+
     notifyGameStart(context: PluginGameContext): void {
         this.emit("gameStart", context);
     }
@@ -302,6 +328,14 @@ export class PluginRegistry implements PluginApi {
 
     notifyFlyChanged(context: PluginFlyContext): void {
         this.emit("flyChanged", context);
+    }
+
+    notifyMobKilled(context: PluginMobContext): void {
+        this.emit("mobKilled", context);
+    }
+
+    notifyPlayerHurt(context: PluginPlayerHurtContext): void {
+        this.emit("playerHurt", context);
     }
 
     private on<T>(name: string, listener: (context: T) => void): void {

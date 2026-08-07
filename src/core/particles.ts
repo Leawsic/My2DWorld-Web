@@ -6,6 +6,7 @@ interface Particle {
     life: number;
     maxLife: number;
     sprite: HTMLCanvasElement;
+    size?: number;
 }
 
 export class ParticleSystem {
@@ -21,6 +22,23 @@ export class ParticleSystem {
                 vy: 0.5 + Math.random() * 6,
                 life,
                 maxLife: life,
+                sprite: this.sample(texture)
+            });
+        }
+    }
+
+    /** Wider, longer-lived burst of the target texture, used for a mob death. */
+    burst(x: number, y: number, texture?: HTMLImageElement, count = 18, size = 1.5): void {
+        for (let i = 0; i < count; i += 1) {
+            const life = 0.5 + Math.random() * 0.4;
+            this.particles.push({
+                x: x + (Math.random() * 1.6 - 0.8),
+                y: y + Math.random() * 1.9,
+                vx: Math.random() * 9 - 4.5,
+                vy: 2 + Math.random() * 8,
+                life,
+                maxLife: life,
+                size,
                 sprite: this.sample(texture)
             });
         }
@@ -42,7 +60,7 @@ export class ParticleSystem {
         const cy = ctx.canvas.height / 2;
         for (const particle of this.particles) {
             ctx.globalAlpha = particle.life / particle.maxLife;
-            const spriteSize = Math.max(4, Math.round(size / 5));
+            const spriteSize = Math.max(4, Math.round((size / 5) * (particle.size ?? 1)));
             const x = Math.round((particle.x - cameraX) * size + cx - spriteSize / 2);
             const y = Math.round((cameraY - particle.y) * size + cy - spriteSize / 2);
             ctx.drawImage(particle.sprite, x, y, spriteSize, spriteSize);

@@ -1,5 +1,6 @@
 import {World} from "./world";
 import type {MovementSettings} from "./types";
+import {moveBody, type PhysicsBody} from "./physics";
 
 export const BODY_HALF_WIDTH = 0.25;
 export const BODY_HEIGHT = 1.9;
@@ -15,12 +16,14 @@ export interface KeyState {
     sneak: boolean;
 }
 
-export class Player {
+export class Player implements PhysicsBody {
     x: number;
     y: number;
     velocityX = 0;
     velocityY = 0;
     onGround = false;
+    readonly halfWidth = BODY_HALF_WIDTH;
+    readonly height = BODY_HEIGHT;
     jumpsUsed = 0;
     flying = false;
     health = 20;
@@ -62,8 +65,9 @@ export class Player {
             }
             this.velocityY -= this.movement.gravity * seconds;
         }
-        this.moveX(world, seconds);
-        this.moveY(world, seconds);
+        const wasOnGround = this.onGround;
+        moveBody(this, world, seconds);
+        if (!wasOnGround && this.onGround) this.jumpsUsed = 0;
         this.animationTime = this.velocityX ? this.animationTime + seconds : 0;
     }
 
@@ -91,52 +95,5 @@ export class Player {
         this.flying = flying;
         this.velocityY = 0;
         this.jumpsUsed = 0;
-    }
-
-    private moveX(world: World, dt: number): void {
-        const dx = this.velocityX * dt;
-        this.x += dx;
-        const left = this.x - BODY_HALF_WIDTH;
-        const bottom = this.y;
-        const top = bottom + BODY_HEIGHT;
-        const start = Math.floor(bottom) + 1;
-        const end = Math.ceil(top);
-        if (dx > 0) {
-            const blockX = Math.floor(left + BODY_HALF_WIDTH * 2);
-            if (Array.from({length: end - start + 1}, (_, i) => start + i).some((y) => world.getBlock(blockX, y))) {
-                this.x = blockX - BODY_HALF_WIDTH - 0.001;
-                this.velocityX = 0;
-            }
-        } else if (dx < 0) {
-            const blockX = Math.floor(left);
-            if (Array.from({length: end - start + 1}, (_, i) => start + i).some((y) => world.getBlock(blockX, y))) {
-                this.x = blockX + 1 + BODY_HALF_WIDTH + 0.001;
-                this.velocityX = 0;
-            }
-        }
-    }
-
-    private moveY(world: World, dt: number): void {
-        const dy = this.velocityY * dt;
-        this.y += dy;
-        const left = Math.floor(this.x - BODY_HALF_WIDTH);
-        const right = Math.floor(this.x + BODY_HALF_WIDTH);
-        const height = BODY_HEIGHT;
-        if (dy < 0) {
-            const blockY = Math.ceil(this.y);
-            const hit = Array.from({length: right - left + 1}, (_, i) => left + i).some((x) => world.getBlock(x, blockY));
-            if (hit) {
-                this.y = blockY + 0.001;
-                this.velocityY = 0;
-                this.onGround = true;
-                this.jumpsUsed = 0;
-            } else this.onGround = false;
-        } else if (dy > 0) {
-            const blockY = Math.ceil(this.y + height);
-            if (Array.from({length: right - left + 1}, (_, i) => left + i).some((x) => world.getBlock(x, blockY))) {
-                this.y = blockY - 1 - 0.001 - height;
-                this.velocityY = 0;
-            }
-        }
     }
 }
