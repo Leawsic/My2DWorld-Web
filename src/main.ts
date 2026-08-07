@@ -1064,25 +1064,25 @@ class GameSession {
         const drawables: Array<{depth: number; draw: () => void}> = [];
         for (const mob of this.mobs.mobsNear(this.player, MOB_RENDER_RADIUS)) {
             const config = MOB_KINDS[mob.kind];
-            const width = this.blockSize * config.visual.width;
-            const height = this.blockSize * config.visual.height;
-            const sx = (mob.x - cameraX) * this.blockSize + width / 2;
-            const sy = (cameraY - mob.y) * this.blockSize + height / 2;
+            const spriteWidth = this.blockSize * config.visual.width;
+            const spriteHeight = this.blockSize * config.visual.height;
+            const sx = (mob.x - cameraX) * this.blockSize + width / 2 - spriteWidth / 2;
+            const sy = (cameraY - mob.y) * this.blockSize + height / 2 - spriteHeight;
             const image = this.mobFrame(mob);
             drawables.push({
                 depth: mob.y + mob.height / 2,
                 draw: () => {
                     const hurtAlpha = mob.hurtTimer > 0 ? Math.min(0.85, mob.hurtTimer * 2.5) : 0;
                     if (hurtAlpha > 0) {
-                        this.drawGhost(ctx, image, sx, sy, width, height, 1, hurtAlpha, mob.facing < 0);
+                        this.drawGhost(ctx, image, sx, sy, spriteWidth, spriteHeight, 1, hurtAlpha, mob.facing < 0);
                         return;
                     }
                     ctx.save();
                     if (mob.facing < 0) {
-                        ctx.translate(sx + width, 0);
+                        ctx.translate(sx + spriteWidth, 0);
                         ctx.scale(-1, 1);
-                        ctx.drawImage(image, 0, sy, width, height);
-                    } else ctx.drawImage(image, sx, sy, width, height);
+                        ctx.drawImage(image, 0, sy, spriteWidth, spriteHeight);
+                    } else ctx.drawImage(image, sx, sy, spriteWidth, spriteHeight);
                     ctx.restore();
                 }
             });
@@ -1094,7 +1094,7 @@ class GameSession {
             const playerImage = this.guiImages.get("player_stand");
             const gw = this.blockSize * 1.9;
             const gh = this.blockSize * 1.9;
-            this.drawGhost(ctx, playerImage, width / 2 - gw / 2, height / 2 - gh / 2, gw, gh, settings.spectateAlpha, settings.spectateBrightness, this.player.facing < 0);
+            this.drawGhost(ctx, playerImage, width / 2 - gw / 2, height / 2 - gh, gw, gh, settings.spectateAlpha, settings.spectateBrightness, this.player.facing < 0);
         }
         this.renderHud(ctx, width, height);
         this.renderCursor();
