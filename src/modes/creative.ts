@@ -13,13 +13,19 @@ export class CreativeMode extends GameMode {
         context.player.update(context.keys, context.dt, context.world);
         this.particles.update(context.dt);
         this.breakCooldown = Math.max(0, this.breakCooldown - context.dt * 60);
-        if (context.mouseDown && context.hovered && this.breakCooldown <= 0) {
-            const [x, y, type] = context.hovered;
-            if (context.world.breakBlock(x, y)) {
-                this.particles.spawn(x, y, context.textures.get(type));
-                context.onBlockBroken?.(x, y, type);
+        if (context.mouseDown && this.breakCooldown <= 0) {
+            const hit = context.mobs.hitMob(context.mouseWorld, context.player);
+            if (hit) {
+                hit.hurt(5, context.player.x);
+                this.breakCooldown = 8;
+            } else if (context.hovered) {
+                const [x, y, type] = context.hovered;
+                if (context.world.breakBlock(x, y)) {
+                    this.particles.spawn(x, y, context.textures.get(type));
+                    context.onBlockBroken?.(x, y, type);
+                }
+                this.breakCooldown = 8;
             }
-            this.breakCooldown = 8;
         }
     }
 

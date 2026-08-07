@@ -70,6 +70,7 @@ const entries: Record<string, Translation> = {
     debug_air: {zh: "空气", en: "air"},
     debug_zoom: {zh: "缩放", en: "ZOOM"},
     debug_chunks: {zh: "区块", en: "CHUNKS"},
+    debug_mobs: {zh: "怪物", en: "MOBS"},
     debug_textures: {zh: "纹理", en: "TEXTURES"},
     debug_health: {zh: "生命", en: "HEALTH"},
     debug_controls: {zh: "按键", en: "CONTROLS"},

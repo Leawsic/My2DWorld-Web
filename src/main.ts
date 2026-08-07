@@ -1,5 +1,6 @@
 import "./style.css";
 import {type KeyState, Player} from "./core/player";
+import {MobManager, MOB_KINDS, MOB_RENDER_RADIUS, type Mob} from "./core/entity";
 import {storage, type PluginPackage} from "./core/storage";
 import {biomeAt, hashSeed, spawnX, World, WORLD_HEIGHT} from "./core/world";
 import {clampSpectateOffset} from "./core/spectate";
@@ -13,7 +14,7 @@ import {
     type WorldSave
 } from "./core/types";
 import {createMode} from "./modes";
-import type {GameMode} from "./modes/base";
+import type {GameMode, ModeContext} from "./modes/base";
 import {CreativeMode} from "./modes/creative";
 import {type GamePlugin, type PluginGameContext, PluginRegistry} from "./plugins/api";
 import {keyName, t} from "./i18n";
@@ -189,6 +190,8 @@ class GameSession {
     private bindingCapture: keyof KeyBindings | null = null;
     private readonly blockImages = new Map<string, HTMLImageElement>();
     private readonly guiImages = new Map<string, HTMLImageElement>();
+    private readonly mobImages = new Map<string, HTMLImageElement>();
+    private readonly mobs: MobManager;
     private readonly inventoryBackground = this.loadImage("/assets/gui/creative_inventory/tab_inventory.png");
     private placement: [number, number] | null = null;
     private active = true;
@@ -211,6 +214,7 @@ class GameSession {
     constructor(readonly meta: WorldMeta, private readonly initialSave: WorldSave | null) {
         this.modeName = meta.mode;
         this.world = new World(8, meta.seed ?? 0);
+        this.mobs = new MobManager(meta.seed ?? 0);
         const x = this.initialSave?.playerX ?? spawnX(meta.seed ?? 0);
         const y = this.initialSave?.playerY ?? this.world.getSurfaceHeight(x) + 0.001;
         this.world.updateView(x);
@@ -710,6 +714,8 @@ class GameSession {
                 keys: this.keys,
                 mouseDown: this.mouseDown,
                 hovered: this.hovered(),
+                mouseWorld: this.worldAtMouse(),
+                mobs: this.mobs,
                 blockSize: this.blockSize,
                 dt,
                 textures: this.blockImages,
@@ -725,6 +731,10 @@ class GameSession {
             }
             this.world.updateView(this.player.x);
             this.updateVoid(dt);
+            this.mobs.update(dt, this.world, this.player, (amount) => this.damagePlayer(amount), (kind, x, y) => {
+                plugins.notifyMobKilled({...this.pluginContext(), kind, x, y});
+                storage.log("Mob killed", {world: this.meta.name, kind, x, y});
+            });
             plugins.notifyGameTick({...this.pluginContext(), dt});
             this.autosaveElapsed += dt;
             if (settings.autosaveInterval > 0 && this.autosaveElapsed >= settings.autosaveInterval) {
@@ -756,6 +766,23 @@ class GameSession {
         }
     }
 
+    private damagePlayer(amount: number): void {
+        if (this.spectate) return;
+        this.health = Math.max(0, this.health - amount);
+        plugins.notifyPlayerHurt({...this.pluginContext(), amount, health: this.health});
+        if (this.health <= 0) {
+            const spawnXPos = spawnX(this.meta.seed ?? 0);
+            const spawnYPos = this.world.getSurfaceHeight(spawnXPos) + 0.001;
+            this.player.reset(spawnXPos, spawnYPos);
+            this.health = 20;
+            this.save();
+            this.notice = text("你被怪物击败并重生了", "You were slain and respawned");
+            this.noticeTimer = 3;
+            plugins.notifyPlayerRespawn(this.pluginContext());
+            storage.log("Player respawned", {world: this.meta.name, reason: "mob"});
+        }
+    }
+
     private loadBlock(type: string): void {
         const image = new Image();
         const block = blockRegistry.get(type);
@@ -774,6 +801,24 @@ class GameSession {
         const image = new Image();
         image.src = src;
         return image;
+    }
+
+    private entityImage(dir: string, state: string, frame: number): HTMLImageElement {
+        const key = `${dir}/${state}/${frame}`;
+        let image = this.mobImages.get(key);
+        if (!image) {
+            image = this.loadImage(`/assets/entity/${key}.png`);
+            this.mobImages.set(key, image);
+        }
+        return image;
+    }
+
+    private mobFrame(mob: Mob): HTMLImageElement {
+        const config = MOB_KINDS[mob.kind];
+        const state = mob.state === "attack" ? "attack" : mob.velocityX !== 0 ? "move" : "stand";
+        const frames = state === "stand" ? 1 : state === "move" ? config.moveFrames : config.attackFrames;
+        const frame = state === "stand" ? 1 : (Math.floor(mob.animationTime * (state === "attack" ? 10 : 8)) % frames) + 1;
+        return this.entityImage(config.dir, state, frame);
     }
 
     private pluginContext(): PluginGameContext {
@@ -1004,16 +1049,47 @@ class GameSession {
             ctx.strokeRect(sx + 1, sy + 1, this.blockSize - 2, this.blockSize - 2);
         }
         if (this.mode instanceof CreativeMode) this.mode.particles.render(ctx, cameraX, cameraY, this.blockSize);
-        this.mode.renderPlayer(ctx, {
+        const playerContext: ModeContext = {
             player: this.player,
             world: this.world,
             keys: this.keys,
             mouseDown: this.mouseDown,
             hovered: this.hovered(),
+            mouseWorld: this.worldAtMouse(),
+            mobs: this.mobs,
             blockSize: this.blockSize,
             dt: 0,
             textures: this.blockImages
-        }, cameraX, cameraY);
+        };
+        const drawables: Array<{depth: number; draw: () => void}> = [];
+        for (const mob of this.mobs.mobsNear(this.player, MOB_RENDER_RADIUS)) {
+            const config = MOB_KINDS[mob.kind];
+            const width = this.blockSize * config.visual.width;
+            const height = this.blockSize * config.visual.height;
+            const sx = (mob.x - cameraX) * this.blockSize + width / 2;
+            const sy = (cameraY - mob.y) * this.blockSize + height / 2;
+            const image = this.mobFrame(mob);
+            drawables.push({
+                depth: mob.y + mob.height / 2,
+                draw: () => {
+                    const hurtAlpha = mob.hurtTimer > 0 ? Math.min(0.85, mob.hurtTimer * 2.5) : 0;
+                    if (hurtAlpha > 0) {
+                        this.drawGhost(ctx, image, sx, sy, width, height, 1, hurtAlpha, mob.facing < 0);
+                        return;
+                    }
+                    ctx.save();
+                    if (mob.facing < 0) {
+                        ctx.translate(sx + width, 0);
+                        ctx.scale(-1, 1);
+                        ctx.drawImage(image, 0, sy, width, height);
+                    } else ctx.drawImage(image, sx, sy, width, height);
+                    ctx.restore();
+                }
+            });
+        }
+        drawables.push({depth: this.player.y + this.player.height / 2, draw: () => this.mode.renderPlayer(ctx, playerContext, cameraX, cameraY)});
+        drawables.sort((a, b) => b.depth - a.depth);
+        drawables.forEach((entry) => entry.draw());
         if (this.spectate) {
             const playerImage = this.guiImages.get("player_stand");
             const gw = this.blockSize * 1.9;
@@ -1129,6 +1205,7 @@ class GameSession {
                 `${t(language, "debug_block")} ${target ? `${target[0]}, ${target[1]} ${t(language, target[2])}` : t(language, "debug_air")}`,
                 `${t(language, "debug_zoom")} ${Math.round(this.blockSize / 32 * 100)}%`,
                 `${t(language, "debug_chunks")} ${this.world.chunks.size}`,
+                `${t(language, "debug_mobs")} ${this.mobs.activeCount}/${this.mobs.total}`,
                 `${t(language, "debug_textures")} ${this.blockImages.size}`,
                 `${t(language, "debug_health")} ${Math.ceil(this.health)}/20`,
                 `${t(language, "debug_controls")} ${Object.values(settings.keyBindings).map(keyName).join(" / ")}`,
