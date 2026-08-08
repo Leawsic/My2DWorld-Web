@@ -120,7 +120,7 @@ export class Mob implements PhysicsBody {
             const from = Math.floor(this.y) + 1;
             const to = Math.ceil(this.y + this.height);
             for (let y = from; y <= to; y += 1) {
-                if (world.getBlockId(ahead, y)) {
+                if (world.isSolid(ahead, y)) {
                     this.velocityY = config.jumpVelocity;
                     break;
                 }
@@ -210,7 +210,7 @@ export class MobManager {
             if (!roll) continue;
             const xi = Math.floor(roll.x);
             const surface = world.getSurfaceHeight(xi);
-            if (world.getBlockId(xi, surface + 1)) continue;
+            if (world.isSolid(xi, surface + 1)) continue;
             const mob = new Mob(roll.kind, xi, surface + 1);
             if (mob.x + mob.halfWidth >= player.x - player.halfWidth && mob.x - mob.halfWidth <= player.x + player.halfWidth
                 && surface + 1 < player.y + player.height && surface + 1 + mob.height > player.y) continue;

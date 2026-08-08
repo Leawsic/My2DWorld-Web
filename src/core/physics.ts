@@ -25,13 +25,13 @@ export function moveBody(body: PhysicsBody, world: World, dt: number): void {
     const end = Math.ceil(top);
     if (dx > 0) {
         const blockX = Math.floor(left + body.halfWidth * 2);
-        if (Array.from({length: end - start + 1}, (_, i) => start + i).some((y) => world.getBlock(blockX, y))) {
+        if (Array.from({length: end - start + 1}, (_, i) => start + i).some((y) => world.isSolid(blockX, y))) {
             body.x = blockX - body.halfWidth - 0.001;
             body.velocityX = 0;
         }
     } else if (dx < 0) {
         const blockX = Math.floor(left);
-        if (Array.from({length: end - start + 1}, (_, i) => start + i).some((y) => world.getBlock(blockX, y))) {
+        if (Array.from({length: end - start + 1}, (_, i) => start + i).some((y) => world.isSolid(blockX, y))) {
             body.x = blockX + 1 + body.halfWidth + 0.001;
             body.velocityX = 0;
         }
@@ -43,7 +43,7 @@ export function moveBody(body: PhysicsBody, world: World, dt: number): void {
     const xr = Math.floor(body.x + body.halfWidth);
     if (dy < 0) {
         const blockY = Math.ceil(body.y);
-        const hit = Array.from({length: xr - xl + 1}, (_, i) => xl + i).some((x) => world.getBlock(x, blockY));
+        const hit = Array.from({length: xr - xl + 1}, (_, i) => xl + i).some((x) => world.isSolid(x, blockY));
         if (hit) {
             body.y = blockY + 0.001;
             body.velocityY = 0;
@@ -51,7 +51,7 @@ export function moveBody(body: PhysicsBody, world: World, dt: number): void {
         } else body.onGround = false;
     } else if (dy > 0) {
         const blockY = Math.ceil(body.y + body.height);
-        if (Array.from({length: xr - xl + 1}, (_, i) => xl + i).some((x) => world.getBlock(x, blockY))) {
+        if (Array.from({length: xr - xl + 1}, (_, i) => xl + i).some((x) => world.isSolid(x, blockY))) {
             body.y = blockY - 1 - 0.001 - body.height;
             body.velocityY = 0;
         }

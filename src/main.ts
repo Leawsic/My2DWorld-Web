@@ -2,7 +2,7 @@ import "./style.css";
 import {type KeyState, Player} from "./core/player";
 import {MobManager, MOB_KINDS, MOB_RENDER_RADIUS, type Mob} from "./core/entity";
 import {storage, type PluginPackage} from "./core/storage";
-import {biomeAt, hashSeed, spawnX, World, WORLD_HEIGHT} from "./core/world";
+import {biomeAt, DEFAULT_BIOME, hashSeed, spawnX, World, WORLD_HEIGHT, type Biome} from "./core/world";
 import {clampSpectateOffset} from "./core/spectate";
 import {ParticleSystem} from "./core/particles";
 import {
@@ -178,8 +178,8 @@ class GameSession {
     private last = performance.now();
     private frame = 0;
     private autosaveElapsed = 0;
-    private hotbar: Array<string | null> = [Blocks.MY2DWORLD.GRASS_BLOCK_SIDE, Blocks.MY2DWORLD.DIRT, Blocks.MY2DWORLD.STONE, Blocks.MY2DWORLD.COBBLESTONE, Blocks.MY2DWORLD.MOSSY_COBBLESTONE, Blocks.MY2DWORLD.COAL_BLOCK, Blocks.MY2DWORLD.IRON_BLOCK, Blocks.MY2DWORLD.GOLD_BLOCK, Blocks.MY2DWORLD.DIAMOND_BLOCK].map((block) => block.id);
-    private inventorySlots: Array<string | null> = [Blocks.MY2DWORLD.DIAMOND_BLOCK, Blocks.MY2DWORLD.COAL_ORE, Blocks.MY2DWORLD.IRON_ORE, Blocks.MY2DWORLD.GOLD_ORE, Blocks.MY2DWORLD.DIAMOND_ORE, Blocks.MY2DWORLD.EMERALD_ORE, Blocks.MY2DWORLD.LAPIS_ORE, Blocks.MY2DWORLD.REDSTONE_ORE, Blocks.MY2DWORLD.COPPER_ORE, Blocks.MY2DWORLD.BEDROCK, Blocks.MY2DWORLD.DEEPSLATE, Blocks.MY2DWORLD.DEEPSLATE_COAL_ORE, Blocks.MY2DWORLD.DEEPSLATE_IRON_ORE, Blocks.MY2DWORLD.DEEPSLATE_GOLD_ORE, Blocks.MY2DWORLD.DEEPSLATE_DIAMOND_ORE, Blocks.MY2DWORLD.DEEPSLATE_EMERALD_ORE, Blocks.MY2DWORLD.DEEPSLATE_LAPIS_ORE, Blocks.MY2DWORLD.DEEPSLATE_REDSTONE_ORE, Blocks.MY2DWORLD.DEEPSLATE_COPPER_ORE, Blocks.MY2DWORLD.RAW_IRON_BLOCK, Blocks.MY2DWORLD.RAW_GOLD_BLOCK, Blocks.MY2DWORLD.NETHER_QUARTZ_ORE, Blocks.MY2DWORLD.NETHER_GOLD_ORE, Blocks.MY2DWORLD.IRON_BARS, Blocks.MY2DWORLD.IRON_CHAIN, Blocks.MY2DWORLD.MOSSY_COBBLESTONE, Blocks.MY2DWORLD.IRON_BLOCK, Blocks.MY2DWORLD.GOLD_BLOCK].map((block) => block.id);
+    private hotbar: Array<string | null> = [Blocks.MY2DWORLD.GRASS_BLOCK, Blocks.MY2DWORLD.DIRT, Blocks.MY2DWORLD.STONE, Blocks.MY2DWORLD.OAK_LOG, Blocks.MY2DWORLD.OAK_LEAVES, Blocks.MY2DWORLD.SHORT_GRASS, Blocks.MY2DWORLD.POPPY, Blocks.MY2DWORLD.SAND, Blocks.MY2DWORLD.SNOW].map((block) => block.id);
+    private inventorySlots: Array<string | null> = [Blocks.MY2DWORLD.DIAMOND_BLOCK, Blocks.MY2DWORLD.COAL_ORE, Blocks.MY2DWORLD.IRON_ORE, Blocks.MY2DWORLD.GOLD_ORE, Blocks.MY2DWORLD.DIAMOND_ORE, Blocks.MY2DWORLD.EMERALD_ORE, Blocks.MY2DWORLD.LAPIS_ORE, Blocks.MY2DWORLD.REDSTONE_ORE, Blocks.MY2DWORLD.COPPER_ORE, Blocks.MY2DWORLD.BEDROCK, Blocks.MY2DWORLD.DEEPSLATE, Blocks.MY2DWORLD.DEEPSLATE_COAL_ORE, Blocks.MY2DWORLD.DEEPSLATE_IRON_ORE, Blocks.MY2DWORLD.DEEPSLATE_GOLD_ORE, Blocks.MY2DWORLD.DEEPSLATE_DIAMOND_ORE, Blocks.MY2DWORLD.DEEPSLATE_EMERALD_ORE, Blocks.MY2DWORLD.DEEPSLATE_LAPIS_ORE, Blocks.MY2DWORLD.DEEPSLATE_REDSTONE_ORE, Blocks.MY2DWORLD.DEEPSLATE_COPPER_ORE, Blocks.MY2DWORLD.RAW_IRON_BLOCK, Blocks.MY2DWORLD.RAW_GOLD_BLOCK, Blocks.MY2DWORLD.NETHER_QUARTZ_ORE, Blocks.MY2DWORLD.NETHER_GOLD_ORE, Blocks.MY2DWORLD.IRON_BARS, Blocks.MY2DWORLD.IRON_CHAIN, Blocks.MY2DWORLD.MOSSY_COBBLESTONE, Blocks.MY2DWORLD.DANDELION, Blocks.MY2DWORLD.CACTUS].map((block) => block.id);
     private selected = 0;
     private health = 20;
     private voidDamageTimer = 0;
@@ -189,7 +189,8 @@ class GameSession {
     private inventoryOpen = false;
     private heldInventoryItem: string | null = null;
     private bindingCapture: keyof KeyBindings | null = null;
-    private readonly blockImages = new Map<string, HTMLImageElement>();
+    private readonly blockImages = new Map<string, HTMLImageElement | HTMLCanvasElement>();
+    private readonly biomeImages = new Map<string, HTMLCanvasElement>();
     private readonly guiImages = new Map<string, HTMLImageElement>();
     private readonly mobImages = new Map<string, HTMLImageElement>();
     private readonly mobs: MobManager;
@@ -226,6 +227,7 @@ class GameSession {
         if (this.initialSave?.mode) this.modeName = this.initialSave.mode;
         this.mode = createMode(this.modeName);
         [...new Set([...this.inventorySlots, ...this.hotbar, ...plugins.blocks.keys()].filter((type): type is string => type !== null))].forEach((type) => this.loadBlock(type));
+        this.loadBlock("grass_block_side_overlay");
         this.loadGui("mode_creative", "/assets/gui/gamemode/creative.png");
         this.loadGui("mode_spectator", "/assets/gui/gamemode/spectator.png");
         this.loadGui("mouse", "/assets/gui/mouse/mouse.png");
@@ -463,7 +465,7 @@ class GameSession {
         if (cellY < 1) return null;
         let target: [number, number];
         const hit = this.world.getBlock(cellX, cellY);
-        if (!hit) {
+        if (!hit || !hit.solid) {
             target = [cellX, cellY];
         } else {
             const relX = x - (cellX + 0.5);
@@ -471,7 +473,7 @@ class GameSession {
             target = Math.abs(relX) > Math.abs(relY) ? [cellX + (relX >= 0 ? 1 : -1), cellY] : [cellX, cellY + (relY >= 0 ? 1 : -1)];
         }
         if (target[1] < 1) return null;
-        if (this.world.getBlock(target[0], target[1])) return null;
+        if (this.world.isSolid(target[0], target[1])) return null;
         if (!this.inReach(target[0] + 0.5, target[1] - 0.5)) return null;
         const left = this.player.x - 0.25;
         const right = this.player.x + 0.25;
@@ -799,6 +801,69 @@ class GameSession {
         this.blockImages.set(type, image);
     }
 
+    /** Raw texture for a block id, or a biome-tinted variant for grass/leaves at column `x`. */
+    private blockImageFor(id: string, x: number): HTMLImageElement | HTMLCanvasElement | undefined {
+        if (id === Blocks.MY2DWORLD.GRASS_BLOCK.id) return this.biomeTexture("grass", biomeAt(x, this.world.seed));
+        if (id === Blocks.MY2DWORLD.OAK_LEAVES.id) return this.biomeTexture("leaves", biomeAt(x, this.world.seed));
+        return this.blockImages.get(id);
+    }
+
+    /** Icon texture for inventory/hotbar slots (uses a neutral biome tint). */
+    private iconFor(type: string): HTMLImageElement | HTMLCanvasElement | undefined {
+        if (type === Blocks.MY2DWORLD.GRASS_BLOCK.id) return this.biomeTexture("grass", DEFAULT_BIOME);
+        if (type === Blocks.MY2DWORLD.OAK_LEAVES.id) return this.biomeTexture("leaves", DEFAULT_BIOME);
+        return this.blockImages.get(type);
+    }
+
+    /**
+     * MC-style biome-tinted grass/leaves: base texture plus a tinted overlay.
+     * Grass = dirt side + grass overlay whose hue/brightness follows the biome
+     * colour; leaves = the leaf texture multiplied by the biome foliage colour.
+     */
+    private biomeTexture(kind: "grass" | "leaves", biome: Biome): HTMLCanvasElement | undefined {
+        const key = `${kind}|${biome.id}`;
+        const cached = this.biomeImages.get(key);
+        if (cached) return cached;
+        const size = this.blockSize;
+        const canvas = document.createElement("canvas");
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return undefined;
+        ctx.imageSmoothingEnabled = false;
+        if (kind === "grass") {
+            const dirt = this.blockImages.get(Blocks.MY2DWORLD.DIRT.id);
+            const overlay = this.blockImages.get("grass_block_side_overlay");
+            if (!overlay || !("naturalWidth" in overlay) || !overlay.complete || !overlay.naturalWidth) return undefined;
+            if (dirt && "naturalWidth" in dirt && dirt.complete && dirt.naturalWidth) ctx.drawImage(dirt, 0, 0, size, size);
+            else {
+                ctx.fillStyle = "#8d613c";
+                ctx.fillRect(0, 0, size, size);
+            }
+            const tint = document.createElement("canvas");
+            tint.width = size;
+            tint.height = size;
+            const tc = tint.getContext("2d")!;
+            tc.imageSmoothingEnabled = false;
+            tc.drawImage(overlay, 0, 0, size, size);
+            tc.globalCompositeOperation = "multiply";
+            tc.fillStyle = biome.grass;
+            tc.fillRect(0, 0, size, size);
+            tc.globalCompositeOperation = "source-over";
+            ctx.drawImage(tint, 0, 0);
+        } else {
+            const leaves = this.blockImages.get(Blocks.MY2DWORLD.OAK_LEAVES.id);
+            if (!leaves || !("naturalWidth" in leaves) || !leaves.complete || !leaves.naturalWidth) return undefined;
+            ctx.drawImage(leaves, 0, 0, size, size);
+            ctx.globalCompositeOperation = "multiply";
+            ctx.fillStyle = biome.foliage;
+            ctx.fillRect(0, 0, size, size);
+            ctx.globalCompositeOperation = "source-over";
+        }
+        this.biomeImages.set(key, canvas);
+        return canvas;
+    }
+
     private loadGui(key: string, src: string): void {
         const image = new Image();
         image.src = src;
@@ -1027,8 +1092,8 @@ class GameSession {
                 if (!id) continue;
                 const sx = Math.round((x - cameraX) * this.blockSize + width / 2);
                 const sy = Math.round((cameraY - y) * this.blockSize + height / 2);
-                const image = this.blockImages.get(id);
-                if (image?.complete && image.naturalWidth) ctx.drawImage(image, sx, sy, this.blockSize, this.blockSize); else {
+                const image = this.blockImageFor(id, x);
+                if (image) ctx.drawImage(image, sx, sy, this.blockSize, this.blockSize); else {
                     const definition = blockRegistry.get(id);
                     ctx.fillStyle = definition?.color ?? "#000000";
                     ctx.fillRect(sx, sy, this.blockSize, this.blockSize);
@@ -1048,8 +1113,8 @@ class GameSession {
             const [x, y] = this.placement;
             const sx = (x - cameraX) * this.blockSize + width / 2;
             const sy = (cameraY - y) * this.blockSize + height / 2;
-            const image = this.blockImages.get(this.hotbar[this.selected] ?? "");
-            if (image?.complete && image.naturalWidth) this.drawGhost(ctx, image, sx, sy, this.blockSize, this.blockSize, settings.placementAlpha, settings.placementBrightness); else {
+            const image = this.iconFor(this.hotbar[this.selected] ?? "");
+            if (image && (!("naturalWidth" in image) || (image.complete && image.naturalWidth))) this.drawGhost(ctx, image, sx, sy, this.blockSize, this.blockSize, settings.placementAlpha, settings.placementBrightness); else {
                 ctx.fillStyle = "rgba(255,255,255,.25)";
                 ctx.fillRect(sx, sy, this.blockSize, this.blockSize);
             }
@@ -1109,8 +1174,8 @@ class GameSession {
         this.renderCursor();
     }
 
-    private drawGhost(ctx: CanvasRenderingContext2D, image: HTMLImageElement | undefined, x: number, y: number, w: number, h: number, alpha: number, brightness: number, flip = false, tint = "#000"): void {
-        if (!image?.complete || !image.naturalWidth) return;
+    private drawGhost(ctx: CanvasRenderingContext2D, image: HTMLImageElement | HTMLCanvasElement | undefined, x: number, y: number, w: number, h: number, alpha: number, brightness: number, flip = false, tint = "#000"): void {
+        if (!image || ("naturalWidth" in image && (!image.complete || !image.naturalWidth))) return;
         ctx.save();
         if (flip) {
             ctx.translate(x + w, y);
@@ -1192,8 +1257,8 @@ class GameSession {
             ctx.strokeStyle = index === this.selected ? "#f2d67b" : "#52666a";
             ctx.lineWidth = index === this.selected ? 3 : 1;
             ctx.strokeRect(x, height - 60, 42, 42);
-            const image = type ? this.blockImages.get(type) : undefined;
-            if (image?.complete && image.naturalWidth) ctx.drawImage(image, x + 7, height - 53, 28, 28);
+            const image = type ? this.iconFor(type) : undefined;
+            if (image && (!("naturalWidth" in image) || (image.complete && image.naturalWidth))) ctx.drawImage(image, x + 7, height - 53, 28, 28);
         });
         if (this.debug) {
             ctx.fillStyle = "#102229";
@@ -1302,8 +1367,8 @@ class GameSession {
                 ctx.lineWidth = 1;
                 ctx.strokeRect(x, y, layout.slot, layout.slot);
                 if (type) {
-                    const image = this.blockImages.get(type);
-                    if (image?.complete && image.naturalWidth) {
+                    const image = this.iconFor(type);
+                    if (image && (!("naturalWidth" in image) || (image.complete && image.naturalWidth))) {
                         const inset = layout.slot * 0.2;
                         ctx.drawImage(image, x + inset, y + inset, layout.slot - inset * 2, layout.slot - inset * 2);
                     }
@@ -1313,8 +1378,8 @@ class GameSession {
         drawSlot(this.inventorySlots, layout.gridX, layout.gridY);
         drawSlot(this.hotbar, layout.hotbarX, layout.hotbarY);
         if (this.heldInventoryItem) {
-            const image = this.blockImages.get(this.heldInventoryItem);
-            if (image?.complete && image.naturalWidth) {
+            const image = this.iconFor(this.heldInventoryItem);
+            if (image && (!("naturalWidth" in image) || (image.complete && image.naturalWidth))) {
                 const x = this.lastMouseX - layout.slot / 2;
                 const y = this.lastMouseY - layout.slot / 2;
                 const inset = layout.slot * 0.15;

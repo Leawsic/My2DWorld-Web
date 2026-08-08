@@ -120,7 +120,15 @@ export const blockRegistry = new Registry<BlockObject>();
 export const Blocks: Record<string, any> = blockRegistry.namespace;
 
 const builtinBlocks: Array<[BlockType, string, string, string]> = [
-    ["grass_block_side", "#62a941", "草方块", "Grass Block"],
+    ["grass_block", "#62a941", "草方块", "Grass Block"],
+    ["oak_log", "#6b5533", "橡木原木", "Oak Log"],
+    ["oak_leaves", "#4c7a34", "橡树树叶", "Oak Leaves"],
+    ["short_grass", "#7aad3f", "草丛", "Short Grass"],
+    ["poppy", "#c9302c", "虞美人", "Poppy"],
+    ["dandelion", "#e8c83a", "蒲公英", "Dandelion"],
+    ["sand", "#d7c98a", "沙子", "Sand"],
+    ["snow", "#eef4f8", "雪块", "Snow"],
+    ["cactus", "#5b7a3a", "仙人掌", "Cactus"],
     ["dirt", "#8d613c", "泥土", "Dirt"],
     ["stone", "#777d82", "石头", "Stone"],
     ["cobblestone", "#626b6d", "圆石", "Cobblestone"],
@@ -155,7 +163,15 @@ const builtinBlocks: Array<[BlockType, string, string, string]> = [
     ["iron_chain", "#777c7c", "铁链", "Iron Chain"],
 ];
 
-builtinBlocks.forEach(([id, color, zh, en]) => blockRegistry.register({id, color, label: {zh, en}}));
+/** Non-default collision / rendering flags for blocks that need them. */
+const BLOCK_FLAGS: Record<string, {solid?: boolean; transparent?: boolean}> = {
+    oak_leaves: {solid: true, transparent: true},
+    short_grass: {solid: false, transparent: true},
+    poppy: {solid: false, transparent: true},
+    dandelion: {solid: false, transparent: true},
+};
+
+builtinBlocks.forEach(([id, color, zh, en]) => blockRegistry.register({id, color, label: {zh, en}, ...BLOCK_FLAGS[id]}));
 
 export const gameModeRegistry = new Registry<GameModeObject>(false);
 export const GameModes: Record<string, any> = gameModeRegistry.namespace;
