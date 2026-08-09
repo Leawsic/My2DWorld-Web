@@ -9,6 +9,16 @@ export interface PluginPackage {
     entry: string;
 }
 
+export interface StructureSummary {
+    id: string;
+    width: number;
+    height: number;
+}
+
+export interface SavedStructure extends StructureSummary {
+    blocks: Record<string, string>;
+}
+
 async function request<T>(url: string, method = "GET", value?: unknown): Promise<T | null> {
     try {
         const response = await fetch(url, {
@@ -75,5 +85,21 @@ export const storage = {
     },
     async listPlugins(): Promise<PluginPackage[]> {
         return (await request<{ plugins?: PluginPackage[] }>("/api/plugins"))?.plugins || [];
+    },
+    async listStructures(username = "steve"): Promise<StructureSummary[]> {
+        return (await request<{ structures?: StructureSummary[] }>(`/api/structures?user=${encodeURIComponent(username || activeUser)}`))?.structures || [];
+    },
+    async loadStructure(name: string, username = "steve"): Promise<SavedStructure | null> {
+        return request<SavedStructure | null>(`/api/structures?user=${encodeURIComponent(username || activeUser)}&name=${encodeURIComponent(name)}`);
+    },
+    async saveStructure(structure: SavedStructure, username = "steve"): Promise<boolean> {
+        return Boolean(await request(`/api/structures?user=${encodeURIComponent(username || activeUser)}&name=${encodeURIComponent(structure.id)}`, "POST", {
+            width: structure.width,
+            height: structure.height,
+            blocks: structure.blocks,
+        }));
+    },
+    async deleteStructure(name: string, username = "steve"): Promise<boolean> {
+        return Boolean(await request(`/api/structures?user=${encodeURIComponent(username || activeUser)}&name=${encodeURIComponent(name)}`, "DELETE"));
     },
 };

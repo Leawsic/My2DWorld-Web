@@ -14,7 +14,7 @@ export interface ModeContext {
     mobs: MobManager;
     blockSize: number;
     dt: number;
-    textures: ReadonlyMap<string, HTMLImageElement>;
+    textures: ReadonlyMap<string, HTMLImageElement | HTMLCanvasElement>;
     onBlockBroken?: (x: number, y: number, type: BlockType) => void;
     onPlayerDamage?: (amount: number) => void;
 }

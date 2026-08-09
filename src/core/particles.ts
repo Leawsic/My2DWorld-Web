@@ -12,7 +12,7 @@ interface Particle {
 export class ParticleSystem {
     private particles: Particle[] = [];
 
-    spawn(x: number, y: number, texture?: HTMLImageElement): void {
+    spawn(x: number, y: number, texture?: HTMLImageElement | HTMLCanvasElement): void {
         for (let i = 0; i < 8; i += 1) {
             const life = 0.36 + Math.random() * 0.36;
             this.particles.push({
@@ -28,7 +28,7 @@ export class ParticleSystem {
     }
 
     /** Wider, longer-lived burst of the target texture, used for a mob death. */
-    burst(x: number, y: number, texture?: HTMLImageElement, count = 18, size = 1.5): void {
+    burst(x: number, y: number, texture?: HTMLImageElement | HTMLCanvasElement, count = 18, size = 1.5): void {
         for (let i = 0; i < count; i += 1) {
             const life = 0.5 + Math.random() * 0.4;
             this.particles.push({
@@ -68,20 +68,22 @@ export class ParticleSystem {
         ctx.globalAlpha = 1;
     }
 
-    private sample(texture?: HTMLImageElement): HTMLCanvasElement {
+    private sample(texture?: HTMLImageElement | HTMLCanvasElement): HTMLCanvasElement {
         const sprite = document.createElement("canvas");
-        const sourceSize = texture?.naturalWidth || 8;
+        const isImage = !!texture && "naturalWidth" in texture;
+        const sourceSize = isImage ? (texture as HTMLImageElement).naturalWidth : (texture as HTMLCanvasElement | undefined)?.width || 8;
+        const ready = isImage ? (texture as HTMLImageElement).complete && (texture as HTMLImageElement).naturalWidth > 0 : texture instanceof HTMLCanvasElement;
         const cropSize = Math.max(1, Math.floor(sourceSize / 4));
         sprite.width = cropSize;
         sprite.height = cropSize;
         const ctx = sprite.getContext("2d")!;
         ctx.imageSmoothingEnabled = false;
-        if (texture?.complete && texture.naturalWidth) {
-            const x = Math.floor(Math.random() * (texture.naturalWidth - cropSize + 1));
-            const y = Math.floor(Math.random() * (texture.naturalHeight - cropSize + 1));
-            ctx.drawImage(texture, x, y, cropSize, cropSize, 0, 0, cropSize, cropSize);
+        if (ready) {
+            const x = Math.floor(Math.random() * (sourceSize - cropSize + 1));
+            const y = Math.floor(Math.random() * ((isImage ? (texture as HTMLImageElement).naturalHeight : (texture as HTMLCanvasElement).height) - cropSize + 1));
+            ctx.drawImage(texture as CanvasImageSource, x, y, cropSize, cropSize, 0, 0, cropSize, cropSize);
         } else {
-            ctx.fillStyle = "#ff00ff";
+            ctx.fillStyle = "#6db84a";
             ctx.fillRect(0, 0, cropSize, cropSize);
         }
         return sprite;
