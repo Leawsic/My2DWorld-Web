@@ -225,12 +225,24 @@ export function spawnX(seed = 0): number {
     return Math.floor((hashNoise(seed) - 0.5) * 400);
 }
 
+/** Half-width (in columns) of the triangular height-blend window across biome transitions. */
+const TRANSITION_BAND = 3;
+
 export function terrainHeight(x: number, seed = 0): number {
-    const biome = biomeAt(x, seed);
-    const roll = fbm2D(x * 0.008, 0.21, seed, 4);
-    const fine = fbm2D(x * 0.03, 0.87, seed, 3);
-    const height = biome.base + (roll - 0.5) * 2 * biome.amplitude + (fine - 0.5) * 2 * biome.detail;
-    return Math.max(1, Math.round(height));
+    // Blend the per-biome heights across a short window so elevation changes
+    // gradually at biome borders instead of dropping in a single cliff step.
+    let sum = 0;
+    let weightSum = 0;
+    for (let k = -TRANSITION_BAND; k <= TRANSITION_BAND; k += 1) {
+        const sx = x + k;
+        const biome = biomeAt(sx, seed);
+        const roll = fbm2D(sx * 0.008, 0.21, seed, 4);
+        const fine = fbm2D(sx * 0.03, 0.87, seed, 3);
+        const height = biome.base + (roll - 0.5) * 2 * biome.amplitude + (fine - 0.5) * 2 * biome.detail;
+        sum += height * (TRANSITION_BAND + 1 - Math.abs(k));
+        weightSum += TRANSITION_BAND + 1 - Math.abs(k);
+    }
+    return Math.max(1, Math.round(sum / weightSum));
 }
 
 function isCave(x: number, y: number, seed: number): boolean {

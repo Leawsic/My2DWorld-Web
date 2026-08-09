@@ -105,6 +105,16 @@ function toggleLanguage(): void {
 const text = (zh: string, en: string) => language === "zh" ? zh : en;
 const AUTOSAVE_OPTIONS = [0, 60, 300, 600];
 
+/** Scale an "#rrggbb" colour by a brightness factor. */
+function shadeColor(hex: string, factor: number): string {
+    const n = Number.parseInt(hex.slice(1), 16);
+    if (!Number.isFinite(n) || hex.length !== 7) return hex;
+    const r = Math.round(Math.min(255, ((n >> 16) & 255) * factor));
+    const g = Math.round(Math.min(255, ((n >> 8) & 255) * factor));
+    const b = Math.round(Math.min(255, (n & 255) * factor));
+    return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, "0")}`;
+}
+
 function autosaveLabel(seconds: number): string {
     if (seconds <= 0) return text("关闭", "Off");
     return seconds < 60 ? `${seconds} ${text("秒", "sec")}` : `${Math.round(seconds / 60)} ${text("分钟", "min")}`;
@@ -230,7 +240,6 @@ class GameSession {
         if (this.initialSave?.mode) this.modeName = this.initialSave.mode;
         this.mode = createMode(this.modeName);
         [...new Set([...blockRegistry.list().map((block) => block.id), ...plugins.blocks.keys()].filter((type): type is string => type !== null))].forEach((type) => this.loadBlock(type));
-        this.loadBlock("grass_block_side_overlay");
         this.loadGui("mode_creative", "/assets/gui/gamemode/creative.png");
         this.loadGui("mode_spectator", "/assets/gui/gamemode/spectator.png");
         this.loadGui("mouse", "/assets/gui/mouse/mouse.png");
@@ -873,6 +882,35 @@ class GameSession {
     }
 
     /**
+     * Procedurally draws a chunky pixel-art grass cap on a dirt side. The ragged
+     * bottom edge runs in short column runs and brightness varies per low-res
+     * cell (not per pixel), so it reads like the rest of the sprite art.
+     */
+    private drawGrassCap(ctx: CanvasRenderingContext2D, size: number, biome: Biome): void {
+        const seed = biome.id.split("").reduce((a, ch) => (Math.imul(a, 31) + ch.charCodeAt(0)) >>> 0, 0);
+        const h01 = (s: number): number => { const v = Math.sin(s) * 43758.5453123; return v - Math.floor(v); };
+        const base = Math.max(4, Math.round(size * 0.42));
+        const cell = Math.max(2, Math.round(size / 8));
+        const run = Math.max(2, Math.round(size / 6));
+        for (let px = 0; px < size; px += run) {
+            // One discrete edge offset shared by a whole run of columns -> blocky fringe.
+            const edge = h01(seed ^ Math.imul(Math.floor(px / run), 0x5bd1e995));
+            const bottom = Math.max(1, Math.min(size, base - 1 + Math.round(edge * 4)));
+            for (let cx = px; cx < px + run && cx < size; cx += 1) {
+                for (let y = 0; y < bottom && y < size; y += 1) {
+                    const cellId = Math.floor(cx / cell) * 131 + Math.floor(y / cell) * 571;
+                    let f = 1 + (h01(seed ^ Math.imul(cellId, 0x45d9f3b)) - 0.5) * 0.28;
+                    const d = bottom - 1 - y;
+                    if (d === 0) f *= 0.86;
+                    ctx.globalAlpha = d < 3 ? 0.4 + d * 0.3 : 1;
+                    ctx.fillStyle = shadeColor(biome.grass, Math.max(0.5, Math.min(1.16, f)));
+                    ctx.fillRect(cx, y, 1, 1);
+                }
+            }
+        }
+    }
+
+    /**
      * MC-style biome-tinted grass/leaves: base texture plus a tinted overlay.
      * Grass = dirt side + grass overlay whose hue/brightness follows the biome
      * colour; leaves = the leaf texture multiplied by the biome foliage colour.
@@ -890,21 +928,9 @@ class GameSession {
         ctx.imageSmoothingEnabled = false;
         if (kind === "grass_block") {
             const dirt = this.blockImages.get(Blocks.MY2DWORLD.DIRT.id);
-            const overlay = this.blockImages.get("grass_block_side_overlay");
-            if (!overlay || !("naturalWidth" in overlay) || !overlay.complete || !overlay.naturalWidth) return undefined;
             if (!dirt || !("naturalWidth" in dirt) || !dirt.complete || !dirt.naturalWidth) return undefined;
             ctx.drawImage(dirt, 0, 0, size, size);
-            const tint = document.createElement("canvas");
-            tint.width = size;
-            tint.height = size;
-            const tc = tint.getContext("2d")!;
-            tc.imageSmoothingEnabled = false;
-            tc.drawImage(overlay, 0, 0, size, size);
-            tc.globalCompositeOperation = "multiply";
-            tc.fillStyle = biome.grass;
-            tc.fillRect(0, 0, size, size);
-            tc.globalCompositeOperation = "source-over";
-            ctx.drawImage(tint, 0, 0);
+            this.drawGrassCap(ctx, size, biome);
         } else {
             const texture = kind === "leaves"
                 ? this.blockImages.get(Blocks.MY2DWORLD.OAK_LEAVES.id)
