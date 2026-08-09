@@ -3,6 +3,7 @@ import {mulberry32} from "./noise";
 import type {BlockType} from "./types";
 import type {Biome} from "./world";
 import {CHUNK_SIZE, WORLD_HEIGHT} from "./world";
+import {structuresNear} from "./structures";
 
 /**
  * Deterministic biome-filtered features (trees, plants, cactus, rocks).
@@ -42,15 +43,15 @@ export function applyFeatures(p: FeaturePlacement): void {
 
         switch (biome.id) {
             case "desert":
-                if (rng() < 0.05 && surface + 3 < WORLD_HEIGHT) placeCactus(p, local, surface, rng);
+                if (rng() < 0.05 && !structuresNear(x, p.seed, 1) && surface + 3 < WORLD_HEIGHT) placeCactus(p, local, surface, rng);
                 break;
             case "snowy":
                 break;
             default: {
-                if (rng() < 0.4 && surface + 1 < WORLD_HEIGHT) setBlock(p, local, surface + 1, p.numFor(Blocks.MY2DWORLD.SHORT_GRASS.id));
-                if (rng() < 0.07 && surface + 1 < WORLD_HEIGHT) setBlock(p, local, surface + 1, p.numFor(FLOWER_KINDS[Math.floor(rng() * FLOWER_KINDS.length)]));
-                if (!nearSpawn && rng() < 0.02 && local >= 1 && local < CHUNK_SIZE - 1) placeRock(p, local, surface, rng);
-                if (!nearSpawn && rng() < (TREE_BIOMES[biome.id] ?? 0) && local - lastTreeLocal >= TREE_SPACING && local >= TREE_MARGIN && local < CHUNK_SIZE - TREE_MARGIN) {
+                if (rng() < 0.4 && !structuresNear(x, p.seed, 0) && surface + 1 < WORLD_HEIGHT) setBlock(p, local, surface + 1, p.numFor(Blocks.MY2DWORLD.SHORT_GRASS.id));
+                if (rng() < 0.07 && !structuresNear(x, p.seed, 0) && surface + 1 < WORLD_HEIGHT) setBlock(p, local, surface + 1, p.numFor(FLOWER_KINDS[Math.floor(rng() * FLOWER_KINDS.length)]));
+                if (!nearSpawn && rng() < 0.02 && !structuresNear(x, p.seed, 1) && local >= 1 && local < CHUNK_SIZE - 1) placeRock(p, local, surface, rng);
+                if (!nearSpawn && rng() < (TREE_BIOMES[biome.id] ?? 0) && !structuresNear(x, p.seed, 2) && local - lastTreeLocal >= TREE_SPACING && local >= TREE_MARGIN && local < CHUNK_SIZE - TREE_MARGIN) {
                     placeTree(p, local, surface, rng);
                     lastTreeLocal = local;
                 }

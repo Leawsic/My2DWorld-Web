@@ -21,6 +21,7 @@ const dirs = {
     config: join(run, "config"),
     logs: join(run, "logs"),
     worlds: join(run, "worlds"),
+    structures: join(run, "structures"),
     plugins: join(root, "plugins")
 };
 Object.values(dirs).forEach((dir) => mkdirSync(dir, {recursive: true}));
@@ -69,6 +70,7 @@ const body = async (req) => {
 };
 
 const safePluginId = (value) => /^[a-z0-9][a-z0-9_]*$/i.test(value) ? value.toLowerCase() : null;
+const safeStructureName = (value) => /^[a-z0-9][a-z0-9_-]{0,31}$/i.test(String(value || "")) ? String(value) : null;
 const pluginPackages = () => readdirSync(dirs.plugins, {withFileTypes: true})
     .filter((entry) => entry.isDirectory() && safePluginId(entry.name))
     .sort((a, b) => a.name.localeCompare(b.name))
@@ -175,6 +177,54 @@ const api = async (req, res) => {
             const plugins = pluginPackages();
             log("info", "Plugin scan", {count: plugins.length});
             return send(res, 200, {plugins});
+        }
+        if (url.pathname === "/api/structures" && req.method === "GET") {
+            const name = safeStructureName(url.searchParams.get("name"));
+            if (name) {
+                const struct = readJson(join(dirs.structures, user, `${name}.json`), null);
+                return send(res, 200, struct);
+            }
+            const userDir = join(dirs.structures, user);
+            const list = existsSync(userDir)
+                ? readdirSync(userDir)
+                    .filter((file) => file.endsWith(".json"))
+                    .map((file) => {
+                        const data = readJson(join(userDir, file), null);
+                        return data && typeof data.id === "string" ? {id: data.id, width: Number(data.width) || 0, height: Number(data.height) || 0} : null;
+                    })
+                    .filter(Boolean)
+                : [];
+            return send(res, 200, {structures: list});
+        }
+        if (url.pathname === "/api/structures" && req.method === "POST") {
+            const name = safeStructureName(url.searchParams.get("name"));
+            const data = await body(req);
+            if (!name) return send(res, 400, {error: "Invalid structure name"});
+            const width = Number(data.width);
+            const height = Number(data.height);
+            if (!Number.isInteger(width) || width < 1 || width > 64 || !Number.isInteger(height) || height < 1 || height > 64) return send(res, 400, {error: "Invalid dimensions"});
+            const blocks = {};
+            if (data.blocks && typeof data.blocks === "object") {
+                for (const [key, value] of Object.entries(data.blocks)) {
+                    if (!/^-?\d+,-?\d+$/.test(key)) continue;
+                    const [sx, sy] = key.split(",").map(Number);
+                    if (sx < 0 || sx >= width || sy < 0 || sy >= height) continue;
+                    if (typeof value === "string" && value) blocks[key] = value;
+                }
+            }
+            const userDir = join(dirs.structures, user);
+            mkdirSync(userDir, {recursive: true});
+            writeFileSync(join(userDir, `${name}.json`), JSON.stringify({id: name, width, height, blocks}, null, 2));
+            log("info", "Structure saved", {user, name, blocks: Object.keys(blocks).length});
+            return send(res, 200, {ok: true});
+        }
+        if (url.pathname === "/api/structures" && req.method === "DELETE") {
+            const name = safeStructureName(url.searchParams.get("name"));
+            if (!name) return send(res, 400, {error: "Invalid structure name"});
+            const path = join(dirs.structures, user, `${name}.json`);
+            if (existsSync(path)) unlinkSync(path);
+            log("info", "Structure deleted", {user, name});
+            return send(res, 200, {ok: true});
         }
         if (url.pathname === "/api/account" && req.method === "POST") {
             const data = await body(req);

@@ -2,6 +2,7 @@ import {CHUNK_SIZE, type World} from "./world";
 import type {Player} from "./player";
 import {moveBody, type PhysicsBody} from "./physics";
 import {mulberry32} from "./noise";
+import {structuresNear} from "./structures";
 
 export type MobKind = "zombie" | "husk" | "drowned";
 export type MobState = "idle" | "walk" | "attack";
@@ -210,6 +211,7 @@ export class MobManager {
             if (!roll) continue;
             const xi = Math.floor(roll.x);
             const surface = world.getSurfaceHeight(xi);
+            if (structuresNear(xi, this.seed, 0)) continue;
             if (world.isSolid(xi, surface + 1)) continue;
             const mob = new Mob(roll.kind, xi, surface + 1);
             if (mob.x + mob.halfWidth >= player.x - player.halfWidth && mob.x - mob.halfWidth <= player.x + player.halfWidth

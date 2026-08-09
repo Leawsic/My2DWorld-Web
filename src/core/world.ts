@@ -4,6 +4,7 @@ import {Block} from "./block";
 import {blockRegistry} from "./registry";
 import {fbm2D} from "./noise";
 import {applyFeatures} from "./features";
+import {applyStructures} from "./structures";
 
 export const CHUNK_SIZE = 16;
 const BEDROCK_THICKNESS = 2;
@@ -164,6 +165,15 @@ export class Chunk {
             }
         }
         applyFeatures({
+            blocks: this.blocks,
+            surfaces: this.surfaces,
+            startX: this.start,
+            numFor,
+            biomeOf: (worldX) => biomeAt(worldX, seed),
+            spawnX: spawnX(seed),
+            seed,
+        });
+        applyStructures({
             blocks: this.blocks,
             surfaces: this.surfaces,
             startX: this.start,
@@ -386,6 +396,12 @@ export class World {
 
     placeBlock(x: number, y: number, type: BlockType | Block): boolean {
         if (y < 1 || y >= WORLD_HEIGHT || this.getBlock(x, y)) return false;
+        return this.setBlock(x, y, type);
+    }
+
+    /** Places or replaces a block in any loaded chunk (used by structure loading). */
+    setBlock(x: number, y: number, type: BlockType | Block): boolean {
+        if (y < 1 || y >= WORLD_HEIGHT) return false;
         const id = typeof type === "string" ? type : type.id;
         const num = this.typeToNum.get(id);
         if (!num) return false;

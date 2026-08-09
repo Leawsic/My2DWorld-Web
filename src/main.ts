@@ -26,6 +26,19 @@ if (!app) throw new Error("App root is missing");
 
 const LOCATE_RANGE = 4096;
 const LOCATABLE_BIOMES = ["plains", "forest", "desert", "snowy", "mountains"];
+const STRUCTURE_NAME = /^[a-z0-9][a-z0-9_-]{0,31}$/i;
+
+/** Region placed by the two-phase /structure export|load flow before confirm. */
+interface StructurePending {
+    mode: "export" | "load";
+    name: string;
+    x0: number;
+    y0: number;
+    width: number;
+    height: number;
+    /** Cell content, present for load previews so overlaps can be shown. */
+    blocks?: Record<string, string>;
+}
 
 let settings: PlayerSettings = DEFAULT_SETTINGS;
 let language: Language = settings.language;
@@ -226,6 +239,7 @@ class GameSession {
     private f4Held = false;
     private modeComboPending = false;
     private modeComboConsumed = false;
+    private structurePending: StructurePending | null = null;
 
     constructor(readonly meta: WorldMeta, private readonly initialSave: WorldSave | null) {
         this.modeName = meta.mode;
@@ -622,7 +636,107 @@ class GameSession {
         } else if (command === "tp" && Number.isFinite(Number(parts[1]))) {
             const x = Math.floor(Number(parts[1])) + 0.5;
             this.teleportTo(x, Number.isFinite(Number(parts[2])) ? Number(parts[2]) : undefined);
+        } else if (command === "structure") {
+            await this.handleStructureCommand(parts);
         } else this.addChat("Unknown or invalid command");
+    }
+
+    /** /structure export|load|list|delete — save/place custom structures.
+     *  export/load first prep a previewed region; appending `confirm` commits it. */
+    private async handleStructureCommand(parts: string[]): Promise<void> {
+        const sub = parts[1]?.toLowerCase() ?? "";
+        const name = parts[2] ?? "";
+        if (sub === "export") {
+            if (name === "confirm") {
+                const pending = this.structurePending;
+                if (!pending || pending.mode !== "export") {
+                    this.addChat("No pending export. Run /structure export <name> first");
+                    return;
+                }
+                const blocks: Record<string, string> = {};
+                this.world.updateView(Math.floor(pending.x0 + pending.width / 2));
+                for (let sx = 0; sx < pending.width; sx += 1) {
+                    for (let sy = 0; sy < pending.height; sy += 1) {
+                        const id = this.world.getBlockId(pending.x0 + sx, pending.y0 + sy);
+                        if (id) blocks[`${sx},${sy}`] = id;
+                    }
+                }
+                const ok = await storage.saveStructure({id: pending.name, width: pending.width, height: pending.height, blocks}, username);
+                this.structurePending = null;
+                this.addChat(ok ? `Structure "${pending.name}" exported (${Object.keys(blocks).length} blocks)` : "Failed to save structure");
+                return;
+            }
+            if (!STRUCTURE_NAME.test(name)) {
+                this.addChat("Invalid structure name (letters, digits, - and _)");
+                return;
+            }
+            const width = Math.max(1, Math.min(64, Math.floor(Number(parts[3]) || 16)));
+            const height = Math.max(1, Math.min(64, Math.floor(Number(parts[4]) || 8)));
+            const center = Math.floor(this.player.x);
+            const x0 = center - Math.floor(width / 2);
+            const y0 = this.world.getSurfaceHeight(center);
+            this.world.updateView(center);
+            this.structurePending = {mode: "export", name, x0, y0, width, height};
+            this.addChat(`Range marked for export "${name}" (${width}x${height}). Run /structure export confirm to commit`);
+        } else if (sub === "load") {
+            if (name === "confirm") {
+                const pending = this.structurePending;
+                if (!pending || pending.mode !== "load") {
+                    this.addChat("No pending load. Run /structure load <name> first");
+                    return;
+                }
+                const structure = await storage.loadStructure(pending.name, username);
+                if (!structure) {
+                    this.structurePending = null;
+                    this.addChat(`Structure "${pending.name}" not found`);
+                    return;
+                }
+                this.world.updateView(pending.x0 + Math.floor(pending.width / 2));
+                let placed = 0;
+                for (const [cell, id] of Object.entries(structure.blocks)) {
+                    const comma = cell.indexOf(",");
+                    const sx = Number(cell.slice(0, comma));
+                    const sy = Number(cell.slice(comma + 1));
+                    if (this.world.setBlock(pending.x0 + sx, pending.y0 + sy, id)) placed += 1;
+                }
+                this.structurePending = null;
+                this.save();
+                this.addChat(`Structure "${structure.id}" loaded (${placed} blocks)`);
+                return;
+            }
+            if (!STRUCTURE_NAME.test(name)) {
+                this.addChat("Invalid structure name");
+                return;
+            }
+            const structure = await storage.loadStructure(name, username);
+            if (!structure) {
+                this.addChat(`Structure "${name}" not found`);
+                return;
+            }
+            const anchor = Number.isFinite(Number(parts[3])) ? Math.floor(Number(parts[3])) : Math.floor(this.player.x);
+            this.world.updateView(anchor);
+            const x0 = anchor - Math.floor(structure.width / 2);
+            const y0 = this.world.getSurfaceHeight(anchor);
+            this.structurePending = {mode: "load", name, x0, y0, width: structure.width, height: structure.height, blocks: structure.blocks};
+            this.addChat(`Load position set for "${name}" (${structure.width}x${structure.height}). Run /structure load confirm to place`);
+        } else if (sub === "list") {
+            const list = await storage.listStructures(username);
+            if (!list.length) {
+                this.addChat("No saved structures");
+                return;
+            }
+            this.addChat(`Structures: ${list.map((item) => `${item.id} (${item.width}x${item.height})`).join(", ")}`);
+        } else if (sub === "delete") {
+            if (!STRUCTURE_NAME.test(name)) {
+                this.addChat("Invalid structure name");
+                return;
+            }
+            await storage.deleteStructure(name, username);
+            this.structurePending = null;
+            this.addChat(`Structure "${name}" deleted`);
+        } else {
+            this.addChat("Usage: /structure <export|load|list|delete> [name] [args] - export/load need a confirm step");
+        }
     }
 
     /** Nearest column matching the biome tag, scanned outward from the player. */
@@ -690,13 +804,14 @@ class GameSession {
         const body = this.chatText.slice(1);
         const parts = body.split(/\s+/);
         const trailing = body.endsWith(" ");
-        const commands = ["gamemode", "speed", "movespeed", "debug", "seed", "locate", "tp"];
+        const commands = ["gamemode", "speed", "movespeed", "debug", "seed", "locate", "tp", "structure"];
         if (!parts[0]) return commands.map((command) => `/${command}`);
         if (parts.length === 1 && !trailing) return commands.filter((command) => command.startsWith(parts[0].toLowerCase())).map((command) => `/${command}`);
         const args: Record<string, string[]> = {
             gamemode: ["creative", "spectator"],
             debug: ["on", "off", "true", "false"],
-            locate: LOCATABLE_BIOMES
+            locate: LOCATABLE_BIOMES,
+            structure: ["export", "load", "list", "delete"],
         };
         const prefix = trailing ? "" : parts.at(-1)?.toLowerCase() || "";
         return (args[parts[0].toLowerCase()] || []).filter((argument) => argument.startsWith(prefix));
@@ -1214,6 +1329,53 @@ class GameSession {
             }
             ctx.strokeStyle = "rgba(255,255,255,.95)";
             ctx.strokeRect(sx + 1, sy + 1, this.blockSize - 2, this.blockSize - 2);
+        }
+        if (this.structurePending) {
+            const {x0, y0} = this.structurePending;
+            const sWidth = this.structurePending.width;
+            const sHeight = this.structurePending.height;
+            const sx = (x0 - cameraX) * this.blockSize + width / 2;
+            const sy = (cameraY - (y0 + sHeight - 1)) * this.blockSize + height / 2;
+            const boxW = sWidth * this.blockSize;
+            const boxH = sHeight * this.blockSize;
+            ctx.fillStyle = "rgba(255,255,255,.10)";
+            ctx.fillRect(sx, sy, boxW, boxH);
+            ctx.strokeStyle = "rgba(255,255,255,.9)";
+            ctx.lineWidth = 2;
+            ctx.setLineDash([6, 4]);
+            ctx.strokeRect(sx + 1, sy + 1, boxW - 2, boxH - 2);
+            ctx.setLineDash([]);
+            if (this.structurePending.mode === "load" && this.structurePending.blocks) {
+                for (const [cell, id] of Object.entries(this.structurePending.blocks)) {
+                    const comma = cell.indexOf(",");
+                    const wx = this.structurePending.x0 + Number(cell.slice(0, comma));
+                    const wy = this.structurePending.y0 + Number(cell.slice(comma + 1));
+                    const existing = this.world.getBlockId(wx, wy);
+                    const px = (wx - cameraX) * this.blockSize + width / 2;
+                    const py = (cameraY - wy) * this.blockSize + height / 2;
+                    if (existing && existing !== id) {
+                        ctx.fillStyle = "rgba(255,40,40,.4)";
+                        ctx.fillRect(px, py, this.blockSize, this.blockSize);
+                    } else if (!existing) {
+                        ctx.fillStyle = "rgba(60,140,255,.4)";
+                        ctx.fillRect(px, py, this.blockSize, this.blockSize);
+                    }
+                    const image = this.blockImageFor(id, wx);
+                    if (image && ("naturalWidth" in image ? image.complete && image.naturalWidth : true)) {
+                        ctx.globalAlpha = 0.5;
+                        ctx.drawImage(image, px, py, this.blockSize, this.blockSize);
+                        ctx.globalAlpha = 1;
+                    } else {
+                        const definition = blockRegistry.get(id);
+                        if (definition) {
+                            ctx.globalAlpha = 0.5;
+                            ctx.fillStyle = definition.color;
+                            ctx.fillRect(px, py, this.blockSize, this.blockSize);
+                            ctx.globalAlpha = 1;
+                        }
+                    }
+                }
+            }
         }
         if (this.mode instanceof CreativeMode) this.mode.particles.render(ctx, cameraX, cameraY, this.blockSize);
         this.fx.render(ctx, cameraX, cameraY, this.blockSize);
