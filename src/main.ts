@@ -195,7 +195,7 @@ class GameSession {
     private readonly blockImages = new Map<string, HTMLImageElement | HTMLCanvasElement>();
     private readonly biomeImages = new Map<string, HTMLCanvasElement>();
     private readonly guiImages = new Map<string, HTMLImageElement>();
-    private readonly mobImages = new Map<string, HTMLImageElement>();
+    private readonly mobImages = new Map<string, HTMLImageElement | HTMLCanvasElement>();
     private readonly mobs: MobManager;
     private readonly fx = new ParticleSystem();
     private readonly inventoryBackground = this.loadImage("/assets/gui/creative_inventory/tab_inventory.png");
@@ -837,6 +837,19 @@ class GameSession {
     private loadBlock(type: string): void {
         const image = new Image();
         image.onload = () => this.biomeImages.clear();
+        image.onerror = () => {
+            const definition = blockRegistry.get(type);
+            const canvas = document.createElement("canvas");
+            canvas.width = 16;
+            canvas.height = 16;
+            const cctx = canvas.getContext("2d");
+            if (cctx) {
+                cctx.fillStyle = definition?.color ?? "#8b8b8b";
+                cctx.fillRect(0, 0, 16, 16);
+            }
+            this.blockImages.set(type, canvas);
+            this.biomeImages.clear();
+        };
         const block = blockRegistry.get(type);
         const texture = block?.texture || block?.path || type;
         image.src = texture.startsWith("/") ? texture : `/assets/block/${texture}.png`;
@@ -919,17 +932,29 @@ class GameSession {
         return image;
     }
 
-    private entityImage(dir: string, state: string, frame: number): HTMLImageElement {
+    private entityImage(dir: string, state: string, frame: number): HTMLImageElement | HTMLCanvasElement {
         const key = `${dir}/${state}/${frame}`;
         let image = this.mobImages.get(key);
         if (!image) {
-            image = this.loadImage(`/assets/entity/${key}.png`);
+            image = new Image();
+            image.onerror = () => {
+                const canvas = document.createElement("canvas");
+                canvas.width = 16;
+                canvas.height = 16;
+                const cctx = canvas.getContext("2d");
+                if (cctx) {
+                    cctx.fillStyle = "#4a4a52";
+                    cctx.fillRect(0, 0, 16, 16);
+                }
+                this.mobImages.set(key, canvas);
+            };
+            image.src = `/assets/entity/${key}.png`;
             this.mobImages.set(key, image);
         }
         return image;
     }
 
-    private mobFrame(mob: Mob): HTMLImageElement {
+    private mobFrame(mob: Mob): HTMLImageElement | HTMLCanvasElement {
         const config = MOB_KINDS[mob.kind];
         const state = mob.state === "attack" ? "attack" : mob.velocityX !== 0 ? "move" : "stand";
         const frames = state === "stand" ? 1 : state === "move" ? config.moveFrames : config.attackFrames;
@@ -1194,6 +1219,7 @@ class GameSession {
                         this.drawGhost(ctx, image, sx, sy, spriteWidth, spriteHeight, 1, 1 - hurtT * 0.75, mob.facing < 0, "#ff2d20");
                         return;
                     }
+                    if ("naturalWidth" in image && (!image.complete || !image.naturalWidth)) return;
                     ctx.save();
                     if (mob.facing < 0) {
                         ctx.translate(sx + spriteWidth, 0);
