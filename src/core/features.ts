@@ -23,6 +23,7 @@ export interface FeaturePlacement {
 }
 
 const TREE_MARGIN = 2;
+const TREE_SPACING = 3;
 const CLEAR_SPAWN_RADIUS = 8;
 const TRUNK_HEIGHT_MIN = 4;
 const TRUNK_HEIGHT_MAX = 6;
@@ -31,6 +32,7 @@ const TREE_BIOMES: Record<string, number> = {plains: 0.05, forest: 0.12};
 const FLOWER_KINDS: BlockType[] = [Blocks.MY2DWORLD.POPPY.id, Blocks.MY2DWORLD.DANDELION.id];
 
 export function applyFeatures(p: FeaturePlacement): void {
+    let lastTreeLocal = -TREE_SPACING;
     for (let local = 0; local < CHUNK_SIZE; local += 1) {
         const x = p.startX + local;
         const surface = p.surfaces[local];
@@ -47,10 +49,11 @@ export function applyFeatures(p: FeaturePlacement): void {
             default: {
                 if (rng() < 0.4 && surface + 1 < WORLD_HEIGHT) setBlock(p, local, surface + 1, p.numFor(Blocks.MY2DWORLD.SHORT_GRASS.id));
                 if (rng() < 0.07 && surface + 1 < WORLD_HEIGHT) setBlock(p, local, surface + 1, p.numFor(FLOWER_KINDS[Math.floor(rng() * FLOWER_KINDS.length)]));
-                if (!nearSpawn && rng() < (TREE_BIOMES[biome.id] ?? 0) && local >= TREE_MARGIN && local < CHUNK_SIZE - TREE_MARGIN) {
-                    placeTree(p, local, surface, rng);
-                }
                 if (!nearSpawn && rng() < 0.02 && local >= 1 && local < CHUNK_SIZE - 1) placeRock(p, local, surface, rng);
+                if (!nearSpawn && rng() < (TREE_BIOMES[biome.id] ?? 0) && local - lastTreeLocal >= TREE_SPACING && local >= TREE_MARGIN && local < CHUNK_SIZE - TREE_MARGIN) {
+                    placeTree(p, local, surface, rng);
+                    lastTreeLocal = local;
+                }
             }
         }
     }
@@ -69,21 +72,26 @@ function placeTree(p: FeaturePlacement, local: number, surface: number, rng: () 
     const top = surface + height;
     for (let y = surface + 1; y <= top; y += 1) p.blocks[local * WORLD_HEIGHT + y] = logNum;
 
-    // MC-style rounded canopy lifted fully off the ground so the player can
-    // walk underneath. Each outer cell has a random hole chance for a natural,
-    // non-blocky shape; the stream stays per-column deterministic.
-    let ly = top;
-    for (let layer = 0; layer < 3; layer += 1) {
-        ly += 1;
-        const radius = layer === 0 ? 2 : 1;
-        for (let dx = -radius; dx <= radius; dx += 1) {
-            const lx = local + dx;
-            if (lx < 0 || lx >= CHUNK_SIZE || ly >= WORLD_HEIGHT) continue;
-            if (dx !== 0 && rng() < 0.2) continue;
-            setBlock(p, lx, ly, leavesNum);
-        }
+    // MC-style rounded canopy, fully lifted off the ground so the player can
+    // walk underneath. Holes are only allowed on cells that can never strand a
+    // leaf: the outer corners of the bottom ring and the top crown (nothing
+    // above them). The solid centre column keeps every leaf connected.
+    let ly = top + 1;
+    for (let dx = -2; dx <= 2; dx += 1) {
+        const lx = local + dx;
+        if (lx < 0 || lx >= CHUNK_SIZE || ly >= WORLD_HEIGHT) continue;
+        if (Math.abs(dx) === 2 && rng() < 0.25) continue;
+        setBlock(p, lx, ly, leavesNum);
     }
-    if (rng() < 0.7) setBlock(p, local, ly + 1, leavesNum);
+    ly += 1;
+    if (ly < WORLD_HEIGHT) for (let dx = -1; dx <= 1; dx += 1) setBlock(p, local + dx, ly, leavesNum);
+    ly += 1;
+    for (let dx = -1; dx <= 1; dx += 1) {
+        if (ly >= WORLD_HEIGHT) break;
+        if (dx !== 0 && rng() < 0.35) continue;
+        setBlock(p, local + dx, ly, leavesNum);
+    }
+    if (ly + 1 < WORLD_HEIGHT && rng() < 0.6) setBlock(p, local, ly + 1, leavesNum);
 }
 
 function placeCactus(p: FeaturePlacement, local: number, surface: number, rng: () => number): void {

@@ -686,7 +686,8 @@ class GameSession {
         if (parts.length === 1 && !trailing) return commands.filter((command) => command.startsWith(parts[0].toLowerCase())).map((command) => `/${command}`);
         const args: Record<string, string[]> = {
             gamemode: ["creative", "spectator"],
-            debug: ["on", "off", "true", "false"]
+            debug: ["on", "off", "true", "false"],
+            locate: LOCATABLE_BIOMES
         };
         const prefix = trailing ? "" : parts.at(-1)?.toLowerCase() || "";
         return (args[parts[0].toLowerCase()] || []).filter((argument) => argument.startsWith(prefix));
@@ -835,6 +836,7 @@ class GameSession {
 
     private loadBlock(type: string): void {
         const image = new Image();
+        image.onload = () => this.biomeImages.clear();
         const block = blockRegistry.get(type);
         const texture = block?.texture || block?.path || type;
         image.src = texture.startsWith("/") ? texture : `/assets/block/${texture}.png`;
@@ -877,11 +879,8 @@ class GameSession {
             const dirt = this.blockImages.get(Blocks.MY2DWORLD.DIRT.id);
             const overlay = this.blockImages.get("grass_block_side_overlay");
             if (!overlay || !("naturalWidth" in overlay) || !overlay.complete || !overlay.naturalWidth) return undefined;
-            if (dirt && "naturalWidth" in dirt && dirt.complete && dirt.naturalWidth) ctx.drawImage(dirt, 0, 0, size, size);
-            else {
-                ctx.fillStyle = "#8d613c";
-                ctx.fillRect(0, 0, size, size);
-            }
+            if (!dirt || !("naturalWidth" in dirt) || !dirt.complete || !dirt.naturalWidth) return undefined;
+            ctx.drawImage(dirt, 0, 0, size, size);
             const tint = document.createElement("canvas");
             tint.width = size;
             tint.height = size;
@@ -1357,6 +1356,10 @@ class GameSession {
             ctx.strokeRect(14, height - 40, width - 28, 30);
             ctx.fillStyle = "#fff";
             ctx.fillText(this.chatText, 24, height - 20);
+            if (Math.floor(performance.now() / 500) % 2 === 0) {
+                ctx.fillStyle = "#fff";
+                ctx.fillRect(24 + ctx.measureText(this.chatText).width + 3, height - 35, 2, 16);
+            }
         }
         if (this.noticeTimer > 0) {
             ctx.font = "600 16px Manrope";
