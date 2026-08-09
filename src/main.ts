@@ -24,6 +24,9 @@ import {Blocks, GameModes, blockRegistry} from "./registry";
 const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("App root is missing");
 
+const LOCATE_RANGE = 4096;
+const LOCATABLE_BIOMES = ["plains", "forest", "desert", "snowy", "mountains"];
+
 let settings: PlayerSettings = DEFAULT_SETTINGS;
 let language: Language = settings.language;
 let username = "steve";
@@ -226,7 +229,7 @@ class GameSession {
         this.player = new Player(x, y, meta.physics);
         if (this.initialSave?.mode) this.modeName = this.initialSave.mode;
         this.mode = createMode(this.modeName);
-        [...new Set([...this.inventorySlots, ...this.hotbar, ...plugins.blocks.keys()].filter((type): type is string => type !== null))].forEach((type) => this.loadBlock(type));
+        [...new Set([...blockRegistry.list().map((block) => block.id), ...plugins.blocks.keys()].filter((type): type is string => type !== null))].forEach((type) => this.loadBlock(type));
         this.loadBlock("grass_block_side_overlay");
         this.loadGui("mode_creative", "/assets/gui/gamemode/creative.png");
         this.loadGui("mode_spectator", "/assets/gui/gamemode/spectator.png");
@@ -520,7 +523,7 @@ class GameSession {
                 this.suggestionIndex += 1;
                 this.suggestions = suggestions;
                 if (suggestion.startsWith("/")) {
-                    this.chatText = suggestion + (["/gamemode", "/debug"].includes(suggestion) ? " " : "");
+                    this.chatText = suggestion + (["/gamemode", "/debug", "/locate", "/tp"].includes(suggestion) ? " " : "");
                     this.resetSuggestions();
                 } else {
                     const prefix = this.chatText.includes(" ") ? this.chatText.slice(0, this.chatText.lastIndexOf(" ")) : this.chatText;
@@ -594,7 +597,44 @@ class GameSession {
             settings.debugDefault = this.debug;
             storage.saveSettings(settings);
             this.addChat(`Debug ${this.debug ? "on" : "off"}`);
-        } else if (command === "seed") this.addChat(`Seed: ${this.meta.seed ?? 0}`); else this.addChat("Unknown or invalid command");
+        } else if (command === "seed") this.addChat(`Seed: ${this.meta.seed ?? 0}`);
+        else if (command === "locate") {
+            const target = (parts[1] ?? "").toLowerCase();
+            if (!LOCATABLE_BIOMES.includes(target)) this.addChat(`Biomes: ${LOCATABLE_BIOMES.join(", ")}`);
+            else {
+                const location = this.locateBiome(target);
+                if (location === null) this.addChat(`Could not locate ${target} within ${LOCATE_RANGE} blocks`);
+                else {
+                    const surface = Math.round(this.world.getSurfaceHeight(Math.floor(location)));
+                    this.teleportTo(location);
+                    this.addChat(`Located ${target} at x=${Math.floor(location)} y=${surface}, teleported`);
+                }
+            }
+        } else if (command === "tp" && Number.isFinite(Number(parts[1]))) {
+            const x = Math.floor(Number(parts[1])) + 0.5;
+            this.teleportTo(x, Number.isFinite(Number(parts[2])) ? Number(parts[2]) : undefined);
+        } else this.addChat("Unknown or invalid command");
+    }
+
+    /** Nearest column matching the biome tag, scanned outward from the player. */
+    private locateBiome(tag: string): number | null {
+        const center = Math.floor(this.player.x);
+        for (let radius = 1; radius <= LOCATE_RANGE; radius += 1) {
+            if (biomeAt(center + radius, this.world.seed).id === tag) return center + radius + 0.5;
+            if (biomeAt(center - radius, this.world.seed).id === tag) return center - radius + 0.5;
+        }
+        return null;
+    }
+
+    private teleportTo(x: number, y?: number): void {
+        this.world.updateView(x);
+        this.player.x = x;
+        this.player.y = y ?? this.world.getSurfaceHeight(Math.floor(x)) + 1;
+        this.player.velocityX = 0;
+        this.player.velocityY = 0;
+        this.cameraOffsetX = 0;
+        this.cameraOffsetY = 0;
+        this.save();
     }
 
     private addChat(text: string, color = "#ffffff"): void {
@@ -641,7 +681,7 @@ class GameSession {
         const body = this.chatText.slice(1);
         const parts = body.split(/\s+/);
         const trailing = body.endsWith(" ");
-        const commands = ["gamemode", "speed", "movespeed", "debug", "seed"];
+        const commands = ["gamemode", "speed", "movespeed", "debug", "seed", "locate", "tp"];
         if (!parts[0]) return commands.map((command) => `/${command}`);
         if (parts.length === 1 && !trailing) return commands.filter((command) => command.startsWith(parts[0].toLowerCase())).map((command) => `/${command}`);
         const args: Record<string, string[]> = {
@@ -803,15 +843,17 @@ class GameSession {
 
     /** Raw texture for a block id, or a biome-tinted variant for grass/leaves at column `x`. */
     private blockImageFor(id: string, x: number): HTMLImageElement | HTMLCanvasElement | undefined {
-        if (id === Blocks.MY2DWORLD.GRASS_BLOCK.id) return this.biomeTexture("grass", biomeAt(x, this.world.seed));
+        if (id === Blocks.MY2DWORLD.GRASS_BLOCK.id) return this.biomeTexture("grass_block", biomeAt(x, this.world.seed));
         if (id === Blocks.MY2DWORLD.OAK_LEAVES.id) return this.biomeTexture("leaves", biomeAt(x, this.world.seed));
+        if (id === Blocks.MY2DWORLD.SHORT_GRASS.id) return this.biomeTexture("short_grass", biomeAt(x, this.world.seed));
         return this.blockImages.get(id);
     }
 
     /** Icon texture for inventory/hotbar slots (uses a neutral biome tint). */
     private iconFor(type: string): HTMLImageElement | HTMLCanvasElement | undefined {
-        if (type === Blocks.MY2DWORLD.GRASS_BLOCK.id) return this.biomeTexture("grass", DEFAULT_BIOME);
+        if (type === Blocks.MY2DWORLD.GRASS_BLOCK.id) return this.biomeTexture("grass_block", DEFAULT_BIOME);
         if (type === Blocks.MY2DWORLD.OAK_LEAVES.id) return this.biomeTexture("leaves", DEFAULT_BIOME);
+        if (type === Blocks.MY2DWORLD.SHORT_GRASS.id) return this.biomeTexture("short_grass", DEFAULT_BIOME);
         return this.blockImages.get(type);
     }
 
@@ -820,7 +862,7 @@ class GameSession {
      * Grass = dirt side + grass overlay whose hue/brightness follows the biome
      * colour; leaves = the leaf texture multiplied by the biome foliage colour.
      */
-    private biomeTexture(kind: "grass" | "leaves", biome: Biome): HTMLCanvasElement | undefined {
+    private biomeTexture(kind: "grass_block" | "leaves" | "short_grass", biome: Biome): HTMLCanvasElement | undefined {
         const key = `${kind}|${biome.id}`;
         const cached = this.biomeImages.get(key);
         if (cached) return cached;
@@ -831,7 +873,7 @@ class GameSession {
         const ctx = canvas.getContext("2d");
         if (!ctx) return undefined;
         ctx.imageSmoothingEnabled = false;
-        if (kind === "grass") {
+        if (kind === "grass_block") {
             const dirt = this.blockImages.get(Blocks.MY2DWORLD.DIRT.id);
             const overlay = this.blockImages.get("grass_block_side_overlay");
             if (!overlay || !("naturalWidth" in overlay) || !overlay.complete || !overlay.naturalWidth) return undefined;
@@ -852,11 +894,13 @@ class GameSession {
             tc.globalCompositeOperation = "source-over";
             ctx.drawImage(tint, 0, 0);
         } else {
-            const leaves = this.blockImages.get(Blocks.MY2DWORLD.OAK_LEAVES.id);
-            if (!leaves || !("naturalWidth" in leaves) || !leaves.complete || !leaves.naturalWidth) return undefined;
-            ctx.drawImage(leaves, 0, 0, size, size);
+            const texture = kind === "leaves"
+                ? this.blockImages.get(Blocks.MY2DWORLD.OAK_LEAVES.id)
+                : this.blockImages.get(Blocks.MY2DWORLD.SHORT_GRASS.id);
+            if (!texture || !("naturalWidth" in texture) || !texture.complete || !texture.naturalWidth) return undefined;
+            ctx.drawImage(texture, 0, 0, size, size);
             ctx.globalCompositeOperation = "multiply";
-            ctx.fillStyle = biome.foliage;
+            ctx.fillStyle = kind === "leaves" ? biome.foliage : biome.grass;
             ctx.fillRect(0, 0, size, size);
             ctx.globalCompositeOperation = "source-over";
         }

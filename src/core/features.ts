@@ -61,15 +61,6 @@ function setBlock(p: FeaturePlacement, local: number, y: number, num: number): v
     p.blocks[local * WORLD_HEIGHT + y] = num;
 }
 
-function cell(p: FeaturePlacement, local: number, y: number): number {
-    return p.blocks[local * WORLD_HEIGHT + y];
-}
-
-function isAirOrPlant(p: FeaturePlacement, local: number, y: number): boolean {
-    const num = cell(p, local, y);
-    return num === 0;
-}
-
 function placeTree(p: FeaturePlacement, local: number, surface: number, rng: () => number): void {
     const logNum = p.numFor(Blocks.MY2DWORLD.OAK_LOG.id);
     const leavesNum = p.numFor(Blocks.MY2DWORLD.OAK_LEAVES.id);
@@ -78,18 +69,21 @@ function placeTree(p: FeaturePlacement, local: number, surface: number, rng: () 
     const top = surface + height;
     for (let y = surface + 1; y <= top; y += 1) p.blocks[local * WORLD_HEIGHT + y] = logNum;
 
-    const leafRows = [1, 2, 1];
+    // MC-style rounded canopy lifted fully off the ground so the player can
+    // walk underneath. Each outer cell has a random hole chance for a natural,
+    // non-blocky shape; the stream stays per-column deterministic.
     let ly = top;
-    for (const radius of leafRows) {
+    for (let layer = 0; layer < 3; layer += 1) {
         ly += 1;
+        const radius = layer === 0 ? 2 : 1;
         for (let dx = -radius; dx <= radius; dx += 1) {
-            if (dx === 0 && ly === top + 1) continue;
             const lx = local + dx;
             if (lx < 0 || lx >= CHUNK_SIZE || ly >= WORLD_HEIGHT) continue;
-            if (!isAirOrPlant(p, lx, ly)) continue;
-            p.blocks[lx * WORLD_HEIGHT + ly] = leavesNum;
+            if (dx !== 0 && rng() < 0.2) continue;
+            setBlock(p, lx, ly, leavesNum);
         }
     }
+    if (rng() < 0.7) setBlock(p, local, ly + 1, leavesNum);
 }
 
 function placeCactus(p: FeaturePlacement, local: number, surface: number, rng: () => number): void {
