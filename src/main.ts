@@ -2,7 +2,7 @@ import "./style.css";
 import {type KeyState, Player} from "./core/player";
 import {MobManager, MOB_KINDS, MOB_RENDER_RADIUS, type Mob} from "./core/entity";
 import {storage, type PluginPackage} from "./core/storage";
-import {biomeAt, hashSeed, spawnX, World, WORLD_HEIGHT} from "./core/world";
+import {biomeAt, DEFAULT_BIOME, hashSeed, spawnX, World, WORLD_HEIGHT, type Biome} from "./core/world";
 import {clampSpectateOffset} from "./core/spectate";
 import {ParticleSystem} from "./core/particles";
 import {
@@ -23,6 +23,22 @@ import {Blocks, GameModes, blockRegistry} from "./registry";
 
 const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("App root is missing");
+
+const LOCATE_RANGE = 4096;
+const LOCATABLE_BIOMES = ["plains", "forest", "desert", "snowy", "mountains"];
+const STRUCTURE_NAME = /^[a-z0-9][a-z0-9_-]{0,31}$/i;
+
+/** Region placed by the two-phase /structure export|load flow before confirm. */
+interface StructurePending {
+    mode: "export" | "load";
+    name: string;
+    x0: number;
+    y0: number;
+    width: number;
+    height: number;
+    /** Cell content, present for load previews so overlaps can be shown. */
+    blocks?: Record<string, string>;
+}
 
 let settings: PlayerSettings = DEFAULT_SETTINGS;
 let language: Language = settings.language;
@@ -102,6 +118,16 @@ function toggleLanguage(): void {
 const text = (zh: string, en: string) => language === "zh" ? zh : en;
 const AUTOSAVE_OPTIONS = [0, 60, 300, 600];
 
+/** Scale an "#rrggbb" colour by a brightness factor. */
+function shadeColor(hex: string, factor: number): string {
+    const n = Number.parseInt(hex.slice(1), 16);
+    if (!Number.isFinite(n) || hex.length !== 7) return hex;
+    const r = Math.round(Math.min(255, ((n >> 16) & 255) * factor));
+    const g = Math.round(Math.min(255, ((n >> 8) & 255) * factor));
+    const b = Math.round(Math.min(255, (n & 255) * factor));
+    return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, "0")}`;
+}
+
 function autosaveLabel(seconds: number): string {
     if (seconds <= 0) return text("关闭", "Off");
     return seconds < 60 ? `${seconds} ${text("秒", "sec")}` : `${Math.round(seconds / 60)} ${text("分钟", "min")}`;
@@ -178,8 +204,8 @@ class GameSession {
     private last = performance.now();
     private frame = 0;
     private autosaveElapsed = 0;
-    private hotbar: Array<string | null> = [Blocks.MY2DWORLD.GRASS_BLOCK_SIDE, Blocks.MY2DWORLD.DIRT, Blocks.MY2DWORLD.STONE, Blocks.MY2DWORLD.COBBLESTONE, Blocks.MY2DWORLD.MOSSY_COBBLESTONE, Blocks.MY2DWORLD.COAL_BLOCK, Blocks.MY2DWORLD.IRON_BLOCK, Blocks.MY2DWORLD.GOLD_BLOCK, Blocks.MY2DWORLD.DIAMOND_BLOCK].map((block) => block.id);
-    private inventorySlots: Array<string | null> = [Blocks.MY2DWORLD.DIAMOND_BLOCK, Blocks.MY2DWORLD.COAL_ORE, Blocks.MY2DWORLD.IRON_ORE, Blocks.MY2DWORLD.GOLD_ORE, Blocks.MY2DWORLD.DIAMOND_ORE, Blocks.MY2DWORLD.EMERALD_ORE, Blocks.MY2DWORLD.LAPIS_ORE, Blocks.MY2DWORLD.REDSTONE_ORE, Blocks.MY2DWORLD.COPPER_ORE, Blocks.MY2DWORLD.BEDROCK, Blocks.MY2DWORLD.DEEPSLATE, Blocks.MY2DWORLD.DEEPSLATE_COAL_ORE, Blocks.MY2DWORLD.DEEPSLATE_IRON_ORE, Blocks.MY2DWORLD.DEEPSLATE_GOLD_ORE, Blocks.MY2DWORLD.DEEPSLATE_DIAMOND_ORE, Blocks.MY2DWORLD.DEEPSLATE_EMERALD_ORE, Blocks.MY2DWORLD.DEEPSLATE_LAPIS_ORE, Blocks.MY2DWORLD.DEEPSLATE_REDSTONE_ORE, Blocks.MY2DWORLD.DEEPSLATE_COPPER_ORE, Blocks.MY2DWORLD.RAW_IRON_BLOCK, Blocks.MY2DWORLD.RAW_GOLD_BLOCK, Blocks.MY2DWORLD.NETHER_QUARTZ_ORE, Blocks.MY2DWORLD.NETHER_GOLD_ORE, Blocks.MY2DWORLD.IRON_BARS, Blocks.MY2DWORLD.IRON_CHAIN, Blocks.MY2DWORLD.MOSSY_COBBLESTONE, Blocks.MY2DWORLD.IRON_BLOCK, Blocks.MY2DWORLD.GOLD_BLOCK].map((block) => block.id);
+    private hotbar: Array<string | null> = [Blocks.MY2DWORLD.GRASS_BLOCK, Blocks.MY2DWORLD.DIRT, Blocks.MY2DWORLD.STONE, Blocks.MY2DWORLD.OAK_LOG, Blocks.MY2DWORLD.OAK_LEAVES, Blocks.MY2DWORLD.SHORT_GRASS, Blocks.MY2DWORLD.POPPY, Blocks.MY2DWORLD.SAND, Blocks.MY2DWORLD.SNOW].map((block) => block.id);
+    private inventorySlots: Array<string | null> = [Blocks.MY2DWORLD.DIAMOND_BLOCK, Blocks.MY2DWORLD.COAL_ORE, Blocks.MY2DWORLD.IRON_ORE, Blocks.MY2DWORLD.GOLD_ORE, Blocks.MY2DWORLD.DIAMOND_ORE, Blocks.MY2DWORLD.EMERALD_ORE, Blocks.MY2DWORLD.LAPIS_ORE, Blocks.MY2DWORLD.REDSTONE_ORE, Blocks.MY2DWORLD.COPPER_ORE, Blocks.MY2DWORLD.BEDROCK, Blocks.MY2DWORLD.DEEPSLATE, Blocks.MY2DWORLD.DEEPSLATE_COAL_ORE, Blocks.MY2DWORLD.DEEPSLATE_IRON_ORE, Blocks.MY2DWORLD.DEEPSLATE_GOLD_ORE, Blocks.MY2DWORLD.DEEPSLATE_DIAMOND_ORE, Blocks.MY2DWORLD.DEEPSLATE_EMERALD_ORE, Blocks.MY2DWORLD.DEEPSLATE_LAPIS_ORE, Blocks.MY2DWORLD.DEEPSLATE_REDSTONE_ORE, Blocks.MY2DWORLD.DEEPSLATE_COPPER_ORE, Blocks.MY2DWORLD.RAW_IRON_BLOCK, Blocks.MY2DWORLD.RAW_GOLD_BLOCK, Blocks.MY2DWORLD.NETHER_QUARTZ_ORE, Blocks.MY2DWORLD.NETHER_GOLD_ORE, Blocks.MY2DWORLD.IRON_BARS, Blocks.MY2DWORLD.IRON_CHAIN, Blocks.MY2DWORLD.MOSSY_COBBLESTONE, Blocks.MY2DWORLD.DANDELION, Blocks.MY2DWORLD.CACTUS].map((block) => block.id);
     private selected = 0;
     private health = 20;
     private voidDamageTimer = 0;
@@ -189,9 +215,10 @@ class GameSession {
     private inventoryOpen = false;
     private heldInventoryItem: string | null = null;
     private bindingCapture: keyof KeyBindings | null = null;
-    private readonly blockImages = new Map<string, HTMLImageElement>();
+    private readonly blockImages = new Map<string, HTMLImageElement | HTMLCanvasElement>();
+    private readonly biomeImages = new Map<string, HTMLCanvasElement>();
     private readonly guiImages = new Map<string, HTMLImageElement>();
-    private readonly mobImages = new Map<string, HTMLImageElement>();
+    private readonly mobImages = new Map<string, HTMLImageElement | HTMLCanvasElement>();
     private readonly mobs: MobManager;
     private readonly fx = new ParticleSystem();
     private readonly inventoryBackground = this.loadImage("/assets/gui/creative_inventory/tab_inventory.png");
@@ -212,6 +239,7 @@ class GameSession {
     private f4Held = false;
     private modeComboPending = false;
     private modeComboConsumed = false;
+    private structurePending: StructurePending | null = null;
 
     constructor(readonly meta: WorldMeta, private readonly initialSave: WorldSave | null) {
         this.modeName = meta.mode;
@@ -225,7 +253,7 @@ class GameSession {
         this.player = new Player(x, y, meta.physics);
         if (this.initialSave?.mode) this.modeName = this.initialSave.mode;
         this.mode = createMode(this.modeName);
-        [...new Set([...this.inventorySlots, ...this.hotbar, ...plugins.blocks.keys()].filter((type): type is string => type !== null))].forEach((type) => this.loadBlock(type));
+        [...new Set([...blockRegistry.list().map((block) => block.id), ...plugins.blocks.keys()].filter((type): type is string => type !== null))].forEach((type) => this.loadBlock(type));
         this.loadGui("mode_creative", "/assets/gui/gamemode/creative.png");
         this.loadGui("mode_spectator", "/assets/gui/gamemode/spectator.png");
         this.loadGui("mouse", "/assets/gui/mouse/mouse.png");
@@ -463,7 +491,7 @@ class GameSession {
         if (cellY < 1) return null;
         let target: [number, number];
         const hit = this.world.getBlock(cellX, cellY);
-        if (!hit) {
+        if (!hit || !hit.solid) {
             target = [cellX, cellY];
         } else {
             const relX = x - (cellX + 0.5);
@@ -471,7 +499,7 @@ class GameSession {
             target = Math.abs(relX) > Math.abs(relY) ? [cellX + (relX >= 0 ? 1 : -1), cellY] : [cellX, cellY + (relY >= 0 ? 1 : -1)];
         }
         if (target[1] < 1) return null;
-        if (this.world.getBlock(target[0], target[1])) return null;
+        if (this.world.isSolid(target[0], target[1])) return null;
         if (!this.inReach(target[0] + 0.5, target[1] - 0.5)) return null;
         const left = this.player.x - 0.25;
         const right = this.player.x + 0.25;
@@ -518,7 +546,7 @@ class GameSession {
                 this.suggestionIndex += 1;
                 this.suggestions = suggestions;
                 if (suggestion.startsWith("/")) {
-                    this.chatText = suggestion + (["/gamemode", "/debug"].includes(suggestion) ? " " : "");
+                    this.chatText = suggestion + (["/gamemode", "/debug", "/locate", "/tp"].includes(suggestion) ? " " : "");
                     this.resetSuggestions();
                 } else {
                     const prefix = this.chatText.includes(" ") ? this.chatText.slice(0, this.chatText.lastIndexOf(" ")) : this.chatText;
@@ -592,7 +620,144 @@ class GameSession {
             settings.debugDefault = this.debug;
             storage.saveSettings(settings);
             this.addChat(`Debug ${this.debug ? "on" : "off"}`);
-        } else if (command === "seed") this.addChat(`Seed: ${this.meta.seed ?? 0}`); else this.addChat("Unknown or invalid command");
+        } else if (command === "seed") this.addChat(`Seed: ${this.meta.seed ?? 0}`);
+        else if (command === "locate") {
+            const target = (parts[1] ?? "").toLowerCase();
+            if (!LOCATABLE_BIOMES.includes(target)) this.addChat(`Biomes: ${LOCATABLE_BIOMES.join(", ")}`);
+            else {
+                const location = this.locateBiome(target);
+                if (location === null) this.addChat(`Could not locate ${target} within ${LOCATE_RANGE} blocks`);
+                else {
+                    const surface = Math.round(this.world.getSurfaceHeight(Math.floor(location)));
+                    this.teleportTo(location);
+                    this.addChat(`Located ${target} at x=${Math.floor(location)} y=${surface}, teleported`);
+                }
+            }
+        } else if (command === "tp" && Number.isFinite(Number(parts[1]))) {
+            const x = Math.floor(Number(parts[1])) + 0.5;
+            this.teleportTo(x, Number.isFinite(Number(parts[2])) ? Number(parts[2]) : undefined);
+        } else if (command === "structure") {
+            await this.handleStructureCommand(parts);
+        } else this.addChat("Unknown or invalid command");
+    }
+
+    /** /structure export|load|list|delete — save/place custom structures.
+     *  export/load first prep a previewed region; appending `confirm` commits it. */
+    private async handleStructureCommand(parts: string[]): Promise<void> {
+        const sub = parts[1]?.toLowerCase() ?? "";
+        const name = parts[2] ?? "";
+        if (sub === "export") {
+            if (name === "confirm") {
+                const pending = this.structurePending;
+                if (!pending || pending.mode !== "export") {
+                    this.addChat("No pending export. Run /structure export <name> first");
+                    return;
+                }
+                const blocks: Record<string, string> = {};
+                this.world.updateView(Math.floor(pending.x0 + pending.width / 2));
+                for (let sx = 0; sx < pending.width; sx += 1) {
+                    for (let sy = 0; sy < pending.height; sy += 1) {
+                        const id = this.world.getBlockId(pending.x0 + sx, pending.y0 + sy);
+                        if (id) blocks[`${sx},${sy}`] = id;
+                    }
+                }
+                const ok = await storage.saveStructure({id: pending.name, width: pending.width, height: pending.height, blocks}, username);
+                this.structurePending = null;
+                this.addChat(ok ? `Structure "${pending.name}" exported (${Object.keys(blocks).length} blocks)` : "Failed to save structure");
+                return;
+            }
+            if (!STRUCTURE_NAME.test(name)) {
+                this.addChat("Invalid structure name (letters, digits, - and _)");
+                return;
+            }
+            const width = Math.max(1, Math.min(64, Math.floor(Number(parts[3]) || 16)));
+            const height = Math.max(1, Math.min(64, Math.floor(Number(parts[4]) || 8)));
+            const center = Math.floor(this.player.x);
+            const x0 = center - Math.floor(width / 2);
+            const y0 = this.world.getSurfaceHeight(center);
+            this.world.updateView(center);
+            this.structurePending = {mode: "export", name, x0, y0, width, height};
+            this.addChat(`Range marked for export "${name}" (${width}x${height}). Run /structure export confirm to commit`);
+        } else if (sub === "load") {
+            if (name === "confirm") {
+                const pending = this.structurePending;
+                if (!pending || pending.mode !== "load") {
+                    this.addChat("No pending load. Run /structure load <name> first");
+                    return;
+                }
+                const structure = await storage.loadStructure(pending.name, username);
+                if (!structure) {
+                    this.structurePending = null;
+                    this.addChat(`Structure "${pending.name}" not found`);
+                    return;
+                }
+                this.world.updateView(pending.x0 + Math.floor(pending.width / 2));
+                let placed = 0;
+                for (const [cell, id] of Object.entries(structure.blocks)) {
+                    const comma = cell.indexOf(",");
+                    const sx = Number(cell.slice(0, comma));
+                    const sy = Number(cell.slice(comma + 1));
+                    if (this.world.setBlock(pending.x0 + sx, pending.y0 + sy, id)) placed += 1;
+                }
+                this.structurePending = null;
+                this.save();
+                this.addChat(`Structure "${structure.id}" loaded (${placed} blocks)`);
+                return;
+            }
+            if (!STRUCTURE_NAME.test(name)) {
+                this.addChat("Invalid structure name");
+                return;
+            }
+            const structure = await storage.loadStructure(name, username);
+            if (!structure) {
+                this.addChat(`Structure "${name}" not found`);
+                return;
+            }
+            const anchor = Number.isFinite(Number(parts[3])) ? Math.floor(Number(parts[3])) : Math.floor(this.player.x);
+            this.world.updateView(anchor);
+            const x0 = anchor - Math.floor(structure.width / 2);
+            const y0 = this.world.getSurfaceHeight(anchor);
+            this.structurePending = {mode: "load", name, x0, y0, width: structure.width, height: structure.height, blocks: structure.blocks};
+            this.addChat(`Load position set for "${name}" (${structure.width}x${structure.height}). Run /structure load confirm to place`);
+        } else if (sub === "list") {
+            const list = await storage.listStructures(username);
+            if (!list.length) {
+                this.addChat("No saved structures");
+                return;
+            }
+            this.addChat(`Structures: ${list.map((item) => `${item.id} (${item.width}x${item.height})`).join(", ")}`);
+        } else if (sub === "delete") {
+            if (!STRUCTURE_NAME.test(name)) {
+                this.addChat("Invalid structure name");
+                return;
+            }
+            await storage.deleteStructure(name, username);
+            this.structurePending = null;
+            this.addChat(`Structure "${name}" deleted`);
+        } else {
+            this.addChat("Usage: /structure <export|load|list|delete> [name] [args] - export/load need a confirm step");
+        }
+    }
+
+    /** Nearest column matching the biome tag, scanned outward from the player. */
+    private locateBiome(tag: string): number | null {
+        const center = Math.floor(this.player.x);
+        for (let radius = 1; radius <= LOCATE_RANGE; radius += 1) {
+            if (biomeAt(center + radius, this.world.seed).id === tag) return center + radius + 0.5;
+            if (biomeAt(center - radius, this.world.seed).id === tag) return center - radius + 0.5;
+        }
+        return null;
+    }
+
+    private teleportTo(x: number, y?: number): void {
+        this.world.updateView(x);
+        this.player.x = x;
+        this.player.y = y ?? this.world.getSurfaceHeight(Math.floor(x)) + 1;
+        this.player.velocityX = 0;
+        this.player.velocityY = 0;
+        this.cameraOffsetX = 0;
+        this.cameraOffsetY = 0;
+        this.save();
     }
 
     private addChat(text: string, color = "#ffffff"): void {
@@ -639,12 +804,14 @@ class GameSession {
         const body = this.chatText.slice(1);
         const parts = body.split(/\s+/);
         const trailing = body.endsWith(" ");
-        const commands = ["gamemode", "speed", "movespeed", "debug", "seed"];
+        const commands = ["gamemode", "speed", "movespeed", "debug", "seed", "locate", "tp", "structure"];
         if (!parts[0]) return commands.map((command) => `/${command}`);
         if (parts.length === 1 && !trailing) return commands.filter((command) => command.startsWith(parts[0].toLowerCase())).map((command) => `/${command}`);
         const args: Record<string, string[]> = {
             gamemode: ["creative", "spectator"],
-            debug: ["on", "off", "true", "false"]
+            debug: ["on", "off", "true", "false"],
+            locate: LOCATABLE_BIOMES,
+            structure: ["export", "load", "list", "delete"],
         };
         const prefix = trailing ? "" : parts.at(-1)?.toLowerCase() || "";
         return (args[parts[0].toLowerCase()] || []).filter((argument) => argument.startsWith(prefix));
@@ -793,10 +960,105 @@ class GameSession {
 
     private loadBlock(type: string): void {
         const image = new Image();
+        image.onload = () => this.biomeImages.clear();
+        image.onerror = () => {
+            const definition = blockRegistry.get(type);
+            const canvas = document.createElement("canvas");
+            canvas.width = 16;
+            canvas.height = 16;
+            const cctx = canvas.getContext("2d");
+            if (cctx) {
+                cctx.fillStyle = definition?.color ?? "#8b8b8b";
+                cctx.fillRect(0, 0, 16, 16);
+            }
+            this.blockImages.set(type, canvas);
+            this.biomeImages.clear();
+        };
         const block = blockRegistry.get(type);
         const texture = block?.texture || block?.path || type;
         image.src = texture.startsWith("/") ? texture : `/assets/block/${texture}.png`;
         this.blockImages.set(type, image);
+    }
+
+    /** Raw texture for a block id, or a biome-tinted variant for grass/leaves at column `x`. */
+    private blockImageFor(id: string, x: number): HTMLImageElement | HTMLCanvasElement | undefined {
+        if (id === Blocks.MY2DWORLD.GRASS_BLOCK.id) return this.biomeTexture("grass_block", biomeAt(x, this.world.seed));
+        if (id === Blocks.MY2DWORLD.OAK_LEAVES.id) return this.biomeTexture("leaves", biomeAt(x, this.world.seed));
+        if (id === Blocks.MY2DWORLD.SHORT_GRASS.id) return this.biomeTexture("short_grass", biomeAt(x, this.world.seed));
+        return this.blockImages.get(id);
+    }
+
+    /** Icon texture for inventory/hotbar slots (uses a neutral biome tint). */
+    private iconFor(type: string): HTMLImageElement | HTMLCanvasElement | undefined {
+        if (type === Blocks.MY2DWORLD.GRASS_BLOCK.id) return this.biomeTexture("grass_block", DEFAULT_BIOME);
+        if (type === Blocks.MY2DWORLD.OAK_LEAVES.id) return this.biomeTexture("leaves", DEFAULT_BIOME);
+        if (type === Blocks.MY2DWORLD.SHORT_GRASS.id) return this.biomeTexture("short_grass", DEFAULT_BIOME);
+        return this.blockImages.get(type);
+    }
+
+    /**
+     * Procedurally draws a chunky pixel-art grass cap on a dirt side. The ragged
+     * bottom edge runs in short column runs and brightness varies per low-res
+     * cell (not per pixel), so it reads like the rest of the sprite art.
+     */
+    private drawGrassCap(ctx: CanvasRenderingContext2D, size: number, biome: Biome): void {
+        const seed = biome.id.split("").reduce((a, ch) => (Math.imul(a, 31) + ch.charCodeAt(0)) >>> 0, 0);
+        const h01 = (s: number): number => { const v = Math.sin(s) * 43758.5453123; return v - Math.floor(v); };
+        const base = Math.max(4, Math.round(size * 0.42));
+        const cell = Math.max(2, Math.round(size / 8));
+        const run = Math.max(2, Math.round(size / 6));
+        for (let px = 0; px < size; px += run) {
+            // One discrete edge offset shared by a whole run of columns -> blocky fringe.
+            const edge = h01(seed ^ Math.imul(Math.floor(px / run), 0x5bd1e995));
+            const bottom = Math.max(1, Math.min(size, base - 1 + Math.round(edge * 4)));
+            for (let cx = px; cx < px + run && cx < size; cx += 1) {
+                for (let y = 0; y < bottom && y < size; y += 1) {
+                    const cellId = Math.floor(cx / cell) * 131 + Math.floor(y / cell) * 571;
+                    let f = 1 + (h01(seed ^ Math.imul(cellId, 0x45d9f3b)) - 0.5) * 0.28;
+                    const d = bottom - 1 - y;
+                    if (d === 0) f *= 0.86;
+                    ctx.globalAlpha = d < 3 ? 0.4 + d * 0.3 : 1;
+                    ctx.fillStyle = shadeColor(biome.grass, Math.max(0.5, Math.min(1.16, f)));
+                    ctx.fillRect(cx, y, 1, 1);
+                }
+            }
+        }
+    }
+
+    /**
+     * MC-style biome-tinted grass/leaves: base texture plus a tinted overlay.
+     * Grass = dirt side + grass overlay whose hue/brightness follows the biome
+     * colour; leaves = the leaf texture multiplied by the biome foliage colour.
+     */
+    private biomeTexture(kind: "grass_block" | "leaves" | "short_grass", biome: Biome): HTMLCanvasElement | undefined {
+        const key = `${kind}|${biome.id}`;
+        const cached = this.biomeImages.get(key);
+        if (cached) return cached;
+        const size = this.blockSize;
+        const canvas = document.createElement("canvas");
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return undefined;
+        ctx.imageSmoothingEnabled = false;
+        if (kind === "grass_block") {
+            const dirt = this.blockImages.get(Blocks.MY2DWORLD.DIRT.id);
+            if (!dirt || !("naturalWidth" in dirt) || !dirt.complete || !dirt.naturalWidth) return undefined;
+            ctx.drawImage(dirt, 0, 0, size, size);
+            this.drawGrassCap(ctx, size, biome);
+        } else {
+            const texture = kind === "leaves"
+                ? this.blockImages.get(Blocks.MY2DWORLD.OAK_LEAVES.id)
+                : this.blockImages.get(Blocks.MY2DWORLD.SHORT_GRASS.id);
+            if (!texture || !("naturalWidth" in texture) || !texture.complete || !texture.naturalWidth) return undefined;
+            ctx.drawImage(texture, 0, 0, size, size);
+            ctx.globalCompositeOperation = "multiply";
+            ctx.fillStyle = kind === "leaves" ? biome.foliage : biome.grass;
+            ctx.fillRect(0, 0, size, size);
+            ctx.globalCompositeOperation = "source-over";
+        }
+        this.biomeImages.set(key, canvas);
+        return canvas;
     }
 
     private loadGui(key: string, src: string): void {
@@ -811,17 +1073,29 @@ class GameSession {
         return image;
     }
 
-    private entityImage(dir: string, state: string, frame: number): HTMLImageElement {
+    private entityImage(dir: string, state: string, frame: number): HTMLImageElement | HTMLCanvasElement {
         const key = `${dir}/${state}/${frame}`;
         let image = this.mobImages.get(key);
         if (!image) {
-            image = this.loadImage(`/assets/entity/${key}.png`);
+            image = new Image();
+            image.onerror = () => {
+                const canvas = document.createElement("canvas");
+                canvas.width = 16;
+                canvas.height = 16;
+                const cctx = canvas.getContext("2d");
+                if (cctx) {
+                    cctx.fillStyle = "#4a4a52";
+                    cctx.fillRect(0, 0, 16, 16);
+                }
+                this.mobImages.set(key, canvas);
+            };
+            image.src = `/assets/entity/${key}.png`;
             this.mobImages.set(key, image);
         }
         return image;
     }
 
-    private mobFrame(mob: Mob): HTMLImageElement {
+    private mobFrame(mob: Mob): HTMLImageElement | HTMLCanvasElement {
         const config = MOB_KINDS[mob.kind];
         const state = mob.state === "attack" ? "attack" : mob.velocityX !== 0 ? "move" : "stand";
         const frames = state === "stand" ? 1 : state === "move" ? config.moveFrames : config.attackFrames;
@@ -1027,8 +1301,8 @@ class GameSession {
                 if (!id) continue;
                 const sx = Math.round((x - cameraX) * this.blockSize + width / 2);
                 const sy = Math.round((cameraY - y) * this.blockSize + height / 2);
-                const image = this.blockImages.get(id);
-                if (image?.complete && image.naturalWidth) ctx.drawImage(image, sx, sy, this.blockSize, this.blockSize); else {
+                const image = this.blockImageFor(id, x);
+                if (image) ctx.drawImage(image, sx, sy, this.blockSize, this.blockSize); else {
                     const definition = blockRegistry.get(id);
                     ctx.fillStyle = definition?.color ?? "#000000";
                     ctx.fillRect(sx, sy, this.blockSize, this.blockSize);
@@ -1048,13 +1322,60 @@ class GameSession {
             const [x, y] = this.placement;
             const sx = (x - cameraX) * this.blockSize + width / 2;
             const sy = (cameraY - y) * this.blockSize + height / 2;
-            const image = this.blockImages.get(this.hotbar[this.selected] ?? "");
-            if (image?.complete && image.naturalWidth) this.drawGhost(ctx, image, sx, sy, this.blockSize, this.blockSize, settings.placementAlpha, settings.placementBrightness); else {
+            const image = this.iconFor(this.hotbar[this.selected] ?? "");
+            if (image && (!("naturalWidth" in image) || (image.complete && image.naturalWidth))) this.drawGhost(ctx, image, sx, sy, this.blockSize, this.blockSize, settings.placementAlpha, settings.placementBrightness); else {
                 ctx.fillStyle = "rgba(255,255,255,.25)";
                 ctx.fillRect(sx, sy, this.blockSize, this.blockSize);
             }
             ctx.strokeStyle = "rgba(255,255,255,.95)";
             ctx.strokeRect(sx + 1, sy + 1, this.blockSize - 2, this.blockSize - 2);
+        }
+        if (this.structurePending) {
+            const {x0, y0} = this.structurePending;
+            const sWidth = this.structurePending.width;
+            const sHeight = this.structurePending.height;
+            const sx = (x0 - cameraX) * this.blockSize + width / 2;
+            const sy = (cameraY - (y0 + sHeight - 1)) * this.blockSize + height / 2;
+            const boxW = sWidth * this.blockSize;
+            const boxH = sHeight * this.blockSize;
+            ctx.fillStyle = "rgba(255,255,255,.10)";
+            ctx.fillRect(sx, sy, boxW, boxH);
+            ctx.strokeStyle = "rgba(255,255,255,.9)";
+            ctx.lineWidth = 2;
+            ctx.setLineDash([6, 4]);
+            ctx.strokeRect(sx + 1, sy + 1, boxW - 2, boxH - 2);
+            ctx.setLineDash([]);
+            if (this.structurePending.mode === "load" && this.structurePending.blocks) {
+                for (const [cell, id] of Object.entries(this.structurePending.blocks)) {
+                    const comma = cell.indexOf(",");
+                    const wx = this.structurePending.x0 + Number(cell.slice(0, comma));
+                    const wy = this.structurePending.y0 + Number(cell.slice(comma + 1));
+                    const existing = this.world.getBlockId(wx, wy);
+                    const px = (wx - cameraX) * this.blockSize + width / 2;
+                    const py = (cameraY - wy) * this.blockSize + height / 2;
+                    if (existing && existing !== id) {
+                        ctx.fillStyle = "rgba(255,40,40,.4)";
+                        ctx.fillRect(px, py, this.blockSize, this.blockSize);
+                    } else if (!existing) {
+                        ctx.fillStyle = "rgba(60,140,255,.4)";
+                        ctx.fillRect(px, py, this.blockSize, this.blockSize);
+                    }
+                    const image = this.blockImageFor(id, wx);
+                    if (image && ("naturalWidth" in image ? image.complete && image.naturalWidth : true)) {
+                        ctx.globalAlpha = 0.5;
+                        ctx.drawImage(image, px, py, this.blockSize, this.blockSize);
+                        ctx.globalAlpha = 1;
+                    } else {
+                        const definition = blockRegistry.get(id);
+                        if (definition) {
+                            ctx.globalAlpha = 0.5;
+                            ctx.fillStyle = definition.color;
+                            ctx.fillRect(px, py, this.blockSize, this.blockSize);
+                            ctx.globalAlpha = 1;
+                        }
+                    }
+                }
+            }
         }
         if (this.mode instanceof CreativeMode) this.mode.particles.render(ctx, cameraX, cameraY, this.blockSize);
         this.fx.render(ctx, cameraX, cameraY, this.blockSize);
@@ -1086,6 +1407,7 @@ class GameSession {
                         this.drawGhost(ctx, image, sx, sy, spriteWidth, spriteHeight, 1, 1 - hurtT * 0.75, mob.facing < 0, "#ff2d20");
                         return;
                     }
+                    if ("naturalWidth" in image && (!image.complete || !image.naturalWidth)) return;
                     ctx.save();
                     if (mob.facing < 0) {
                         ctx.translate(sx + spriteWidth, 0);
@@ -1109,8 +1431,8 @@ class GameSession {
         this.renderCursor();
     }
 
-    private drawGhost(ctx: CanvasRenderingContext2D, image: HTMLImageElement | undefined, x: number, y: number, w: number, h: number, alpha: number, brightness: number, flip = false, tint = "#000"): void {
-        if (!image?.complete || !image.naturalWidth) return;
+    private drawGhost(ctx: CanvasRenderingContext2D, image: HTMLImageElement | HTMLCanvasElement | undefined, x: number, y: number, w: number, h: number, alpha: number, brightness: number, flip = false, tint = "#000"): void {
+        if (!image || ("naturalWidth" in image && (!image.complete || !image.naturalWidth))) return;
         ctx.save();
         if (flip) {
             ctx.translate(x + w, y);
@@ -1192,8 +1514,8 @@ class GameSession {
             ctx.strokeStyle = index === this.selected ? "#f2d67b" : "#52666a";
             ctx.lineWidth = index === this.selected ? 3 : 1;
             ctx.strokeRect(x, height - 60, 42, 42);
-            const image = type ? this.blockImages.get(type) : undefined;
-            if (image?.complete && image.naturalWidth) ctx.drawImage(image, x + 7, height - 53, 28, 28);
+            const image = type ? this.iconFor(type) : undefined;
+            if (image && (!("naturalWidth" in image) || (image.complete && image.naturalWidth))) ctx.drawImage(image, x + 7, height - 53, 28, 28);
         });
         if (this.debug) {
             ctx.fillStyle = "#102229";
@@ -1248,6 +1570,10 @@ class GameSession {
             ctx.strokeRect(14, height - 40, width - 28, 30);
             ctx.fillStyle = "#fff";
             ctx.fillText(this.chatText, 24, height - 20);
+            if (Math.floor(performance.now() / 500) % 2 === 0) {
+                ctx.fillStyle = "#fff";
+                ctx.fillRect(24 + ctx.measureText(this.chatText).width + 3, height - 35, 2, 16);
+            }
         }
         if (this.noticeTimer > 0) {
             ctx.font = "600 16px Manrope";
@@ -1302,8 +1628,8 @@ class GameSession {
                 ctx.lineWidth = 1;
                 ctx.strokeRect(x, y, layout.slot, layout.slot);
                 if (type) {
-                    const image = this.blockImages.get(type);
-                    if (image?.complete && image.naturalWidth) {
+                    const image = this.iconFor(type);
+                    if (image && (!("naturalWidth" in image) || (image.complete && image.naturalWidth))) {
                         const inset = layout.slot * 0.2;
                         ctx.drawImage(image, x + inset, y + inset, layout.slot - inset * 2, layout.slot - inset * 2);
                     }
@@ -1313,8 +1639,8 @@ class GameSession {
         drawSlot(this.inventorySlots, layout.gridX, layout.gridY);
         drawSlot(this.hotbar, layout.hotbarX, layout.hotbarY);
         if (this.heldInventoryItem) {
-            const image = this.blockImages.get(this.heldInventoryItem);
-            if (image?.complete && image.naturalWidth) {
+            const image = this.iconFor(this.heldInventoryItem);
+            if (image && (!("naturalWidth" in image) || (image.complete && image.naturalWidth))) {
                 const x = this.lastMouseX - layout.slot / 2;
                 const y = this.lastMouseY - layout.slot / 2;
                 const inset = layout.slot * 0.15;
