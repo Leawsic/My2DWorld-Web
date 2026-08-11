@@ -483,6 +483,19 @@ class GameSession {
         return block && this.inReach(wx + 0.5, wy - 0.5) ? [wx, wy, block.id] : null;
     }
 
+    /** Block under the cursor regardless of reach; used for the white frame and top-center info. */
+    private pointedBlock(): [number, number, string] | null {
+        const [x, y] = this.worldAtMouse();
+        const wx = Math.floor(x);
+        const wy = Math.ceil(y);
+        const block = this.world.getBlock(wx, wy);
+        return block ? [wx, wy, block.id] : null;
+    }
+
+    private blockName(id: string): string {
+        return blockRegistry.get(id)?.label?.[language] ?? id;
+    }
+
     private getPlacementTarget(): [number, number] | null {
         if (this.modeName !== "creative") return null;
         const [x, y] = this.worldAtMouse();
@@ -500,6 +513,7 @@ class GameSession {
         }
         if (target[1] < 1) return null;
         if (this.world.isSolid(target[0], target[1])) return null;
+        if (this.mobs.occupies(target[0], target[1])) return null;
         if (!this.inReach(target[0] + 0.5, target[1] - 0.5)) return null;
         const left = this.player.x - 0.25;
         const right = this.player.x + 0.25;
@@ -1309,7 +1323,7 @@ class GameSession {
                 }
             }
         }
-        const target = this.hovered();
+        const target = this.pointedBlock();
         this.placement = this.getPlacementTarget();
         if (target) {
             const sx = (target[0] - cameraX) * this.blockSize + width / 2;
@@ -1491,6 +1505,24 @@ class GameSession {
         ctx.fillRect(18, 92, 184 * (this.health / 20), 6);
         ctx.strokeStyle = "#e7eee5";
         ctx.strokeRect(18, 92, 184, 6);
+        const pointed = this.pointedBlock();
+        if (pointed) {
+            const info = `${this.blockName(pointed[2])} (${pointed[0]}, ${pointed[1]})`;
+            ctx.font = "600 15px ui-monospace";
+            const infoWidth = ctx.measureText(info).width;
+            const infoHeight = 28;
+            const infoX = width / 2 - infoWidth / 2 - 12;
+            const infoY = 16;
+            ctx.fillStyle = "rgba(9,17,24,.78)";
+            ctx.fillRect(infoX, infoY, infoWidth + 24, infoHeight);
+            ctx.strokeStyle = "rgba(242,214,123,.65)";
+            ctx.lineWidth = 1;
+            ctx.strokeRect(infoX, infoY, infoWidth + 24, infoHeight);
+            ctx.fillStyle = "#f8f4e7";
+            ctx.textAlign = "center";
+            ctx.fillText(info, width / 2, infoY + 19);
+            ctx.textAlign = "left";
+        }
         const modeImage = this.guiImages.get(this.modeName === "creative" ? "mode_creative" : "mode_spectator");
         if (modeImage?.complete && modeImage.naturalWidth) {
             ctx.fillStyle = "rgba(9,17,24,.55)";

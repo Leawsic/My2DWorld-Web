@@ -240,4 +240,17 @@ export class MobManager {
         }
         return null;
     }
+
+    /** True when any alive mob's hitbox overlaps the block cell at (cellX, cellY). */
+    occupies(cellX: number, cellY: number): boolean {
+        for (const mob of this.mobs.values()) {
+            if (!mob.alive) continue;
+            const left = mob.x - mob.halfWidth;
+            const right = mob.x + mob.halfWidth;
+            const bottom = mob.y;
+            const top = mob.y + mob.height;
+            if (left < cellX + 1 && right > cellX && bottom < cellY && top > cellY - 1) return true;
+        }
+        return false;
+    }
 }
