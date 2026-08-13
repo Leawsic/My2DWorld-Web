@@ -930,7 +930,12 @@ class GameSession {
             const damagePlayer = this.modeName === "creative" ? () => undefined : (amount: number) => this.damagePlayer(amount);
             this.mobs.update(dt, this.world, this.player, damagePlayer, (kind, x, y) => {
                 this.fx.burst(x, y, characterParticleTexture(kind));
-                const name = kind === "zombie" ? text("僵尸", "Zombie") : kind === "husk" ? text("尸壳", "Husk") : text("溺尸", "Drowned");
+                const name = kind.startsWith("zombie") ? text("僵尸", "Zombie")
+                    : kind.startsWith("husk") ? text("尸壳", "Husk")
+                    : kind.startsWith("drowned") ? text("溺尸", "Drowned")
+                    : kind.startsWith("pig") ? text("猪", "Pig")
+                    : kind.startsWith("cow") ? text("牛", "Cow")
+                    : text("哞菇", "Mooshroom");
                 this.addChat(text("你击败了", "You slew") + ` ${name}`, "#ffd24a");
                 plugins.notifyMobKilled({...this.pluginContext(), kind, x, y});
                 storage.log("Mob killed", {world: this.meta.name, kind, x, y});

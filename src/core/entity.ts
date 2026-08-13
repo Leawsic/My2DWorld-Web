@@ -1,14 +1,24 @@
-import {CHUNK_SIZE, type World} from "./world";
+import {biomeAt, CHUNK_SIZE, type World} from "./world";
 import type {Player} from "./player";
 import {moveBody, type PhysicsBody} from "./physics";
 import {mulberry32} from "./noise";
 import {structuresNear} from "./structures";
 
-export type MobKind = "zombie" | "husk" | "drowned";
+export type MobKind =
+    | "zombie" | "zombie_baby" | "husk" | "husk_baby" | "drowned" | "drowned_baby"
+    | "pig_cold" | "pig_cold_baby" | "pig_temperate" | "pig_temperate_baby" | "pig_warm" | "pig_warm_baby"
+    | "cow_cold" | "cow_temperate" | "cow_warm" | "mooshroom_red" | "mooshroom_brown";
 export type MobState = "idle" | "walk" | "attack";
+export type MobShape = "humanoid" | "pig" | "cow";
 
 export interface MobKindConfig {
     readonly id: MobKind;
+    readonly asset: MobKind;
+    readonly shape: MobShape;
+    readonly hostile: boolean;
+    readonly scale: number;
+    readonly halfWidth: number;
+    readonly height: number;
     readonly speed: number;
     readonly jumpVelocity: number;
     readonly hp: number;
@@ -20,12 +30,32 @@ export interface MobKindConfig {
 }
 
 export const MOB_KINDS: Record<MobKind, MobKindConfig> = {
-    zombie: {id: "zombie", speed: 1.6, jumpVelocity: 8, hp: 20, damage: 3, attackCooldown: 0.8, hitRange: 1.2, visual: {width: 1.9, height: 1.9}},
-    husk: {id: "husk", speed: 1.6, jumpVelocity: 8, hp: 20, damage: 3, attackCooldown: 0.8, hitRange: 1.2, visual: {width: 1.9, height: 1.9}},
-    drowned: {id: "drowned", speed: 1.6, jumpVelocity: 8, hp: 20, damage: 3, attackCooldown: 0.8, hitRange: 1.2, visual: {width: 1.9, height: 1.9}},
+    zombie: {id: "zombie", asset: "zombie", shape: "humanoid", hostile: true, scale: 1, halfWidth: 0.25, height: 1.9, speed: 1.6, jumpVelocity: 8, hp: 20, damage: 3, attackCooldown: 0.8, hitRange: 1.2, visual: {width: 1.9, height: 1.9}},
+    zombie_baby: {id: "zombie_baby", asset: "zombie_baby", shape: "humanoid", hostile: true, scale: 0.62, halfWidth: 0.16, height: 1.18, speed: 2.1, jumpVelocity: 7, hp: 10, damage: 2, attackCooldown: 0.65, hitRange: 0.9, visual: {width: 1.18, height: 1.18}},
+    husk: {id: "husk", asset: "husk", shape: "humanoid", hostile: true, scale: 1, halfWidth: 0.25, height: 1.9, speed: 1.6, jumpVelocity: 8, hp: 20, damage: 3, attackCooldown: 0.8, hitRange: 1.2, visual: {width: 1.9, height: 1.9}},
+    husk_baby: {id: "husk_baby", asset: "husk_baby", shape: "humanoid", hostile: true, scale: 0.62, halfWidth: 0.16, height: 1.18, speed: 2.1, jumpVelocity: 7, hp: 10, damage: 2, attackCooldown: 0.65, hitRange: 0.9, visual: {width: 1.18, height: 1.18}},
+    drowned: {id: "drowned", asset: "drowned", shape: "humanoid", hostile: true, scale: 1, halfWidth: 0.25, height: 1.9, speed: 1.6, jumpVelocity: 8, hp: 20, damage: 3, attackCooldown: 0.8, hitRange: 1.2, visual: {width: 1.9, height: 1.9}},
+    drowned_baby: {id: "drowned_baby", asset: "drowned_baby", shape: "humanoid", hostile: true, scale: 0.62, halfWidth: 0.16, height: 1.18, speed: 2.1, jumpVelocity: 7, hp: 10, damage: 2, attackCooldown: 0.65, hitRange: 0.9, visual: {width: 1.18, height: 1.18}},
+    pig_cold: {id: "pig_cold", asset: "pig_cold", shape: "pig", hostile: false, scale: 1, halfWidth: 0.55, height: 0.9, speed: 0.75, jumpVelocity: 5, hp: 10, damage: 0, attackCooldown: 0, hitRange: 0, visual: {width: 1.8, height: 0.9}},
+    pig_cold_baby: {id: "pig_cold_baby", asset: "pig_cold_baby", shape: "pig", hostile: false, scale: 0.62, halfWidth: 0.34, height: 0.56, speed: 0.85, jumpVelocity: 4, hp: 6, damage: 0, attackCooldown: 0, hitRange: 0, visual: {width: 1.1, height: 0.56}},
+    pig_temperate: {id: "pig_temperate", asset: "pig_temperate", shape: "pig", hostile: false, scale: 1, halfWidth: 0.55, height: 0.9, speed: 0.75, jumpVelocity: 5, hp: 10, damage: 0, attackCooldown: 0, hitRange: 0, visual: {width: 1.8, height: 0.9}},
+    pig_temperate_baby: {id: "pig_temperate_baby", asset: "pig_temperate_baby", shape: "pig", hostile: false, scale: 0.62, halfWidth: 0.34, height: 0.56, speed: 0.85, jumpVelocity: 4, hp: 6, damage: 0, attackCooldown: 0, hitRange: 0, visual: {width: 1.1, height: 0.56}},
+    pig_warm: {id: "pig_warm", asset: "pig_warm", shape: "pig", hostile: false, scale: 1, halfWidth: 0.55, height: 0.9, speed: 0.75, jumpVelocity: 5, hp: 10, damage: 0, attackCooldown: 0, hitRange: 0, visual: {width: 1.8, height: 0.9}},
+    pig_warm_baby: {id: "pig_warm_baby", asset: "pig_warm_baby", shape: "pig", hostile: false, scale: 0.62, halfWidth: 0.34, height: 0.56, speed: 0.85, jumpVelocity: 4, hp: 6, damage: 0, attackCooldown: 0, hitRange: 0, visual: {width: 1.1, height: 0.56}},
+    cow_cold: {id: "cow_cold", asset: "cow_cold", shape: "cow", hostile: false, scale: 1, halfWidth: 0.8, height: 1.2, speed: 0.65, jumpVelocity: 5, hp: 16, damage: 0, attackCooldown: 0, hitRange: 0, visual: {width: 2.2, height: 1.2}},
+    cow_temperate: {id: "cow_temperate", asset: "cow_temperate", shape: "cow", hostile: false, scale: 1, halfWidth: 0.8, height: 1.2, speed: 0.65, jumpVelocity: 5, hp: 16, damage: 0, attackCooldown: 0, hitRange: 0, visual: {width: 2.2, height: 1.2}},
+    cow_warm: {id: "cow_warm", asset: "cow_warm", shape: "cow", hostile: false, scale: 1, halfWidth: 0.8, height: 1.2, speed: 0.65, jumpVelocity: 5, hp: 16, damage: 0, attackCooldown: 0, hitRange: 0, visual: {width: 2.2, height: 1.2}},
+    mooshroom_red: {id: "mooshroom_red", asset: "mooshroom_red", shape: "cow", hostile: false, scale: 1, halfWidth: 0.8, height: 1.2, speed: 0.65, jumpVelocity: 5, hp: 16, damage: 0, attackCooldown: 0, hitRange: 0, visual: {width: 2.2, height: 1.2}},
+    mooshroom_brown: {id: "mooshroom_brown", asset: "mooshroom_brown", shape: "cow", hostile: false, scale: 1, halfWidth: 0.8, height: 1.2, speed: 0.65, jumpVelocity: 5, hp: 16, damage: 0, attackCooldown: 0, hitRange: 0, visual: {width: 2.2, height: 1.2}},
 };
 
-const MOB_KINDS_ORDER: MobKind[] = ["zombie", "husk", "drowned"];
+const BIOME_SPAWN_POOLS: Record<string, readonly MobKind[]> = {
+    plains: ["zombie", "zombie_baby", "pig_temperate", "pig_temperate_baby", "cow_temperate"],
+    forest: ["zombie", "drowned", "drowned_baby", "pig_temperate", "pig_temperate_baby", "cow_temperate"],
+    desert: ["husk", "husk_baby", "pig_warm", "pig_warm_baby", "cow_warm"],
+    snowy: ["zombie", "zombie_baby", "pig_cold", "pig_cold_baby", "cow_cold"],
+    mountains: ["zombie", "drowned", "drowned_baby", "cow_cold", "mooshroom_red", "mooshroom_brown"],
+};
 
 /** Chunks within this distance (blocks) of the player get their mobs simulated. */
 export const MOB_UPDATE_RADIUS = 48;
@@ -42,8 +72,9 @@ const MOB_KNOCKBACK = 5;
 function chunkSpawn(chunkX: number, seed: number): {kind: MobKind; x: number} | null {
     const rng = mulberry32((Math.imul(seed, 0x9e3779b9) ^ Math.imul(chunkX, 0x85ebca6b)) >>> 0);
     if (rng() > MOB_SPAWN_CHANCE) return null;
-    const kind = MOB_KINDS_ORDER[Math.floor(rng() * MOB_KINDS_ORDER.length)];
     const x = chunkX * CHUNK_SIZE + 1 + rng() * (CHUNK_SIZE - 2);
+    const pool = BIOME_SPAWN_POOLS[biomeAt(Math.floor(x), seed).id] || BIOME_SPAWN_POOLS.plains;
+    const kind = pool[Math.floor(rng() * pool.length)];
     return {kind, x};
 }
 
@@ -57,8 +88,8 @@ export class Mob implements PhysicsBody {
     velocityX = 0;
     velocityY = 0;
     onGround = false;
-    readonly halfWidth = 0.25;
-    readonly height = 1.9;
+    readonly halfWidth: number;
+    readonly height: number;
     facing = 1;
     state: MobState = "idle";
     stateTime = 0;
@@ -73,7 +104,10 @@ export class Mob implements PhysicsBody {
     constructor(readonly kind: MobKind, x: number, y: number) {
         this.x = x;
         this.y = y;
-        this.hp = MOB_KINDS[kind].hp;
+        const config = MOB_KINDS[kind];
+        this.hp = config.hp;
+        this.halfWidth = config.halfWidth;
+        this.height = config.height;
     }
 
     update(dt: number, world: World, player: Player, onPlayerDamage: (amount: number) => void): void {
@@ -88,7 +122,9 @@ export class Mob implements PhysicsBody {
         const dy = player.y + player.height / 2 - (this.y + this.height / 2);
         const sameLevel = Math.abs(dy) < SAME_LEVEL_TOLERANCE;
 
-        const targetState: MobState = distX <= config.hitRange && sameLevel ? "attack" : distX <= AGGRO_RANGE && sameLevel ? "walk" : "idle";
+        const targetState: MobState = config.hostile
+            ? distX <= config.hitRange && sameLevel ? "attack" : distX <= AGGRO_RANGE && sameLevel ? "walk" : "idle"
+            : Math.sin((this.animationTime + this.x * 0.13) * 0.8) > 0.45 ? "walk" : "idle";
         if (targetState !== this.state) {
             this.state = targetState;
             this.stateTime = 0;
@@ -104,7 +140,7 @@ export class Mob implements PhysicsBody {
                 }
                 break;
             case "walk":
-                this.facing = dx >= 0 ? 1 : -1;
+                this.facing = config.hostile ? dx >= 0 ? 1 : -1 : Math.sin((this.animationTime + this.x) * 0.4) >= 0 ? 1 : -1;
                 this.velocityX = this.facing * config.speed;
                 break;
             default:
