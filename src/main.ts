@@ -5,7 +5,7 @@ import {storage, type PluginPackage} from "./core/storage";
 import {biomeAt, DEFAULT_BIOME, hashSeed, spawnX, World, WORLD_HEIGHT, type Biome} from "./core/world";
 import {clampSpectateOffset} from "./core/spectate";
 import {ParticleSystem} from "./core/particles";
-import {renderCharacter} from "./core/skeleton";
+import {characterParticleTexture, renderCharacter} from "./core/skeleton";
 import {
     DEFAULT_SETTINGS,
     type GameModeName,
@@ -674,7 +674,12 @@ class GameSession {
                         if (id) blocks[`${sx},${sy}`] = id;
                     }
                 }
-                const ok = await storage.saveStructure({id: pending.name, width: pending.width, height: pending.height, blocks}, username);
+                const ok = await storage.saveStructure({
+                    id: pending.name,
+                    width: pending.width,
+                    height: pending.height,
+                    blocks
+                }, username);
                 this.structurePending = null;
                 this.addChat(ok ? `Structure "${pending.name}" exported (${Object.keys(blocks).length} blocks)` : "Failed to save structure");
                 return;
@@ -730,7 +735,15 @@ class GameSession {
             this.world.updateView(anchor);
             const x0 = anchor - Math.floor(structure.width / 2);
             const y0 = this.world.getSurfaceHeight(anchor);
-            this.structurePending = {mode: "load", name, x0, y0, width: structure.width, height: structure.height, blocks: structure.blocks};
+            this.structurePending = {
+                mode: "load",
+                name,
+                x0,
+                y0,
+                width: structure.width,
+                height: structure.height,
+                blocks: structure.blocks
+            };
             this.addChat(`Load position set for "${name}" (${structure.width}x${structure.height}). Run /structure load confirm to place`);
         } else if (sub === "list") {
             const list = await storage.listStructures(username);
@@ -916,7 +929,7 @@ class GameSession {
             this.fx.update(dt);
             const damagePlayer = this.modeName === "creative" ? () => undefined : (amount: number) => this.damagePlayer(amount);
             this.mobs.update(dt, this.world, this.player, damagePlayer, (kind, x, y) => {
-                this.fx.burst(x, y);
+                this.fx.burst(x, y, characterParticleTexture(kind));
                 const name = kind === "zombie" ? text("僵尸", "Zombie") : kind === "husk" ? text("尸壳", "Husk") : text("溺尸", "Drowned");
                 this.addChat(text("你击败了", "You slew") + ` ${name}`, "#ffd24a");
                 plugins.notifyMobKilled({...this.pluginContext(), kind, x, y});
@@ -1015,7 +1028,10 @@ class GameSession {
      */
     private drawGrassCap(ctx: CanvasRenderingContext2D, size: number, biome: Biome): void {
         const seed = biome.id.split("").reduce((a, ch) => (Math.imul(a, 31) + ch.charCodeAt(0)) >>> 0, 0);
-        const h01 = (s: number): number => { const v = Math.sin(s) * 43758.5453123; return v - Math.floor(v); };
+        const h01 = (s: number): number => {
+            const v = Math.sin(s) * 43758.5453123;
+            return v - Math.floor(v);
+        };
         const base = Math.max(4, Math.round(size * 0.42));
         const cell = Math.max(2, Math.round(size / 8));
         const run = Math.max(2, Math.round(size / 6));
@@ -1373,7 +1389,7 @@ class GameSession {
             dt: 0,
             textures: this.blockImages
         };
-        const drawables: Array<{depth: number; draw: () => void}> = [];
+        const drawables: Array<{ depth: number; draw: () => void }> = [];
         for (const mob of this.mobs.mobsNear(this.player, MOB_RENDER_RADIUS)) {
             drawables.push({
                 depth: mob.y + mob.height / 2,
@@ -1395,7 +1411,10 @@ class GameSession {
                 }
             });
         }
-        drawables.push({depth: this.player.y + this.player.height / 2, draw: () => this.mode.renderPlayer(ctx, playerContext, cameraX, cameraY)});
+        drawables.push({
+            depth: this.player.y + this.player.height / 2,
+            draw: () => this.mode.renderPlayer(ctx, playerContext, cameraX, cameraY)
+        });
         drawables.sort((a, b) => b.depth - a.depth);
         drawables.forEach((entry) => entry.draw());
         if (this.spectate) {
@@ -1526,7 +1545,6 @@ class GameSession {
             ctx.fillRect(18, 124, 370, 304);
             ctx.fillStyle = "#d8e4df";
             ctx.font = "12px ui-monospace";
-            const target = this.hovered();
             const lines = [
                 `${t(language, "debug_fps")} ${Math.round(1000 / 16)}`,
                 `${t(language, "debug_mode")} ${t(language, this.modeName === "creative" ? "mode_creative" : "mode_spectator")}`,
@@ -1537,7 +1555,6 @@ class GameSession {
                 `${t(language, "debug_velocity")} ${this.player.velocityX.toFixed(2)}, ${this.player.velocityY.toFixed(2)}`,
                 `${t(language, "debug_camera")} ${(this.player.x + this.cameraOffsetX).toFixed(1)}, ${(this.player.y + this.cameraOffsetY).toFixed(1)}`,
                 `${t(language, "debug_mouse")} ${this.lastMouseX}, ${this.lastMouseY}`,
-                `${t(language, "debug_block")} ${target ? `${target[0]}, ${target[1]} ${t(language, target[2])}` : t(language, "debug_air")}`,
                 `${t(language, "debug_zoom")} ${Math.round(this.blockSize / 32 * 100)}%`,
                 `${t(language, "debug_chunks")} ${this.world.chunks.size}`,
                 `${t(language, "debug_mobs")} ${this.mobs.activeCount}/${this.mobs.total}`,

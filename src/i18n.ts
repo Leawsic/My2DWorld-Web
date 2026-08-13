@@ -66,8 +66,6 @@ const entries: Record<string, Translation> = {
     debug_velocity: {zh: "速度", en: "VELOCITY"},
     debug_camera: {zh: "相机", en: "CAMERA"},
     debug_mouse: {zh: "鼠标", en: "MOUSE"},
-    debug_block: {zh: "方块", en: "BLOCK"},
-    debug_air: {zh: "空气", en: "air"},
     debug_zoom: {zh: "缩放", en: "ZOOM"},
     debug_chunks: {zh: "区块", en: "CHUNKS"},
     debug_mobs: {zh: "怪物", en: "MOBS"},

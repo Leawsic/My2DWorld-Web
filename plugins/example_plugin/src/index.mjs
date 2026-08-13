@@ -22,7 +22,11 @@ export default {
         api.onGameStart((context) => {
             console.info(`[ExamplePlugin] ${context.meta.name} started in ${api.namespace}`);
             context.messages.chat("Example plugin online", {color: "#8be9fd"});
-            context.messages.title("My2DWorld", {color: "#f2ca52", subtitle: "Example plugin loaded", subtitleColor: "#d8edda"});
+            context.messages.title("My2DWorld", {
+                color: "#f2ca52",
+                subtitle: "Example plugin loaded",
+                subtitleColor: "#d8edda"
+            });
         });
         api.onGameStop((context) => console.info(`[ExamplePlugin] ${context.meta.name} stopped: ${context.reason}`));
         api.onBlockPlaced((context) => {

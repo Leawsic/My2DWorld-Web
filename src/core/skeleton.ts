@@ -31,6 +31,7 @@ const PART_SIZES: Record<Part, readonly [number, number]> = {
 };
 
 const images = new Map<string, HTMLImageElement>();
+const particleTextures = new Map<CharacterKind, HTMLCanvasElement>();
 
 function imageFor(kind: CharacterKind, part: Part): HTMLImageElement {
     const key = `${kind}/${part}`;
@@ -41,6 +42,37 @@ function imageFor(kind: CharacterKind, part: Part): HTMLImageElement {
         images.set(key, image);
     }
     return image;
+}
+
+/** Combines the supplied skeleton PNGs into a source texture for death particles. */
+export function characterParticleTexture(kind: CharacterKind): HTMLCanvasElement {
+    const cached = particleTextures.get(kind);
+    if (cached) return cached;
+    const canvas = document.createElement("canvas");
+    canvas.width = 32;
+    canvas.height = 64;
+    const ctx = canvas.getContext("2d")!;
+    ctx.imageSmoothingEnabled = false;
+    const draw = () => {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const part = (name: Part, x: number, y: number) => {
+            const image = imageFor(kind, name);
+            if (image.complete && image.naturalWidth) ctx.drawImage(image, x, y);
+        };
+        part("head", 8, 0);
+        part("torso", 12, 16);
+        part("armL", 4, 20);
+        part("armR", 20, 20);
+        part("legL", 8, 40);
+        part("legR", 16, 40);
+    };
+    for (const name of Object.keys(PART_SIZES) as Part[]) {
+        const image = imageFor(kind, name);
+        if (!image.complete) image.addEventListener("load", draw, {once: true});
+    }
+    draw();
+    particleTextures.set(kind, canvas);
+    return canvas;
 }
 
 function triangleWave(time: number): number {
