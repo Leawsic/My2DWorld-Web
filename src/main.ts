@@ -1,10 +1,11 @@
 import "./style.css";
 import {type KeyState, Player} from "./core/player";
-import {MobManager, MOB_KINDS, MOB_RENDER_RADIUS, type Mob} from "./core/entity";
+import {MobManager, MOB_RENDER_RADIUS} from "./core/entity";
 import {storage, type PluginPackage} from "./core/storage";
 import {biomeAt, DEFAULT_BIOME, hashSeed, spawnX, World, WORLD_HEIGHT, type Biome} from "./core/world";
 import {clampSpectateOffset} from "./core/spectate";
 import {ParticleSystem} from "./core/particles";
+import {renderCharacter} from "./core/skeleton";
 import {
     DEFAULT_SETTINGS,
     type GameModeName,
@@ -218,7 +219,6 @@ class GameSession {
     private readonly blockImages = new Map<string, HTMLImageElement | HTMLCanvasElement>();
     private readonly biomeImages = new Map<string, HTMLCanvasElement>();
     private readonly guiImages = new Map<string, HTMLImageElement>();
-    private readonly mobImages = new Map<string, HTMLImageElement | HTMLCanvasElement>();
     private readonly mobs: MobManager;
     private readonly fx = new ParticleSystem();
     private readonly inventoryBackground = this.loadImage("/assets/gui/creative_inventory/tab_inventory.png");
@@ -259,7 +259,6 @@ class GameSession {
         this.loadGui("mouse", "/assets/gui/mouse/mouse.png");
         this.loadGui("mouse_left_broke", "/assets/gui/mouse/mouse_left_broke.png");
         this.loadGui("mouse_right_place_and_move", "/assets/gui/mouse/mouse_right_place_and_move.png");
-        this.loadGui("player_stand", "/assets/player/steve/stand/1.png");
         this.loadGui("move_fly", "/assets/gui/movemode/creative_fly.png");
         this.loadGui("move_walk", "/assets/gui/movemode/creative_walk.png");
         this.canvas.className = "game-canvas";
@@ -917,8 +916,7 @@ class GameSession {
             this.fx.update(dt);
             const damagePlayer = this.modeName === "creative" ? () => undefined : (amount: number) => this.damagePlayer(amount);
             this.mobs.update(dt, this.world, this.player, damagePlayer, (kind, x, y) => {
-                const deathImage = this.entityImage(MOB_KINDS[kind].dir, "stand", 1);
-                this.fx.burst(x, y, deathImage);
+                this.fx.burst(x, y);
                 const name = kind === "zombie" ? text("僵尸", "Zombie") : kind === "husk" ? text("尸壳", "Husk") : text("溺尸", "Drowned");
                 this.addChat(text("你击败了", "You slew") + ` ${name}`, "#ffd24a");
                 plugins.notifyMobKilled({...this.pluginContext(), kind, x, y});
@@ -1085,36 +1083,6 @@ class GameSession {
         const image = new Image();
         image.src = src;
         return image;
-    }
-
-    private entityImage(dir: string, state: string, frame: number): HTMLImageElement | HTMLCanvasElement {
-        const key = `${dir}/${state}/${frame}`;
-        let image = this.mobImages.get(key);
-        if (!image) {
-            image = new Image();
-            image.onerror = () => {
-                const canvas = document.createElement("canvas");
-                canvas.width = 16;
-                canvas.height = 16;
-                const cctx = canvas.getContext("2d");
-                if (cctx) {
-                    cctx.fillStyle = "#4a4a52";
-                    cctx.fillRect(0, 0, 16, 16);
-                }
-                this.mobImages.set(key, canvas);
-            };
-            image.src = `/assets/entity/${key}.png`;
-            this.mobImages.set(key, image);
-        }
-        return image;
-    }
-
-    private mobFrame(mob: Mob): HTMLImageElement | HTMLCanvasElement {
-        const config = MOB_KINDS[mob.kind];
-        const state = mob.state === "attack" ? "attack" : mob.velocityX !== 0 ? "move" : "stand";
-        const frames = state === "stand" ? 1 : state === "move" ? config.moveFrames : config.attackFrames;
-        const frame = state === "stand" ? 1 : (Math.floor(mob.animationTime * (state === "attack" ? 10 : 8)) % frames) + 1;
-        return this.entityImage(config.dir, state, frame);
     }
 
     private pluginContext(): PluginGameContext {
@@ -1407,28 +1375,23 @@ class GameSession {
         };
         const drawables: Array<{depth: number; draw: () => void}> = [];
         for (const mob of this.mobs.mobsNear(this.player, MOB_RENDER_RADIUS)) {
-            const config = MOB_KINDS[mob.kind];
-            const spriteWidth = this.blockSize * config.visual.width;
-            const spriteHeight = this.blockSize * config.visual.height;
-            const sx = (mob.x - cameraX) * this.blockSize + width / 2 - spriteWidth / 2;
-            const sy = (cameraY - mob.y) * this.blockSize + height / 2 - spriteHeight;
-            const image = this.mobFrame(mob);
             drawables.push({
                 depth: mob.y + mob.height / 2,
                 draw: () => {
                     const hurtT = mob.hurtTimer > 0 ? Math.min(1, mob.hurtTimer / 0.35) : 0;
-                    if (hurtT > 0) {
-                        this.drawGhost(ctx, image, sx, sy, spriteWidth, spriteHeight, 1, 1 - hurtT * 0.75, mob.facing < 0, "#ff2d20");
-                        return;
-                    }
-                    if ("naturalWidth" in image && (!image.complete || !image.naturalWidth)) return;
-                    ctx.save();
-                    if (mob.facing < 0) {
-                        ctx.translate(sx + spriteWidth, 0);
-                        ctx.scale(-1, 1);
-                        ctx.drawImage(image, 0, sy, spriteWidth, spriteHeight);
-                    } else ctx.drawImage(image, sx, sy, spriteWidth, spriteHeight);
-                    ctx.restore();
+                    renderCharacter(ctx, {
+                        kind: mob.kind,
+                        pose: mob.state === "attack" ? "attack" : mob.velocityX !== 0 ? "walk" : "idle",
+                        time: mob.animationTime,
+                        x: mob.x,
+                        y: mob.y,
+                        facing: mob.facing,
+                        blockSize: this.blockSize,
+                        cameraX,
+                        cameraY,
+                        tint: hurtT > 0 ? "#ff2d20" : undefined,
+                        tintAmount: hurtT,
+                    });
                 }
             });
         }
@@ -1436,10 +1399,19 @@ class GameSession {
         drawables.sort((a, b) => b.depth - a.depth);
         drawables.forEach((entry) => entry.draw());
         if (this.spectate) {
-            const playerImage = this.guiImages.get("player_stand");
-            const gw = this.blockSize * 1.9;
-            const gh = this.blockSize * 1.9;
-            this.drawGhost(ctx, playerImage, width / 2 - gw / 2, height / 2 - gh, gw, gh, settings.spectateAlpha, settings.spectateBrightness, this.player.facing < 0);
+            renderCharacter(ctx, {
+                kind: "player",
+                pose: this.player.velocityX ? "walk" : "idle",
+                time: this.player.animationT,
+                x: cameraX,
+                y: cameraY,
+                facing: this.player.facing,
+                blockSize: this.blockSize,
+                cameraX,
+                cameraY,
+                alpha: settings.spectateAlpha,
+                brightness: settings.spectateBrightness,
+            });
         }
         this.renderHud(ctx, width, height);
         this.renderCursor();

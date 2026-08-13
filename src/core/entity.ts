@@ -9,10 +9,6 @@ export type MobState = "idle" | "walk" | "attack";
 
 export interface MobKindConfig {
     readonly id: MobKind;
-    /** Asset folder under /assets/entity/. */
-    readonly dir: string;
-    readonly moveFrames: number;
-    readonly attackFrames: number;
     readonly speed: number;
     readonly jumpVelocity: number;
     readonly hp: number;
@@ -24,9 +20,9 @@ export interface MobKindConfig {
 }
 
 export const MOB_KINDS: Record<MobKind, MobKindConfig> = {
-    zombie: {id: "zombie", dir: "zombie", moveFrames: 4, attackFrames: 9, speed: 1.6, jumpVelocity: 8, hp: 20, damage: 3, attackCooldown: 0.8, hitRange: 1.2, visual: {width: 1.9, height: 1.9}},
-    husk: {id: "husk", dir: "husk", moveFrames: 4, attackFrames: 9, speed: 1.6, jumpVelocity: 8, hp: 20, damage: 3, attackCooldown: 0.8, hitRange: 1.2, visual: {width: 1.9, height: 1.9}},
-    drowned: {id: "drowned", dir: "drowned", moveFrames: 8, attackFrames: 9, speed: 1.6, jumpVelocity: 8, hp: 20, damage: 3, attackCooldown: 0.8, hitRange: 1.2, visual: {width: 1.9, height: 1.9}},
+    zombie: {id: "zombie", speed: 1.6, jumpVelocity: 8, hp: 20, damage: 3, attackCooldown: 0.8, hitRange: 1.2, visual: {width: 1.9, height: 1.9}},
+    husk: {id: "husk", speed: 1.6, jumpVelocity: 8, hp: 20, damage: 3, attackCooldown: 0.8, hitRange: 1.2, visual: {width: 1.9, height: 1.9}},
+    drowned: {id: "drowned", speed: 1.6, jumpVelocity: 8, hp: 20, damage: 3, attackCooldown: 0.8, hitRange: 1.2, visual: {width: 1.9, height: 1.9}},
 };
 
 const MOB_KINDS_ORDER: MobKind[] = ["zombie", "husk", "drowned"];

@@ -82,8 +82,8 @@ export class Player implements PhysicsBody {
         this.health = 20;
     }
 
-    animationFrame(): number {
-        return this.velocityX ? Math.floor(this.animationTime * 10) % 4 : 0;
+    get animationT(): number {
+        return this.animationTime;
     }
 
     setPosition(x: number, y: number): void {
