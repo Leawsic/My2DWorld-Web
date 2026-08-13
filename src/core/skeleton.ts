@@ -19,63 +19,74 @@ export interface CharacterRenderOptions {
     tintAmount?: number;
 }
 
-interface Palette {
-    skin: string;
-    torso: string;
-    legs: string;
-}
+type Part = "head" | "torso" | "armL" | "armR" | "legL" | "legR";
 
-const PALETTES: Record<CharacterKind, Palette> = {
-    player: {skin: "#d9a06b", torso: "#52a8d9", legs: "#4b6cae"},
-    zombie: {skin: "#5d9b55", torso: "#4b7898", legs: "#4f5794"},
-    husk: {skin: "#b59a63", torso: "#777f61", legs: "#4e5c54"},
-    drowned: {skin: "#4e9294", torso: "#506d75", legs: "#3c5963"},
+const PART_SIZES: Record<Part, readonly [number, number]> = {
+    head: [16, 16],
+    torso: [8, 24],
+    armL: [8, 24],
+    armR: [8, 24],
+    legL: [8, 24],
+    legR: [8, 24],
 };
 
-function blend(a: string, b: string, amount: number): string {
-    const n = Math.max(0, Math.min(1, amount));
-    const av = Number.parseInt(a.slice(1), 16);
-    const bv = Number.parseInt(b.slice(1), 16);
-    if (!Number.isFinite(av) || !Number.isFinite(bv)) return a;
-    const r = Math.round(((av >> 16) & 255) * (1 - n) + ((bv >> 16) & 255) * n);
-    const g = Math.round(((av >> 8) & 255) * (1 - n) + ((bv >> 8) & 255) * n);
-    const blue = Math.round((av & 255) * (1 - n) + (bv & 255) * n);
-    return `#${((r << 16) | (g << 8) | blue).toString(16).padStart(6, "0")}`;
+const images = new Map<string, HTMLImageElement>();
+
+function imageFor(kind: CharacterKind, part: Part): HTMLImageElement {
+    const key = `${kind}/${part}`;
+    let image = images.get(key);
+    if (!image) {
+        image = new Image();
+        image.src = `/assets/skeleton/${kind}/${part}.png`;
+        images.set(key, image);
+    }
+    return image;
 }
 
-function shade(color: string, brightness: number, tint?: string, tintAmount = 0): string {
-    const value = Number.parseInt(color.slice(1), 16);
-    if (!Number.isFinite(value)) return color;
-    const r = Math.round(Math.min(255, ((value >> 16) & 255) * brightness));
-    const g = Math.round(Math.min(255, ((value >> 8) & 255) * brightness));
-    const b = Math.round(Math.min(255, (value & 255) * brightness));
-    const lit = `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, "0")}`;
-    return tint ? blend(lit, tint, tintAmount) : lit;
+function triangleWave(time: number): number {
+    const phase = ((time % 1) + 1) % 1;
+    return phase <= 0.5 ? phase * 2 : 2 - phase * 2;
 }
 
-function drawPart(ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, angle: number, color: string): void {
+function drawPart(ctx: CanvasRenderingContext2D, image: HTMLImageElement, x: number, y: number, part: Part, pivotY: number, angle: number, brightness: number, tint?: string, tintAmount = 0): void {
+    if (!image.complete || !image.naturalWidth) return;
+    const [width, height] = PART_SIZES[part];
     ctx.save();
     ctx.translate(x, y);
+    ctx.scale(1, -1); // Part PNGs use the .myanim local y-down coordinate system.
     ctx.rotate(angle);
-    ctx.fillStyle = color;
-    ctx.fillRect(-width / 2, -height, width, height);
-    ctx.strokeStyle = "rgba(255,255,255,.28)";
-    ctx.lineWidth = 1 / 32;
-    ctx.strokeRect(-width / 2, -height, width, height);
+    ctx.drawImage(image, -width / 2, -pivotY * height, width, height);
+    if (brightness < 1) {
+        ctx.globalCompositeOperation = "source-atop";
+        ctx.globalAlpha = 1 - Math.max(0, brightness);
+        ctx.fillStyle = "#000";
+        ctx.fillRect(-width / 2, -pivotY * height, width, height);
+    }
+    if (tint && tintAmount > 0) {
+        ctx.globalCompositeOperation = "source-atop";
+        ctx.globalAlpha = Math.max(0, Math.min(1, tintAmount));
+        ctx.fillStyle = tint;
+        ctx.fillRect(-width / 2, -pivotY * height, width, height);
+    }
     ctx.restore();
 }
 
-/** Draws a simple hierarchical humanoid in game-world coordinates (feet at x/y). */
+/** Draws source .myanim parts in game-world coordinates (feet at x/y). */
 export function renderCharacter(ctx: CanvasRenderingContext2D, opt: CharacterRenderOptions): void {
-    const palette = PALETTES[opt.kind];
     const brightness = Math.max(0, opt.brightness ?? 1);
-    const color = (base: string) => shade(base, brightness, opt.tint, opt.tintAmount);
     const walking = opt.pose === "walk";
     const attacking = opt.pose === "attack";
-    const swing = walking ? Math.sin(opt.time * Math.PI * 2) : 0;
-    const legAngle = swing * 0.42;
-    const armAngle = attacking ? Math.PI / 2 : -swing * 0.5;
-    const otherArmAngle = attacking ? Math.PI / 2 : swing * 0.5;
+    const u = triangleWave(opt.time);
+    const degree = Math.PI / 180;
+    const player = opt.kind === "player";
+    const legL = walking ? (-25 + 50 * u) * degree : 0;
+    const legR = walking ? (25 - 50 * u) * degree : 0;
+    const attackPhase = (opt.time % 0.75 + 0.75) % 0.75;
+    const attackAngle = attackPhase < 0.5
+        ? (-90 - 90 * (attackPhase / 0.5)) * degree
+        : (-180 + 90 * ((attackPhase - 0.5) / 0.25)) * degree;
+    const armL = attacking ? attackAngle : player ? (walking ? (30 - 60 * u) * degree : 0) : -90 * degree;
+    const armR = attacking ? attackAngle : player ? (walking ? (-30 + 60 * u) * degree : 0) : -90 * degree;
     const screenX = (opt.x - opt.cameraX) * opt.blockSize + ctx.canvas.width / 2;
     const screenY = (opt.cameraY - opt.y) * opt.blockSize + ctx.canvas.height / 2;
 
@@ -83,25 +94,14 @@ export function renderCharacter(ctx: CanvasRenderingContext2D, opt: CharacterRen
     ctx.imageSmoothingEnabled = false;
     ctx.globalAlpha = Math.max(0, Math.min(1, opt.alpha ?? 1));
     ctx.translate(screenX, screenY);
-    ctx.scale((opt.facing < 0 ? -1 : 1) * opt.blockSize, -opt.blockSize);
+    ctx.scale((opt.facing < 0 ? -1 : 1) * opt.blockSize * (1.9 / 64), -opt.blockSize * (1.9 / 64));
 
-    // Back limbs first, then torso/head, then the near limbs.
-    drawPart(ctx, -0.12, 0.68, 0.22, 0.68, legAngle, color(palette.legs));
-    drawPart(ctx, 0, 1.22, 0.22, 0.62, otherArmAngle, color(palette.skin));
-    ctx.fillStyle = color(palette.torso);
-    ctx.fillRect(-0.28, 0.65, 0.56, 0.64);
-    ctx.strokeStyle = "rgba(255,255,255,.28)";
-    ctx.lineWidth = 1 / 32;
-    ctx.strokeRect(-0.28, 0.65, 0.56, 0.64);
-    ctx.fillStyle = color(palette.skin);
-    ctx.fillRect(-0.27, 1.29, 0.54, 0.51);
-    ctx.strokeStyle = "rgba(255,255,255,.28)";
-    ctx.strokeRect(-0.27, 1.29, 0.54, 0.51);
-    drawPart(ctx, 0.12, 0.68, 0.22, 0.68, -legAngle, color(palette.legs));
-    drawPart(ctx, 0, 1.22, 0.22, 0.62, armAngle, color(palette.skin));
+    // Coordinates/pivots/layers match the supplied humanoid .myanim files.
+    drawPart(ctx, imageFor(opt.kind, "armL"), 0, 44, "armL", 0.1667, armL, brightness, opt.tint, opt.tintAmount);
+    drawPart(ctx, imageFor(opt.kind, "legL"), 0, 24, "legL", 0, legL, brightness, opt.tint, opt.tintAmount);
+    drawPart(ctx, imageFor(opt.kind, "torso"), 0, 36, "torso", 0.5, 0, brightness, opt.tint, opt.tintAmount);
+    drawPart(ctx, imageFor(opt.kind, "head"), 0, 48, "head", 1, 0, brightness, opt.tint, opt.tintAmount);
+    drawPart(ctx, imageFor(opt.kind, "legR"), 0, 24, "legR", 0, legR, brightness, opt.tint, opt.tintAmount);
+    drawPart(ctx, imageFor(opt.kind, "armR"), 0, 44, "armR", 0.1667, armR, brightness, opt.tint, opt.tintAmount);
     ctx.restore();
-}
-
-export function characterColor(kind: CharacterKind): string {
-    return PALETTES[kind].torso;
 }
