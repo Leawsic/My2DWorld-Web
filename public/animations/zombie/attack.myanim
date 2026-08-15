@@ -1,0 +1,99 @@
+{
+  "name": "zombie attack (arm swing up)",
+  "duration": 0.75,
+  "objects": [
+    {
+      "id": "torso",
+      "type": "image",
+      "image": "/assets/skeleton/zombies/zombie/torso.png",
+      "layer": 3,
+      "x": 0, "y": 1.05,
+      "w": 0.25, "h": 0.7,
+      "pivot": [0.5, 0.5],
+      "nodes": { "arm": [0.5, 0.1667], "leg": [0.5, 1], "head": [0.5, 0] },
+      "motion": { "rotate": { "angle": 0, "offset": 0 } }
+    },
+    {
+      "id": "armL",
+      "type": "image",
+      "image": "/assets/skeleton/zombies/zombie/armL.png",
+      "layer": 0,
+      "attach": { "target": "torso", "node": "arm" },
+      "w": 0.25, "h": 0.7,
+      "pivot": [0.5, 0.1667],
+      "nodes": { "item": [0.5, 0.8333] },
+      "motion": {
+        "segments": [
+          { "duration": 0.375, "rotate": { "angle": -90, "offset": -90, "loop": false } },
+          { "duration": 0.375, "rotate": { "angle": 180, "offset": -180, "loop": false } }
+        ]
+      }
+    },
+    {
+      "id": "itemL",
+      "type": "image",
+      "image": "/assets/skeleton/zombies/zombie/itemL.png",
+      "layer": 1,
+      "attach": { "target": "armL", "node": "item" },
+      "w": 0.25, "h": 0.25,
+      "pivot": [0.5, 0.5],
+      "inheritAngle": "armL"
+    },
+    {
+      "id": "armR",
+      "type": "image",
+      "image": "/assets/skeleton/zombies/zombie/armR.png",
+      "layer": 7,
+      "attach": { "target": "torso", "node": "arm" },
+      "w": 0.25, "h": 0.7,
+      "pivot": [0.5, 0.1667],
+      "nodes": { "item": [0.5, 0.8333] },
+      "motion": {
+        "segments": [
+          { "duration": 0.375, "rotate": { "angle": -90, "offset": -90, "loop": false } },
+          { "duration": 0.375, "rotate": { "angle": 180, "offset": -180, "loop": false } }
+        ]
+      }
+    },
+    {
+      "id": "itemR",
+      "type": "image",
+      "image": "/assets/skeleton/zombies/zombie/itemR.png",
+      "layer": 6,
+      "attach": { "target": "armR", "node": "item" },
+      "w": 0.25, "h": 0.25,
+      "pivot": [0.5, 0.5],
+      "inheritAngle": "armR"
+    },
+    {
+      "id": "legL",
+      "type": "image",
+      "image": "/assets/skeleton/zombies/zombie/legL.png",
+      "layer": 2,
+      "attach": { "target": "torso", "node": "leg" },
+      "w": 0.25, "h": 0.7,
+      "pivot": [0.5, 0],
+      "motion": { "rotate": { "angle": 0, "offset": 0 } }
+    },
+    {
+      "id": "legR",
+      "type": "image",
+      "image": "/assets/skeleton/zombies/zombie/legR.png",
+      "layer": 5,
+      "attach": { "target": "torso", "node": "leg" },
+      "w": 0.25, "h": 0.7,
+      "pivot": [0.5, 0],
+      "motion": { "rotate": { "angle": 0, "offset": 0 } }
+    },
+    {
+      "id": "head",
+      "type": "image",
+      "image": "/assets/skeleton/zombies/zombie/head.png",
+      "layer": 4,
+      "attach": { "target": "torso", "node": "head" },
+      "w": 0.45, "h": 0.45,
+      "pivot": [0.5, 1],
+      "motion": { "rotate": { "angle": 0, "offset": 0 } }
+    }
+  ]
+}

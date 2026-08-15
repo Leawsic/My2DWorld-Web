@@ -48,6 +48,7 @@ export interface KeyBindings {
     jump: string;
     debug: string;
     mode: string;
+    hitbox: string;
     chat: string;
 }
 
@@ -59,6 +60,7 @@ export const DEFAULT_KEY_BINDINGS: KeyBindings = {
     jump: "Space",
     debug: "F3",
     mode: "F4",
+    hitbox: "F5",
     chat: "KeyT",
 };
 

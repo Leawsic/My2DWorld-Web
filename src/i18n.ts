@@ -58,6 +58,7 @@ const entries: Record<string, Translation> = {
     bind_jump: {zh: "跳跃 / 飞行", en: "Jump / Fly"},
     bind_debug: {zh: "调试信息", en: "Debug"},
     bind_mode: {zh: "切换模式", en: "Switch mode"},
+    bind_hitbox: {zh: "碰撞箱/破坏范围", en: "Hitboxes / reach"},
     bind_chat: {zh: "打开聊天", en: "Open chat"},
     debug_fps: {zh: "帧率", en: "FPS"},
     debug_mode: {zh: "模式", en: "MODE"},

@@ -1,0 +1,98 @@
+{
+  "duration": 0,
+  "objects": [
+    {
+      "id": "body",
+      "type": "image",
+      "layer": 2,
+      "image":"/assets/skeleton/pigs/pig_temperate/body.png",
+      "color": "#000000",
+      "x": 0, "y": 0,
+      "pivot": [0.5, 0.5],
+      "motion": {
+        "rotate": { "angle": 0, "offset": 0, "phase": 0 }
+      },
+      "nodes": {
+        "forefoot": [0.8125,1],
+        "hindfoot": [0.0625,1],
+        "head": [0.875,0.6875]
+      }
+    },
+    {
+      "id": "hindfoot_behind",
+      "type": "image",
+      "layer": 0,
+      "attach":{"target":"body","node":"hindfoot"},
+      "image":"/assets/skeleton/pigs/pig_temperate/feet.png",
+      "color": "#000000",
+      "pivot": [0.5, 0],
+      "motion": {
+        "rotate": { "angle": 0, "offset": 0, "phase": 0 }
+      }
+    },
+    {
+      "id": "hindfoot_front",
+      "type": "image",
+      "layer": 3,
+      "attach":{"target":"body","node":"hindfoot"},
+      "image":"/assets/skeleton/pigs/pig_temperate/feet.png",
+      "color": "#000000",
+      "pivot": [0.5, 0],
+      "motion": {
+        "rotate": { "angle": 0, "offset": 0, "phase": 0 }
+      }
+    },
+    {
+      "id": "forefoot_behind",
+      "type": "image",
+      "layer": 0,
+      "attach":{"target":"body","node":"forefoot"},
+      "image":"/assets/skeleton/pigs/pig_temperate/feet.png",
+      "color": "#000000",
+      "pivot": [0.5, 0],
+      "motion": {
+        "rotate": { "angle": 0, "offset": 0, "phase": 0 }
+      }
+    },
+    {
+      "id": "forefoot_front",
+      "type": "image",
+      "layer": 3,
+      "attach":{"target":"body","node":"forefoot"},
+      "image":"/assets/skeleton/pigs/pig_temperate/feet.png",
+      "color": "#000000",
+      "pivot": [0.5, 0],
+      "motion": {
+        "rotate": { "angle": 0, "offset": 0, "phase": 0 }
+      }
+    },
+    {
+      "id": "nose",
+      "type": "image",
+      "layer": 1,
+      "attach":{"target":"head","node":"nose"},
+      "image":"/assets/skeleton/pigs/pig_temperate/nose.png",
+      "color": "#000000",
+      "pivot": [0.5, 0],
+      "motion": {
+        "rotate": { "angle": 0, "offset": 0, "phase": 0 , "inheritAngle": true}
+      }
+    },
+    {
+      "id": "head",
+      "type": "image",
+      "layer": 1,
+      "attach":{"target":"body","node":"head"},
+      "image":"/assets/skeleton/pigs/pig_temperate/head.png",
+      "color": "#000000",
+      "pivot": [0, 1],
+      "motion": {
+        "rotate": { "angle": 0, "offset": 0, "phase": 0 }
+      },
+      "nodes": {
+        "nose" : [1,0.5]
+      }
+    }
+
+  ]
+}

@@ -178,6 +178,37 @@ const api = async (req, res) => {
             log("info", "Plugin scan", {count: plugins.length});
             return send(res, 200, {plugins});
         }
+        if (url.pathname === "/api/animations" && req.method === "GET") {
+            const animations = [];
+            const animationsDir = join(root, "public", "animations");
+            const walk = (dir, prefix) => {
+                if (!existsSync(dir)) return;
+                for (const entry of readdirSync(dir, {withFileTypes: true})) {
+                    const rel = prefix + entry.name;
+                    const full = join(dir, entry.name);
+                    if (entry.isDirectory()) walk(full, `${rel}/`);
+                    else if (/\.(myanim|json)$/i.test(entry.name)) animations.push(rel.replace(/\\/g, "/"));
+                }
+            };
+            walk(animationsDir, "");
+            animations.sort((a, b) => a.localeCompare(b));
+            return send(res, 200, {animations});
+        }
+        if (url.pathname === "/api/hitboxes" && req.method === "GET") {
+            const hitboxes = {};
+            const hitboxesDir = join(root, "public", "hitboxes");
+            if (existsSync(hitboxesDir)) {
+                for (const file of readdirSync(hitboxesDir)) {
+                    if (!file.endsWith(".json")) continue;
+                    const kind = file.slice(0, -5);
+                    const data = readJson(join(hitboxesDir, file), null);
+                    const halfWidth = Number(data?.halfWidth);
+                    const height = Number(data?.height);
+                    if (Number.isFinite(halfWidth) && halfWidth > 0 && Number.isFinite(height) && height > 0) hitboxes[kind] = {halfWidth, height};
+                }
+            }
+            return send(res, 200, {hitboxes});
+        }
         if (url.pathname === "/api/structures" && req.method === "GET") {
             const name = safeStructureName(url.searchParams.get("name"));
             if (name) {

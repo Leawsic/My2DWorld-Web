@@ -3,6 +3,7 @@ import type {Player} from "./player";
 import {moveBody, type PhysicsBody} from "./physics";
 import {mulberry32} from "./noise";
 import {structuresNear} from "./structures";
+import {hitboxFor} from "./hitboxes";
 
 export type MobKind =
     | "zombie" | "zombie_baby" | "husk" | "husk_baby" | "drowned" | "drowned_baby"
@@ -30,23 +31,23 @@ export interface MobKindConfig {
 }
 
 export const MOB_KINDS: Record<MobKind, MobKindConfig> = {
-    zombie: {id: "zombie", asset: "zombie", shape: "humanoid", hostile: true, scale: 1, halfWidth: 0.25, height: 1.9, speed: 1.6, jumpVelocity: 8, hp: 20, damage: 3, attackCooldown: 0.8, hitRange: 1.2, visual: {width: 1.9, height: 1.9}},
-    zombie_baby: {id: "zombie_baby", asset: "zombie_baby", shape: "humanoid", hostile: true, scale: 0.62, halfWidth: 0.16, height: 1.18, speed: 2.1, jumpVelocity: 7, hp: 10, damage: 2, attackCooldown: 0.65, hitRange: 0.9, visual: {width: 1.18, height: 1.18}},
-    husk: {id: "husk", asset: "husk", shape: "humanoid", hostile: true, scale: 1, halfWidth: 0.25, height: 1.9, speed: 1.6, jumpVelocity: 8, hp: 20, damage: 3, attackCooldown: 0.8, hitRange: 1.2, visual: {width: 1.9, height: 1.9}},
-    husk_baby: {id: "husk_baby", asset: "husk_baby", shape: "humanoid", hostile: true, scale: 0.62, halfWidth: 0.16, height: 1.18, speed: 2.1, jumpVelocity: 7, hp: 10, damage: 2, attackCooldown: 0.65, hitRange: 0.9, visual: {width: 1.18, height: 1.18}},
-    drowned: {id: "drowned", asset: "drowned", shape: "humanoid", hostile: true, scale: 1, halfWidth: 0.25, height: 1.9, speed: 1.6, jumpVelocity: 8, hp: 20, damage: 3, attackCooldown: 0.8, hitRange: 1.2, visual: {width: 1.9, height: 1.9}},
-    drowned_baby: {id: "drowned_baby", asset: "drowned_baby", shape: "humanoid", hostile: true, scale: 0.62, halfWidth: 0.16, height: 1.18, speed: 2.1, jumpVelocity: 7, hp: 10, damage: 2, attackCooldown: 0.65, hitRange: 0.9, visual: {width: 1.18, height: 1.18}},
-    pig_cold: {id: "pig_cold", asset: "pig_cold", shape: "pig", hostile: false, scale: 1, halfWidth: 0.55, height: 0.9, speed: 0.75, jumpVelocity: 5, hp: 10, damage: 0, attackCooldown: 0, hitRange: 0, visual: {width: 1.8, height: 0.9}},
-    pig_cold_baby: {id: "pig_cold_baby", asset: "pig_cold_baby", shape: "pig", hostile: false, scale: 0.62, halfWidth: 0.34, height: 0.56, speed: 0.85, jumpVelocity: 4, hp: 6, damage: 0, attackCooldown: 0, hitRange: 0, visual: {width: 1.1, height: 0.56}},
-    pig_temperate: {id: "pig_temperate", asset: "pig_temperate", shape: "pig", hostile: false, scale: 1, halfWidth: 0.55, height: 0.9, speed: 0.75, jumpVelocity: 5, hp: 10, damage: 0, attackCooldown: 0, hitRange: 0, visual: {width: 1.8, height: 0.9}},
-    pig_temperate_baby: {id: "pig_temperate_baby", asset: "pig_temperate_baby", shape: "pig", hostile: false, scale: 0.62, halfWidth: 0.34, height: 0.56, speed: 0.85, jumpVelocity: 4, hp: 6, damage: 0, attackCooldown: 0, hitRange: 0, visual: {width: 1.1, height: 0.56}},
-    pig_warm: {id: "pig_warm", asset: "pig_warm", shape: "pig", hostile: false, scale: 1, halfWidth: 0.55, height: 0.9, speed: 0.75, jumpVelocity: 5, hp: 10, damage: 0, attackCooldown: 0, hitRange: 0, visual: {width: 1.8, height: 0.9}},
-    pig_warm_baby: {id: "pig_warm_baby", asset: "pig_warm_baby", shape: "pig", hostile: false, scale: 0.62, halfWidth: 0.34, height: 0.56, speed: 0.85, jumpVelocity: 4, hp: 6, damage: 0, attackCooldown: 0, hitRange: 0, visual: {width: 1.1, height: 0.56}},
-    cow_cold: {id: "cow_cold", asset: "cow_cold", shape: "cow", hostile: false, scale: 1, halfWidth: 0.8, height: 1.2, speed: 0.65, jumpVelocity: 5, hp: 16, damage: 0, attackCooldown: 0, hitRange: 0, visual: {width: 2.2, height: 1.2}},
-    cow_temperate: {id: "cow_temperate", asset: "cow_temperate", shape: "cow", hostile: false, scale: 1, halfWidth: 0.8, height: 1.2, speed: 0.65, jumpVelocity: 5, hp: 16, damage: 0, attackCooldown: 0, hitRange: 0, visual: {width: 2.2, height: 1.2}},
-    cow_warm: {id: "cow_warm", asset: "cow_warm", shape: "cow", hostile: false, scale: 1, halfWidth: 0.8, height: 1.2, speed: 0.65, jumpVelocity: 5, hp: 16, damage: 0, attackCooldown: 0, hitRange: 0, visual: {width: 2.2, height: 1.2}},
-    mooshroom_red: {id: "mooshroom_red", asset: "mooshroom_red", shape: "cow", hostile: false, scale: 1, halfWidth: 0.8, height: 1.2, speed: 0.65, jumpVelocity: 5, hp: 16, damage: 0, attackCooldown: 0, hitRange: 0, visual: {width: 2.2, height: 1.2}},
-    mooshroom_brown: {id: "mooshroom_brown", asset: "mooshroom_brown", shape: "cow", hostile: false, scale: 1, halfWidth: 0.8, height: 1.2, speed: 0.65, jumpVelocity: 5, hp: 16, damage: 0, attackCooldown: 0, hitRange: 0, visual: {width: 2.2, height: 1.2}},
+    zombie: {id: "zombie", asset: "zombie", shape: "humanoid", hostile: true, scale: 1, halfWidth: 0.4, height: 1.9, speed: 1.6, jumpVelocity: 8, hp: 20, damage: 3, attackCooldown: 0.8, hitRange: 1.2, visual: {width: 1.9, height: 1.9}},
+    zombie_baby: {id: "zombie_baby", asset: "zombie_baby", shape: "humanoid", hostile: true, scale: 0.62, halfWidth: 0.28, height: 1.18, speed: 2.1, jumpVelocity: 7, hp: 10, damage: 2, attackCooldown: 0.65, hitRange: 0.9, visual: {width: 1.18, height: 1.18}},
+    husk: {id: "husk", asset: "husk", shape: "humanoid", hostile: true, scale: 1, halfWidth: 0.4, height: 1.9, speed: 1.6, jumpVelocity: 8, hp: 20, damage: 3, attackCooldown: 0.8, hitRange: 1.2, visual: {width: 1.9, height: 1.9}},
+    husk_baby: {id: "husk_baby", asset: "husk_baby", shape: "humanoid", hostile: true, scale: 0.62, halfWidth: 0.28, height: 1.18, speed: 2.1, jumpVelocity: 7, hp: 10, damage: 2, attackCooldown: 0.65, hitRange: 0.9, visual: {width: 1.18, height: 1.18}},
+    drowned: {id: "drowned", asset: "drowned", shape: "humanoid", hostile: true, scale: 1, halfWidth: 0.4, height: 1.9, speed: 1.6, jumpVelocity: 8, hp: 20, damage: 3, attackCooldown: 0.8, hitRange: 1.2, visual: {width: 1.9, height: 1.9}},
+    drowned_baby: {id: "drowned_baby", asset: "drowned_baby", shape: "humanoid", hostile: true, scale: 0.62, halfWidth: 0.28, height: 1.18, speed: 2.1, jumpVelocity: 7, hp: 10, damage: 2, attackCooldown: 0.65, hitRange: 0.9, visual: {width: 1.18, height: 1.18}},
+    pig_cold: {id: "pig_cold", asset: "pig_cold", shape: "pig", hostile: false, scale: 1, halfWidth: 0.8, height: 0.9, speed: 0.75, jumpVelocity: 5, hp: 10, damage: 0, attackCooldown: 0, hitRange: 0, visual: {width: 1.8, height: 0.9}},
+    pig_cold_baby: {id: "pig_cold_baby", asset: "pig_cold_baby", shape: "pig", hostile: false, scale: 0.62, halfWidth: 0.55, height: 0.56, speed: 0.85, jumpVelocity: 4, hp: 6, damage: 0, attackCooldown: 0, hitRange: 0, visual: {width: 1.1, height: 0.56}},
+    pig_temperate: {id: "pig_temperate", asset: "pig_temperate", shape: "pig", hostile: false, scale: 1, halfWidth: 0.8, height: 0.9, speed: 0.75, jumpVelocity: 5, hp: 10, damage: 0, attackCooldown: 0, hitRange: 0, visual: {width: 1.8, height: 0.9}},
+    pig_temperate_baby: {id: "pig_temperate_baby", asset: "pig_temperate_baby", shape: "pig", hostile: false, scale: 0.62, halfWidth: 0.55, height: 0.56, speed: 0.85, jumpVelocity: 4, hp: 6, damage: 0, attackCooldown: 0, hitRange: 0, visual: {width: 1.1, height: 0.56}},
+    pig_warm: {id: "pig_warm", asset: "pig_warm", shape: "pig", hostile: false, scale: 1, halfWidth: 0.8, height: 0.9, speed: 0.75, jumpVelocity: 5, hp: 10, damage: 0, attackCooldown: 0, hitRange: 0, visual: {width: 1.8, height: 0.9}},
+    pig_warm_baby: {id: "pig_warm_baby", asset: "pig_warm_baby", shape: "pig", hostile: false, scale: 0.62, halfWidth: 0.55, height: 0.56, speed: 0.85, jumpVelocity: 4, hp: 6, damage: 0, attackCooldown: 0, hitRange: 0, visual: {width: 1.1, height: 0.56}},
+    cow_cold: {id: "cow_cold", asset: "cow_cold", shape: "cow", hostile: false, scale: 1, halfWidth: 0.75, height: 1.2, speed: 0.65, jumpVelocity: 5, hp: 16, damage: 0, attackCooldown: 0, hitRange: 0, visual: {width: 2.2, height: 1.2}},
+    cow_temperate: {id: "cow_temperate", asset: "cow_temperate", shape: "cow", hostile: false, scale: 1, halfWidth: 0.75, height: 1.2, speed: 0.65, jumpVelocity: 5, hp: 16, damage: 0, attackCooldown: 0, hitRange: 0, visual: {width: 2.2, height: 1.2}},
+    cow_warm: {id: "cow_warm", asset: "cow_warm", shape: "cow", hostile: false, scale: 1, halfWidth: 0.75, height: 1.2, speed: 0.65, jumpVelocity: 5, hp: 16, damage: 0, attackCooldown: 0, hitRange: 0, visual: {width: 2.2, height: 1.2}},
+    mooshroom_red: {id: "mooshroom_red", asset: "mooshroom_red", shape: "cow", hostile: false, scale: 1, halfWidth: 0.75, height: 1.2, speed: 0.65, jumpVelocity: 5, hp: 16, damage: 0, attackCooldown: 0, hitRange: 0, visual: {width: 2.2, height: 1.2}},
+    mooshroom_brown: {id: "mooshroom_brown", asset: "mooshroom_brown", shape: "cow", hostile: false, scale: 1, halfWidth: 0.75, height: 1.2, speed: 0.65, jumpVelocity: 5, hp: 16, damage: 0, attackCooldown: 0, hitRange: 0, visual: {width: 2.2, height: 1.2}},
 };
 
 const BIOME_SPAWN_POOLS: Record<string, readonly MobKind[]> = {
@@ -105,9 +106,10 @@ export class Mob implements PhysicsBody {
         this.x = x;
         this.y = y;
         const config = MOB_KINDS[kind];
+        const hitbox = hitboxFor(kind);
         this.hp = config.hp;
-        this.halfWidth = config.halfWidth;
-        this.height = config.height;
+        this.halfWidth = hitbox?.halfWidth ?? config.halfWidth;
+        this.height = hitbox?.height ?? config.height;
     }
 
     update(dt: number, world: World, player: Player, onPlayerDamage: (amount: number) => void): void {

@@ -5,7 +5,8 @@ import {storage, type PluginPackage} from "./core/storage";
 import {biomeAt, DEFAULT_BIOME, hashSeed, spawnX, World, WORLD_HEIGHT, type Biome} from "./core/world";
 import {clampSpectateOffset} from "./core/spectate";
 import {ParticleSystem} from "./core/particles";
-import {characterParticleTexture, renderCharacter} from "./core/skeleton";
+import {characterParticleTexture, preloadCharacterAnimations, renderCharacter} from "./core/skeleton";
+import {loadHitboxes} from "./core/hitboxes";
 import {
     DEFAULT_SETTINGS,
     type GameModeName,
@@ -200,6 +201,7 @@ class GameSession {
     blockSize = 32;
     paused = false;
     debug = settings.debugDefault;
+    showHitboxes = false;
     private keys: KeyState = {left: false, right: false, up: false, down: false, jump: false, sneak: false};
     private mouseDown = false;
     private last = performance.now();
@@ -272,7 +274,21 @@ class GameSession {
         plugins.setMessageTarget({chat: this.sendPluginChat, title: this.sendPluginTitle});
         plugins.notifyGameStart(this.pluginContext());
         storage.log("Game started", {world: meta.name, worldId: meta.id, mode: this.modeName});
+        void this.preloadAnimations();
+        void loadHitboxes();
         requestAnimationFrame(this.tick);
+    }
+
+    /** 从 public/animations 加载字符动画文件（缺失时渲染回退到内置骨架）。 */
+    private async preloadAnimations(): Promise<void> {
+        try {
+            const res = await fetch("/api/animations");
+            if (!res.ok) return;
+            const data = (await res.json()) as {animations?: string[]};
+            await preloadCharacterAnimations(data.animations ?? []);
+        } catch (error) {
+            console.warn("Animation preload failed", error);
+        }
     }
 
     private resize = (): void => {
@@ -320,6 +336,7 @@ class GameSession {
             }
             if (event.key === "F7") event.preventDefault();
             if (event.key === "F11") event.preventDefault();
+            if (event.code === settings.keyBindings.hitbox || event.code === settings.keyBindings.debug || event.code === settings.keyBindings.mode) event.preventDefault();
             if (event.code === "ShiftLeft" || event.code === "ShiftRight") {
                 this.keys.sneak = true;
                 event.preventDefault();
@@ -340,6 +357,11 @@ class GameSession {
             if (isMove(action)) this.keys[action] = false;
             if (isShift) this.keys.sneak = false;
             if (isMove(action)) return;
+            if (action === "hitbox") {
+                this.showHitboxes = !this.showHitboxes;
+                this.notice = this.showHitboxes ? text("碰撞箱/范围 开", "Hitboxes ON") : text("碰撞箱/范围 关", "Hitboxes OFF");
+                this.noticeTimer = 1.2;
+            }
             if (this.chatOpen || this.inventoryOpen) {
                 if (action === "debug") this.f3Held = false;
                 if (action === "mode") this.f4Held = false;
@@ -1195,7 +1217,7 @@ class GameSession {
     private handleMenuClick(clientX: number, clientY: number): void {
         const boxW = Math.min(460, window.innerWidth - 40);
         const x = (window.innerWidth - boxW) / 2;
-        const menuHeight = this.menu === "bindings" ? 620 : this.menu === "settings" ? 540 : this.menu === "plugins" ? Math.min(620, window.innerHeight - 40) : this.menu === "pause" ? 476 : 410;
+        const menuHeight = this.menu === "bindings" ? 680 : this.menu === "settings" ? 540 : this.menu === "plugins" ? Math.min(620, window.innerHeight - 40) : this.menu === "pause" ? 476 : 410;
         const y = (window.innerHeight - menuHeight) / 2;
         if (clientX < x + 52 || clientX > x + boxW - 52) return;
         if (this.menu === "plugins") {
@@ -1203,7 +1225,7 @@ class GameSession {
             return;
         }
         const index = Math.floor((clientY - (y + (this.menu === "bindings" ? 82 : 92))) / (this.menu === "bindings" ? 55 : 66));
-        if (index < 0 || index > (this.menu === "bindings" ? 8 : this.menu === "settings" ? 6 : this.menu === "display" ? 4 : this.menu === "pause" ? 3 : 2)) return;
+        if (index < 0 || index > (this.menu === "bindings" ? 9 : this.menu === "settings" ? 6 : this.menu === "display" ? 4 : this.menu === "pause" ? 3 : 2)) return;
         const rowY = y + (this.menu === "bindings" ? 82 : 92) + index * (this.menu === "bindings" ? 55 : 66);
         const rowH = this.menu === "bindings" ? 42 : 44;
         if (clientY < rowY || clientY > rowY + rowH) return;
@@ -1265,7 +1287,7 @@ class GameSession {
             if (index === 4) this.menu = "settings";
             return;
         }
-        if (index === 8) {
+        if (index === 9) {
             this.menu = "settings";
             return;
         }
@@ -1437,8 +1459,35 @@ class GameSession {
                 brightness: settings.spectateBrightness,
             });
         }
+        if (this.showHitboxes) this.renderHitboxes(ctx, cameraX, cameraY, width, height);
         this.renderHud(ctx, width, height);
         this.renderCursor();
+    }
+
+    /** F5 调试：绘制玩家放置/破坏范围与所有实体的碰撞箱。 */
+    private renderHitboxes(ctx: CanvasRenderingContext2D, cameraX: number, cameraY: number, width: number, height: number): void {
+        const bs = this.blockSize;
+        const toScreenX = (wx: number) => (wx - cameraX) * bs + width / 2;
+        const toScreenY = (wy: number) => (cameraY - wy) * bs + height / 2;
+        const drawBox = (sx: number, sy: number, w: number, h: number, color: string, dashed = false) => {
+            ctx.save();
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 2;
+            if (dashed) ctx.setLineDash([8, 5]);
+            ctx.strokeRect(sx, sy, w, h);
+            ctx.restore();
+        };
+        // 玩家放置/破坏范围（inReach 判定区域）
+        const reachX = 2.5, reachY = 3;
+        const centerX = this.player.x;
+        const centerY = this.player.y + 0.95;
+        drawBox(toScreenX(centerX - reachX), toScreenY(centerY + reachY), reachX * 2 * bs, reachY * 2 * bs, "#39e75f", true);
+        // 玩家碰撞箱
+        drawBox(toScreenX(this.player.x - this.player.halfWidth), toScreenY(this.player.y + this.player.height), this.player.halfWidth * 2 * bs, this.player.height * bs, "#ffe94d");
+        // 生物碰撞箱
+        for (const mob of this.mobs.mobsNear(this.player, MOB_RENDER_RADIUS)) {
+            drawBox(toScreenX(mob.x - mob.halfWidth), toScreenY(mob.y + mob.height), mob.halfWidth * 2 * bs, mob.height * bs, "#ff4d4d");
+        }
     }
 
     private drawGhost(ctx: CanvasRenderingContext2D, image: HTMLImageElement | HTMLCanvasElement | undefined, x: number, y: number, w: number, h: number, alpha: number, brightness: number, flip = false, tint = "#000"): void {
@@ -1680,7 +1729,7 @@ class GameSession {
         ctx.fillRect(0, 0, width, height);
         const bindingMode = this.menu === "bindings";
         const boxW = Math.min(460, width - 40);
-        const boxH = bindingMode ? 620 : this.menu === "settings" ? 540 : this.menu === "plugins" ? Math.min(620, height - 40) : this.menu === "pause" ? 476 : 410;
+        const boxH = bindingMode ? 680 : this.menu === "settings" ? 540 : this.menu === "plugins" ? Math.min(620, height - 40) : this.menu === "pause" ? 476 : 410;
         const x = (width - boxW) / 2;
         const y = (height - boxH) / 2;
         ctx.fillStyle = "#13252d";

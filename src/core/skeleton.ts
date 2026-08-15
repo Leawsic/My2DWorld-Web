@@ -1,4 +1,7 @@
 import {MOB_KINDS, type MobKind} from "./entity";
+import {Animation} from "./anim";
+import {loadCharacterAnimations} from "./animations";
+import {hitboxFor, isHitboxesLoaded} from "./hitboxes";
 
 export type CharacterKind = "player" | MobKind;
 export type CharacterPose = "idle" | "walk" | "attack";
@@ -22,8 +25,66 @@ export interface CharacterRenderOptions {
 const images = new Map<string, HTMLImageElement>();
 const particleTextures = new Map<CharacterKind, HTMLCanvasElement>();
 
+/** 预加载的模板动画，key 为 `<家族>/<姿态>`（如 `cow/stand`、`player/walk`）。 */
+const characterAnims = new Map<string, Animation>();
+/** 按 kind+姿态缓存的变体动画（由模板经骨架变体纹理替换生成）。 */
+const variantAnims = new Map<string, Animation>();
+let preloadPromise: Promise<void> | null = null;
+
+type Family = "player" | "zombie" | "cow" | "pig";
+
+const SKELETON_GROUP: Record<Family, string> = {
+    player: "players",
+    zombie: "zombies",
+    cow: "cows",
+    pig: "pigs",
+};
+
+/** .myanim 模板引用的骨架变体目录名（player→hitler、zombie→zombie、cow/pig→temperate 品种）。 */
+const TEMPLATE_VARIANT: Record<Family, string> = {
+    player: "hitler",
+    zombie: "zombie",
+    cow: "cow_temperate",
+    pig: "pig_temperate",
+};
+
+const FALLBACK_POSES = ["idle", "stand"] as const;
+
+function familyOf(kind: CharacterKind): Family | null {
+    if (kind === "player") return "player";
+    const base = kind.replace(/_baby$/, "");
+    if (base === "zombie" || base === "husk" || base === "drowned") return "zombie";
+    if (base.startsWith("pig")) return "pig";
+    if (base.startsWith("cow") || base.startsWith("mooshroom")) return "cow";
+    return null;
+}
+
+/** kind 对应的骨架变体目录名。 */
+function skeletonVariantOf(kind: CharacterKind): string {
+    return kind === "player" ? TEMPLATE_VARIANT.player : kind;
+}
+
+/** 把 .myanim 模板里的骨架变体目录段替换为指定 kind 的实际目录段。 */
+function variantTransform(group: string, variant: string): (url: string) => string {
+    const pattern = new RegExp(`(/assets/skeleton/${group}/)[^/]+(?=/)`);
+    return (url) => url.replace(pattern, `$1${variant}`);
+}
+
+/** 依据 /api/animations 清单预加载字符动画（失败/缺失的 kind 继续使用内置骨架）。 */
+export function preloadCharacterAnimations(manifest: string[]): Promise<void> {
+    if (preloadPromise) return preloadPromise;
+    preloadPromise = loadCharacterAnimations(manifest).then((loaded) => {
+        characterAnims.clear();
+        variantAnims.clear();
+        for (const [key, animation] of loaded) characterAnims.set(key, animation);
+    });
+    return preloadPromise;
+}
+
 function assetFor(kind: CharacterKind): string {
-    return kind === "player" ? "player" : MOB_KINDS[kind].asset;
+    const family = familyOf(kind);
+    if (!family) return kind;
+    return `${SKELETON_GROUP[family]}/${skeletonVariantOf(kind)}`;
 }
 
 function imageFor(asset: string, part: string): HTMLImageElement {
@@ -111,7 +172,9 @@ function renderHumanoid(ctx: CanvasRenderingContext2D, asset: string, opt: Chara
     drawPart(ctx, armR, 0, shoulderY, 0.5, 0.1667, armRightAngle, brightness, opt.tint, opt.tintAmount);
 }
 
-function renderQuadruped(ctx: CanvasRenderingContext2D, asset: string, opt: CharacterRenderOptions, scale: number, brightness: number, cow: boolean): void {
+function renderQuadruped(ctx: CanvasRenderingContext2D, kind: CharacterKind, opt: CharacterRenderOptions, scale: number, brightness: number): void {
+    const cow = familyOf(kind) === "cow";
+    const asset = assetFor(kind);
     const body = imageFor(asset, "body");
     const head = imageFor(asset, "head");
     const nose = imageFor(asset, "nose");
@@ -132,7 +195,7 @@ function renderQuadruped(ctx: CanvasRenderingContext2D, asset: string, opt: Char
     drawPart(ctx, feet, hindX, footY, 0.5, 0, swing, brightness, opt.tint, opt.tintAmount);
     drawPart(ctx, feet, foreX, footY, 0.5, 0, swing, brightness, opt.tint, opt.tintAmount);
     drawPart(ctx, body, 0, bodyY, 0.5, 0.5, 0, brightness, opt.tint, opt.tintAmount);
-    if (asset === "cow_cold") drawPart(ctx, imageFor(asset, "fur"), 0, bodyY, 0.5, 0.35, 0, brightness, opt.tint, opt.tintAmount);
+    if (kind === "cow_cold") drawPart(ctx, imageFor(asset, "fur"), 0, bodyY, 0.5, 0.35, 0, brightness, opt.tint, opt.tintAmount);
     drawPart(ctx, head, headX, headY, 0, 1, 0, brightness, opt.tint, opt.tintAmount);
     const [headW, headH] = dimensions(head, cow ? [12, 16] : [16, 16]);
     drawPart(ctx, nose, headX + headW, headY - headH / 2, 0.5, 0, 0, brightness, opt.tint, opt.tintAmount);
@@ -141,8 +204,83 @@ function renderQuadruped(ctx: CanvasRenderingContext2D, asset: string, opt: Char
     drawPart(ctx, feet, foreX, footY, 0.5, 0, -swing, brightness, opt.tint, opt.tintAmount);
 }
 
+/** 取角色动画：按家族+姿态查找模板，再按 kind 替换骨架变体纹理并缓存；没有文件则为 null（用内置骨架）。 */
+function animationFor(kind: CharacterKind, pose: CharacterPose): Animation | null {
+    const family = familyOf(kind);
+    if (!family) return null;
+    let template: Animation | null = null;
+    let usedPose: string = pose;
+    for (const key of [pose, ...FALLBACK_POSES]) {
+        const animation = characterAnims.get(`${family}/${key}`);
+        if (animation) {
+            template = animation;
+            usedPose = key;
+            break;
+        }
+    }
+    if (!template) return null;
+    const variant = skeletonVariantOf(kind);
+    if (variant === TEMPLATE_VARIANT[family]) return template;
+    const cacheKey = `${kind}/${usedPose}`;
+    const cached = variantAnims.get(cacheKey);
+    if (cached) return cached;
+    const created = new Animation(template.def, "", variantTransform(SKELETON_GROUP[family], variant));
+    variantAnims.set(cacheKey, created);
+    return created;
+}
+
+/** 家族静止（idle/stand）动画，用作高度缩放基准。 */
+function restAnimationFor(kind: CharacterKind): Animation | null {
+    return animationFor(kind, "idle");
+}
+
+function targetHeightFor(kind: CharacterKind): number {
+    if (kind === "player") return 1.85;
+    const hitbox = hitboxFor(kind);
+    if (hitbox) return hitbox.height;
+    return MOB_KINDS[kind]?.height ?? 1.9;
+}
+
+const scaleCache = new Map<Animation, number>();
+
+/** 高度缩放：以静止动画在 t=0 的包围盒高度为基准，把角色缩放到目标方块高度（图片或碰撞箱配置未就绪时返回 1，稍后重算）。 */
+function heightScaleFor(animation: Animation, kind: CharacterKind): number {
+    const cached = scaleCache.get(animation);
+    if (cached) return cached;
+    const bounds = animation.boundsAt(0);
+    if (!bounds || bounds.h <= 0) return 1;
+    if (!isHitboxesLoaded()) return 1;
+    const scale = targetHeightFor(kind) / bounds.h;
+    scaleCache.set(animation, scale);
+    return scale;
+}
+
+/** 用 .myanim 文件绘制角色，锚点在世界坐标（x,y）（角色脚底），坐标单位为游戏方块。 */
+function renderCharacterFromAnimation(ctx: CanvasRenderingContext2D, animation: Animation, opt: CharacterRenderOptions): void {
+    const rest = restAnimationFor(opt.kind) ?? animation;
+    const scale = heightScaleFor(rest, opt.kind);
+    const screenX = (opt.x - opt.cameraX) * opt.blockSize + ctx.canvas.width / 2;
+    const screenY = (opt.cameraY - opt.y) * opt.blockSize + ctx.canvas.height / 2;
+    ctx.save();
+    ctx.imageSmoothingEnabled = false;
+    ctx.translate(screenX, screenY);
+    ctx.scale((opt.facing < 0 ? -1 : 1) * opt.blockSize * scale, -opt.blockSize * scale);
+    animation.render(ctx, opt.time, {
+        alpha: opt.alpha,
+        brightness: opt.brightness,
+        tint: opt.tint,
+        tintAmount: opt.tintAmount,
+    });
+    ctx.restore();
+}
+
 /** Draws source .myanim parts in game-world coordinates, anchored at the entity's feet. */
 export function renderCharacter(ctx: CanvasRenderingContext2D, opt: CharacterRenderOptions): void {
+    const fileAnimation = animationFor(opt.kind, opt.pose);
+    if (fileAnimation) {
+        renderCharacterFromAnimation(ctx, fileAnimation, opt);
+        return;
+    }
     const config = opt.kind === "player" ? undefined : MOB_KINDS[opt.kind];
     const asset = assetFor(opt.kind);
     const scale = config?.height ?? 1.9;
@@ -155,7 +293,7 @@ export function renderCharacter(ctx: CanvasRenderingContext2D, opt: CharacterRen
     ctx.translate(screenX, screenY);
     ctx.scale((opt.facing < 0 ? -1 : 1) * opt.blockSize, -opt.blockSize);
     if (!config || config.shape === "humanoid") renderHumanoid(ctx, asset, opt, scale, brightness);
-    else renderQuadruped(ctx, asset, opt, scale, brightness, config.shape === "cow");
+    else renderQuadruped(ctx, opt.kind, opt, scale, brightness);
     ctx.restore();
 }
 
@@ -169,7 +307,7 @@ export function characterParticleTexture(kind: CharacterKind): HTMLCanvasElement
         ? ["head", "torso", "armL", "armR", "legL", "legR", "itemL", "itemR"]
         : config.shape === "pig"
             ? ["body", "head", "nose", "feet"]
-            : ["body", "head", "nose", "feet", "ear", ...(asset === "cow_cold" ? ["fur"] : [])];
+            : ["body", "head", "nose", "feet", "ear", ...(kind === "cow_cold" ? ["fur"] : [])];
     const canvas = document.createElement("canvas");
     canvas.width = 64;
     canvas.height = 64;
