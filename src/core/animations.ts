@@ -37,6 +37,21 @@ export async function loadAnimation(path: string): Promise<Animation | null> {
     return result;
 }
 
+/** 加载任意绝对 URL 的动画文件（插件资源使用）；不存在或解析失败时返回 null。 */
+export async function loadAnimationUrl(url: string): Promise<Animation | null> {
+    try {
+        const res = await fetch(url);
+        if (!res.ok) return null;
+        const def = (await res.json()) as AnimDef;
+        const baseUrl = url.slice(0, url.lastIndexOf("/") + 1);
+        const animation = new Animation(def, baseUrl);
+        await Promise.all([...animation.images.values()].map((img) => (img.decode?.() ?? Promise.resolve()).catch(() => {})));
+        return animation;
+    } catch {
+        return null;
+    }
+}
+
 /** 字符动画 key：`<家族>/<姿态>`，例如 `player/walk`、`cow/stand`。 */
 export function characterAnimKey(family: string, pose: string): string {
     return `${family}/${pose}`;

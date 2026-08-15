@@ -204,7 +204,14 @@ const api = async (req, res) => {
                     const data = readJson(join(hitboxesDir, file), null);
                     const halfWidth = Number(data?.halfWidth);
                     const height = Number(data?.height);
-                    if (Number.isFinite(halfWidth) && halfWidth > 0 && Number.isFinite(height) && height > 0) hitboxes[kind] = {halfWidth, height};
+                    if (Number.isFinite(halfWidth) && halfWidth > 0 && Number.isFinite(height) && height > 0) {
+                        hitboxes[kind] = {
+                            halfWidth,
+                            height,
+                            centerX: Number.isFinite(Number(data?.centerX)) ? Number(data.centerX) : 0,
+                            centerY: Number.isFinite(Number(data?.centerY)) ? Number(data.centerY) : 0,
+                        };
+                    }
                 }
             }
             return send(res, 200, {hitboxes});

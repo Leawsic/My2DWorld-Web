@@ -112,7 +112,7 @@ export class Animation {
     private readonly imageTransform?: (url: string) => string;
     private boundsCache: { t: number; x: number; y: number; w: number; h: number } | null = null;
 
-    constructor(readonly def: AnimDef, baseUrl = "", imageTransform?: (url: string) => string) {
+    constructor(readonly def: AnimDef, readonly baseUrl = "", imageTransform?: (url: string) => string) {
         this.imageTransform = imageTransform;
         this.objects = def.objects ?? [];
         for (const obj of this.objects) {
@@ -125,6 +125,20 @@ export class Animation {
                 this.images.set(obj.id ?? obj.image, img);
             }
         }
+    }
+
+    /** 重新创建所有部件图片（带缓存爆破），用于 /reload 图片刷新。 */
+    invalidateImages(): void {
+        for (const obj of this.objects) {
+            if (obj.type !== "image" || !obj.image) continue;
+            const img = new Image();
+            let src = new URL(obj.image, this.baseUrl || location.href).href;
+            if (this.imageTransform) src = this.imageTransform(src);
+            const separator = src.includes("?") ? "&" : "?";
+            img.src = `${src}${separator}t=${Date.now()}`;
+            this.images.set(obj.id ?? obj.image, img);
+        }
+        this.boundsCache = null;
     }
 
     get duration(): number {

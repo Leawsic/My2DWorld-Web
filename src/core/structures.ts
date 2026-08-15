@@ -1,6 +1,6 @@
 import {Blocks} from "./registry";
 import {mulberry32} from "./noise";
-import {biomeAt, CHUNK_SIZE, WORLD_HEIGHT, hashNoise, spawnX, terrainHeight, type Biome} from "./world";
+import {biomeAt, CHUNK_SIZE, WORLD_HEIGHT, WORLD_MIN_Y, WORLD_MAX_Y, hashNoise, spawnX, terrainHeight, type Biome} from "./world";
 import type {BlockType} from "./types";
 import type {FeaturePlacement} from "./features";
 
@@ -156,10 +156,10 @@ export function applyStructures(p: FeaturePlacement): void {
             const sy = Number(cell.slice(comma + 1));
             const x = originX + sx;
             const y = baseY + sy;
-            if (x < p.startX || x >= p.startX + CHUNK_SIZE || y < 1 || y >= WORLD_HEIGHT) continue;
+            if (x < p.startX || x >= p.startX + CHUNK_SIZE || y < WORLD_MIN_Y || y > WORLD_MAX_Y) continue;
             const num = p.numFor(id);
             if (!num) continue;
-            p.blocks[(x - p.startX) * WORLD_HEIGHT + y] = num;
+            p.blocks[(x - p.startX) * WORLD_HEIGHT + (y - WORLD_MIN_Y)] = num;
         }
     }
 }

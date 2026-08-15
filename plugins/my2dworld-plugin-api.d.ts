@@ -101,12 +101,21 @@ declare interface RegistryNamespace<T extends RegistryObject> {
 
 /** 本体方块常量。 */
 declare interface CoreBlocksNamespace extends RegistryNamespace<BlockDefinition> {
-    readonly GRASS_BLOCK_SIDE: BlockDefinition;
+    readonly GRASS_BLOCK: BlockDefinition;
+    readonly OAK_LOG: BlockDefinition;
+    readonly OAK_LEAVES: BlockDefinition;
+    readonly SHORT_GRASS: BlockDefinition;
+    readonly POPPY: BlockDefinition;
+    readonly DANDELION: BlockDefinition;
+    readonly SAND: BlockDefinition;
+    readonly SNOW: BlockDefinition;
+    readonly CACTUS: BlockDefinition;
     readonly DIRT: BlockDefinition;
     readonly STONE: BlockDefinition;
     readonly COBBLESTONE: BlockDefinition;
     readonly MOSSY_COBBLESTONE: BlockDefinition;
     readonly BEDROCK: BlockDefinition;
+    readonly DEEPSLATE: BlockDefinition;
     readonly COAL_BLOCK: BlockDefinition;
     readonly IRON_BLOCK: BlockDefinition;
     readonly GOLD_BLOCK: BlockDefinition;
@@ -223,6 +232,37 @@ declare interface PluginFlyContext extends PluginGameContext {
     readonly flying: boolean;
 }
 
+declare interface PluginMobContext extends PluginGameContext {
+    readonly kind: MobKind;
+    readonly x: number;
+    readonly y: number;
+}
+
+declare interface PluginPlayerHurtContext extends PluginGameContext {
+    readonly amount: number;
+    readonly health: number;
+}
+
+/** 实体（mob）类型 id。 */
+declare type MobKind =
+    | "zombie" | "zombie_baby" | "husk" | "husk_baby" | "drowned" | "drowned_baby"
+    | "pig_cold" | "pig_cold_baby" | "pig_temperate" | "pig_temperate_baby" | "pig_warm" | "pig_warm_baby"
+    | "cow_cold" | "cow_temperate" | "cow_warm" | "mooshroom_red" | "mooshroom_brown";
+
+/** 碰撞箱覆盖配置（半宽/高度为方块，centerX/centerY 为相对偏移）。 */
+declare interface HitboxConfig {
+    readonly halfWidth: number;
+    readonly height: number;
+    readonly centerX?: number;
+    readonly centerY?: number;
+}
+
+/** 动画模板家族：覆盖该家族所有 kind 变体。 */
+declare type AnimationFamily = "player" | "zombie" | "cow" | "pig";
+
+/** 动画姿态。 */
+declare type AnimationPose = "idle" | "walk" | "attack";
+
 /** 插件 manifest。 */
 declare interface GamePlugin {
     readonly id: string;
@@ -240,6 +280,7 @@ declare interface PluginApi {
     readonly namespace: string;
     readonly Blocks: BlocksNamespace;
     readonly GameModes: GameModesNamespace;
+    readonly Registries: { readonly blocks: Registry<BlockDefinition>; readonly gameModes: Registry<{ readonly id: GameModeName; readonly label: { readonly zh: string; readonly en: string } }> };
     readonly messages: PlayerMessages;
 
     registerBlock(definition: BlockDefinition): BlockDefinition;
@@ -247,6 +288,18 @@ declare interface PluginApi {
     block(id: BlockType): BlockDefinition;
     id(path: string): BlockType;
     asset(path: string): string;
+
+    /** Overrides the hitbox of a mob kind. Plugin config beats public/hitboxes files. */
+    registerHitbox(kind: MobKind, config: HitboxConfig): void;
+    /** Overrides hitboxes for multiple mob kinds at once. */
+    setHitboxes(configs: Record<string, HitboxConfig>): void;
+    /**
+     * Registers a template animation for an animation family + pose (for example
+     * "cow" + "walk"), overriding the built-in file animation for every kind in
+     * that family. `url` is usually produced by `asset(...)`. Resolves false on
+     * load failure.
+     */
+    registerAnimation(family: AnimationFamily, pose: AnimationPose, url: string): Promise<boolean>;
 
     onWorldCreated(listener: (world: World) => void): void;
     onGameStart(listener: (context: PluginGameContext) => void): void;
@@ -260,4 +313,16 @@ declare interface PluginApi {
     onGameStop(listener: (context: PluginGameContext & { readonly reason: string }) => void): void;
     onSpectateChanged(listener: (context: PluginSpectateContext) => void): void;
     onFlyChanged(listener: (context: PluginFlyContext) => void): void;
+    onMobKilled(listener: (context: PluginMobContext) => void): void;
+    onPlayerHurt(listener: (context: PluginPlayerHurtContext) => void): void;
+}
+
+declare interface Registry<T extends RegistryObject> {
+    readonly values: ReadonlyMap<string, T>;
+    register(value: T): T;
+    get(id: string, defaultNamespace?: string): T | undefined;
+    inNamespace(namespace: string): readonly T[];
+    has(id: string): boolean;
+    list(): readonly T[];
+    id(path: string, namespace?: string): string;
 }

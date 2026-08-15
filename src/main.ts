@@ -1,11 +1,11 @@
 import "./style.css";
 import {type KeyState, Player} from "./core/player";
-import {MobManager, MOB_RENDER_RADIUS} from "./core/entity";
+import {MobManager, MOB_KINDS, MOB_RENDER_RADIUS, type MobKind} from "./core/entity";
 import {storage, type PluginPackage} from "./core/storage";
-import {biomeAt, DEFAULT_BIOME, hashSeed, spawnX, World, WORLD_HEIGHT, type Biome} from "./core/world";
+import {biomeAt, DEFAULT_BIOME, hashSeed, spawnX, World, WORLD_MIN_Y, WORLD_MAX_Y, type Biome} from "./core/world";
 import {clampSpectateOffset} from "./core/spectate";
 import {ParticleSystem} from "./core/particles";
-import {characterParticleTexture, preloadCharacterAnimations, renderCharacter} from "./core/skeleton";
+import {characterParticleTexture, preloadCharacterAnimations, reloadCharacterAnimations, reloadCharacterImages, renderCharacter} from "./core/skeleton";
 import {loadHitboxes} from "./core/hitboxes";
 import {
     DEFAULT_SETTINGS,
@@ -70,10 +70,11 @@ async function refreshPluginReports(): Promise<number> {
     return discovered.length;
 }
 
-async function loadExternalPlugins(): Promise<void> {
+async function loadExternalPlugins(bust = false): Promise<void> {
     for (const packageInfo of await storage.listPlugins()) {
         try {
-            const module = await import(/* @vite-ignore */ packageInfo.entry) as {
+            const specifier = bust ? `${packageInfo.entry}?t=${Date.now()}` : packageInfo.entry;
+            const module = await import(/* @vite-ignore */ specifier) as {
                 default?: GamePlugin;
                 plugin?: GamePlugin
             };
@@ -115,6 +116,7 @@ function toggleLanguage(): void {
     language = language === "zh" ? "en" : "zh";
     settings.language = language;
     storage.saveSettings(settings);
+    document.title = t(language, "window_title");
 }
 
 const text = (zh: string, en: string) => language === "zh" ? zh : en;
@@ -267,6 +269,7 @@ class GameSession {
         this.ctx.imageSmoothingEnabled = false;
         document.body.innerHTML = "";
         document.body.appendChild(this.canvas);
+        this.ensureChatInput();
         this.bindInput();
         this.resize();
         window.addEventListener("resize", this.resize);
@@ -295,6 +298,7 @@ class GameSession {
         this.canvas.width = window.innerWidth;
         this.canvas.height = window.innerHeight;
         this.ctx.imageSmoothingEnabled = false;
+        if (this.chatOpen) this.positionChatInput();
     };
 
     private bindInput(): void {
@@ -522,7 +526,7 @@ class GameSession {
         const [x, y] = this.worldAtMouse();
         const cellX = Math.floor(x);
         const cellY = Math.ceil(y);
-        if (cellY < 1) return null;
+        if (cellY < WORLD_MIN_Y || cellY > WORLD_MAX_Y) return null;
         let target: [number, number];
         const hit = this.world.getBlock(cellX, cellY);
         if (!hit || !hit.solid) {
@@ -532,7 +536,7 @@ class GameSession {
             const relY = y - (cellY - 0.5);
             target = Math.abs(relX) > Math.abs(relY) ? [cellX + (relX >= 0 ? 1 : -1), cellY] : [cellX, cellY + (relY >= 0 ? 1 : -1)];
         }
-        if (target[1] < 1) return null;
+        if (target[1] < WORLD_MIN_Y || target[1] > WORLD_MAX_Y) return null;
         if (this.world.isSolid(target[0], target[1])) return null;
         if (this.mobs.occupies(target[0], target[1])) return null;
         if (!this.inReach(target[0] + 0.5, target[1] - 0.5)) return null;
@@ -554,6 +558,46 @@ class GameSession {
     private chatScroll = 0;
     private suggestionIndex = 0;
     private suggestions: string[] = [];
+    /** Real DOM input overlay for the chat line: enables native selection, IME and copy/paste. */
+    private chatInput: HTMLInputElement | null = null;
+
+    private ensureChatInput(): void {
+        if (this.chatInput && this.chatInput.isConnected) return;
+        if (this.chatInput) this.chatInput.remove();
+        const input = document.createElement("input");
+        input.className = "chat-input";
+        input.autocomplete = "off";
+        input.spellcheck = false;
+        input.addEventListener("input", () => {
+            if (input.value.length > 160) input.value = input.value.slice(0, 160);
+            this.chatText = input.value;
+            this.resetSuggestions();
+        });
+        document.body.appendChild(input);
+        this.chatInput = input;
+    }
+
+    private positionChatInput(): void {
+        if (!this.chatInput) return;
+        this.chatInput.style.left = "14px";
+        this.chatInput.style.top = `${window.innerHeight - 40}px`;
+        this.chatInput.style.width = `${window.innerWidth - 28}px`;
+    }
+
+    private showChatInput(): void {
+        if (!this.chatInput) return;
+        this.positionChatInput();
+        this.chatInput.value = this.chatText;
+        this.chatInput.style.display = "block";
+        this.chatInput.focus();
+        this.chatInput.setSelectionRange(this.chatInput.value.length, this.chatInput.value.length);
+    }
+
+    private hideChatInput(): void {
+        if (!this.chatInput) return;
+        this.chatInput.style.display = "none";
+        this.chatInput.blur();
+    }
 
     private openChat(initial = ""): void {
         this.chatOpen = true;
@@ -564,30 +608,21 @@ class GameSession {
         this.chatHistoryCursor = null;
         this.paused = false;
         this.menu = null;
+        this.showChatInput();
     }
 
+    /**
+     * Chat 输入处理：只拦截特殊键（Enter/Escape/Tab/历史/滚动），其余按键
+     * 交给 DOM 输入框原生处理（因此支持选中、复制粘贴、中文输入法）。
+     */
     private handleChatKey(event: KeyboardEvent): void {
+        if (event.isComposing) return;
         if (event.key === "Escape") {
             this.chatOpen = false;
             this.chatText = "";
             this.chatScroll = 0;
-        } else if (event.key === "Backspace") {
-            this.chatText = this.chatText.slice(0, -1);
-            this.resetSuggestions();
-        } else if (event.key === "Tab") {
-            const suggestions = this.suggestions.length ? this.suggestions : this.getSuggestions();
-            if (suggestions.length) {
-                const suggestion = suggestions[this.suggestionIndex % suggestions.length];
-                this.suggestionIndex += 1;
-                this.suggestions = suggestions;
-                if (suggestion.startsWith("/")) {
-                    this.chatText = suggestion + (["/gamemode", "/debug", "/locate", "/tp"].includes(suggestion) ? " " : "");
-                    this.resetSuggestions();
-                } else {
-                    const prefix = this.chatText.includes(" ") ? this.chatText.slice(0, this.chatText.lastIndexOf(" ")) : this.chatText;
-                    this.chatText = `${prefix} ${suggestion}`;
-                }
-            }
+            this.hideChatInput();
+            event.preventDefault();
         } else if (event.key === "Enter") {
             const input = this.chatText.trim();
             if (input) {
@@ -598,12 +633,38 @@ class GameSession {
             this.chatOpen = false;
             this.chatText = "";
             this.chatHistoryCursor = null;
+            this.hideChatInput();
+            event.preventDefault();
+        } else if (event.key === "Tab") {
+            const suggestions = this.suggestions.length ? this.suggestions : this.getSuggestions();
+            if (suggestions.length) {
+                const suggestion = suggestions[this.suggestionIndex % suggestions.length];
+                this.suggestionIndex += 1;
+                this.suggestions = suggestions;
+                if (suggestion.startsWith("/")) {
+                    this.chatText = suggestion + (["/gamemode", "/debug", "/locate", "/tp", "/summon", "/reload"].includes(suggestion) ? " " : "");
+                    this.resetSuggestions();
+                } else {
+                    const prefix = this.chatText.includes(" ") ? this.chatText.slice(0, this.chatText.lastIndexOf(" ")) : this.chatText;
+                    this.chatText = `${prefix} ${suggestion}`;
+                }
+                if (this.chatInput) {
+                    this.chatInput.value = this.chatText;
+                    this.chatInput.setSelectionRange(this.chatInput.value.length, this.chatInput.value.length);
+                }
+            }
+            event.preventDefault();
         } else if (event.key === "ArrowUp") {
             if (this.chatHistory.length) {
                 this.chatHistoryCursor = this.chatHistoryCursor === null ? this.chatHistory.length - 1 : Math.max(0, this.chatHistoryCursor - 1);
                 this.chatText = this.chatHistory[this.chatHistoryCursor];
                 this.resetSuggestions();
+                if (this.chatInput) {
+                    this.chatInput.value = this.chatText;
+                    this.chatInput.setSelectionRange(this.chatInput.value.length, this.chatInput.value.length);
+                }
             }
+            event.preventDefault();
         } else if (event.key === "ArrowDown") {
             if (this.chatHistoryCursor !== null) {
                 this.chatHistoryCursor += 1;
@@ -612,12 +673,18 @@ class GameSession {
                     this.chatText = "";
                 } else this.chatText = this.chatHistory[this.chatHistoryCursor];
                 this.resetSuggestions();
+                if (this.chatInput) {
+                    this.chatInput.value = this.chatText;
+                    this.chatInput.setSelectionRange(this.chatInput.value.length, this.chatInput.value.length);
+                }
             }
-        } else if (event.key.length === 1 && this.chatText.length < 160) {
-            this.chatText += event.key;
-            this.resetSuggestions();
+            event.preventDefault();
+        } else if (event.key === "PageUp" || event.key === "PageDown") {
+            const maxScroll = Math.max(0, this.chatMessages.length - 9);
+            this.chatScroll = event.key === "PageUp" ? Math.max(0, this.chatScroll + 9) : Math.min(maxScroll, this.chatScroll - 9);
+            event.preventDefault();
         }
-        event.preventDefault();
+        // 其余按键不拦截：交给原生输入（input 事件会把值同步回 chatText）。
     }
 
     private async submitChat(input: string): Promise<void> {
@@ -671,9 +738,73 @@ class GameSession {
         } else if (command === "tp" && Number.isFinite(Number(parts[1]))) {
             const x = Math.floor(Number(parts[1])) + 0.5;
             this.teleportTo(x, Number.isFinite(Number(parts[2])) ? Number(parts[2]) : undefined);
+        } else if (command === "summon") {
+            const kind = (parts[1] ?? "").toLowerCase() as MobKind;
+            if (!(kind in MOB_KINDS)) this.addChat(`${text("未知实体", "Unknown entity")} "${parts[1] ?? ""}". ${text("实体列表", "Entities")}: ${Object.keys(MOB_KINDS).join(", ")}`);
+            else {
+                let x = this.player.x + this.player.facing * 1.5;
+                let y = this.player.y;
+                if (Number.isFinite(Number(parts[2]))) x = Number(parts[2]);
+                if (Number.isFinite(Number(parts[3]))) y = Number(parts[3]);
+                this.mobs.summon(kind, x, y);
+                this.addChat(`${text("召唤", "Summoned")} ${kind} @ ${x.toFixed(1)}, ${y.toFixed(1)}`);
+            }
         } else if (command === "structure") {
             await this.handleStructureCommand(parts);
+        } else if (command === "reload") {
+            await this.handleReloadCommand(parts);
         } else this.addChat("Unknown or invalid command");
+    }
+
+    /**
+     * /reload [images | animations | hitboxes | plugins | all] — 就地刷新资源与配置，
+     * 无需重开页面。默认全部重载。
+     */
+    private async handleReloadCommand(parts: string[]): Promise<void> {
+        const part = (parts[1] ?? "all").toLowerCase();
+        if (!["images", "animations", "hitboxes", "plugins", "all"].includes(part)) {
+            this.addChat(`${text("未知的重载目标", "Unknown reload target")}. ${text("目标", "Targets")}: images, animations, hitboxes, plugins, all`);
+            return;
+        }
+        const reloaded: string[] = [];
+        if (part === "images" || part === "all") {
+            this.blockImages.clear();
+            this.biomeImages.clear();
+            this.guiImages.clear();
+            [...new Set([...blockRegistry.list().map((block) => block.id), ...plugins.blocks.keys()].filter((type): type is string => type !== null))].forEach((type) => this.loadBlock(type, true));
+            this.loadGui("mode_creative", "/assets/gui/gamemode/creative.png", true);
+            this.loadGui("mode_spectator", "/assets/gui/gamemode/spectator.png", true);
+            this.loadGui("mouse", "/assets/gui/mouse/mouse.png", true);
+            this.loadGui("mouse_left_broke", "/assets/gui/mouse/mouse_left_broke.png", true);
+            this.loadGui("mouse_right_place_and_move", "/assets/gui/mouse/mouse_right_place_and_move.png", true);
+            this.loadGui("move_fly", "/assets/gui/movemode/creative_fly.png", true);
+            this.loadGui("move_walk", "/assets/gui/movemode/creative_walk.png", true);
+            reloadCharacterImages();
+            reloaded.push("images");
+        }
+        if (part === "animations" || part === "all") {
+            await reloadCharacterAnimations();
+            reloaded.push("animations");
+        }
+        if (part === "hitboxes" || part === "all") {
+            await loadHitboxes();
+            this.mobs.refreshHitboxes();
+            reloaded.push("hitboxes");
+        }
+        if (part === "plugins" || part === "all") {
+            await this.reloadPlugins();
+            reloaded.push("plugins");
+        }
+        this.addChat(`${text("重载完成", "Reloaded")}: ${reloaded.join(", ")}`);
+    }
+
+    /** 卸载全部插件后重新安装（带缓存爆破），并刷新新增插件的方块贴图。 */
+    private async reloadPlugins(): Promise<void> {
+        plugins.unregisterAll();
+        pluginReports.length = 0;
+        await loadExternalPlugins(true);
+        [...plugins.blocks.keys()].forEach((type) => this.loadBlock(type, true));
+        storage.log("Plugins reloaded", {count: plugins.plugins.size});
     }
 
     /** /structure export|load|list|delete — save/place custom structures.
@@ -852,14 +983,16 @@ class GameSession {
         const body = this.chatText.slice(1);
         const parts = body.split(/\s+/);
         const trailing = body.endsWith(" ");
-        const commands = ["gamemode", "speed", "movespeed", "debug", "seed", "locate", "tp", "structure"];
+        const commands = ["gamemode", "speed", "movespeed", "debug", "seed", "locate", "tp", "summon", "structure", "reload"];
         if (!parts[0]) return commands.map((command) => `/${command}`);
         if (parts.length === 1 && !trailing) return commands.filter((command) => command.startsWith(parts[0].toLowerCase())).map((command) => `/${command}`);
         const args: Record<string, string[]> = {
             gamemode: ["creative", "spectator"],
             debug: ["on", "off", "true", "false"],
             locate: LOCATABLE_BIOMES,
+            summon: Object.keys(MOB_KINDS),
             structure: ["export", "load", "list", "delete"],
+            reload: ["images", "animations", "hitboxes", "plugins", "all"],
         };
         const prefix = trailing ? "" : parts.at(-1)?.toLowerCase() || "";
         return (args[parts[0].toLowerCase()] || []).filter((argument) => argument.startsWith(prefix));
@@ -974,7 +1107,7 @@ class GameSession {
     };
 
     private updateVoid(dt: number): void {
-        if (this.modeName !== "creative" || this.player.y >= -10) {
+        if (this.modeName !== "creative" || this.player.y >= WORLD_MIN_Y - 2) {
             this.voidDamageTimer = 0;
             return;
         }
@@ -1010,7 +1143,7 @@ class GameSession {
         }
     }
 
-    private loadBlock(type: string): void {
+    private loadBlock(type: string, bust = false): void {
         const image = new Image();
         image.onload = () => this.biomeImages.clear();
         image.onerror = () => {
@@ -1028,7 +1161,8 @@ class GameSession {
         };
         const block = blockRegistry.get(type);
         const texture = block?.texture || block?.path || type;
-        image.src = texture.startsWith("/") ? texture : `/assets/block/${texture}.png`;
+        const src = texture.startsWith("/") ? texture : `/assets/block/${texture}.png`;
+        image.src = bust ? `${src}?t=${Date.now()}` : src;
         this.blockImages.set(type, image);
     }
 
@@ -1116,9 +1250,9 @@ class GameSession {
         return canvas;
     }
 
-    private loadGui(key: string, src: string): void {
+    private loadGui(key: string, src: string, bust = false): void {
         const image = new Image();
-        image.src = src;
+        image.src = bust ? `${src}?t=${Date.now()}` : src;
         this.guiImages.set(key, image);
     }
 
@@ -1317,11 +1451,11 @@ class GameSession {
         ctx.fillRect(0, 0, width, height);
         const left = Math.floor(cameraX - width / this.blockSize / 2 - 1);
         const right = Math.ceil(cameraX + width / this.blockSize / 2 + 1);
-        const bottom = Math.max(1, Math.floor(cameraY - height / this.blockSize / 2 - 1));
+        const bottom = Math.max(WORLD_MIN_Y, Math.floor(cameraY - height / this.blockSize / 2 - 1));
         const top = Math.ceil(cameraY + height / this.blockSize / 2 + 1);
         for (const [chunkX, chunk] of this.world.chunks) {
             if (chunkX * 16 > right || (chunkX + 1) * 16 < left) continue;
-            for (let x = Math.max(left, chunk.start); x < Math.min(right, chunk.start + 16); x += 1) for (let y = bottom; y <= Math.min(top, WORLD_HEIGHT - 1); y += 1) {
+            for (let x = Math.max(left, chunk.start); x < Math.min(right, chunk.start + 16); x += 1) for (let y = bottom; y <= Math.min(top, WORLD_MAX_Y); y += 1) {
                 const id = this.world.getBlockId(x, y);
                 if (!id) continue;
                 const sx = Math.round((x - cameraX) * this.blockSize + width / 2);
@@ -1486,7 +1620,7 @@ class GameSession {
         drawBox(toScreenX(this.player.x - this.player.halfWidth), toScreenY(this.player.y + this.player.height), this.player.halfWidth * 2 * bs, this.player.height * bs, "#ffe94d");
         // 生物碰撞箱
         for (const mob of this.mobs.mobsNear(this.player, MOB_RENDER_RADIUS)) {
-            drawBox(toScreenX(mob.x - mob.halfWidth), toScreenY(mob.y + mob.height), mob.halfWidth * 2 * bs, mob.height * bs, "#ff4d4d");
+            drawBox(toScreenX(mob.hitboxLeft), toScreenY(mob.hitboxTop), (mob.hitboxRight - mob.hitboxLeft) * bs, (mob.hitboxTop - mob.hitboxBottom) * bs, "#ff4d4d");
         }
     }
 
@@ -1643,12 +1777,7 @@ class GameSession {
             ctx.fillRect(14, height - 40, width - 28, 30);
             ctx.strokeStyle = "#d8e4df";
             ctx.strokeRect(14, height - 40, width - 28, 30);
-            ctx.fillStyle = "#fff";
-            ctx.fillText(this.chatText, 24, height - 20);
-            if (Math.floor(performance.now() / 500) % 2 === 0) {
-                ctx.fillStyle = "#fff";
-                ctx.fillRect(24 + ctx.measureText(this.chatText).width + 3, height - 35, 2, 16);
-            }
+            // 输入文本与光标由叠加的 DOM 输入框渲染（支持选中/复制/粘贴/输入法）。
         }
         if (this.noticeTimer > 0) {
             ctx.font = "600 16px Manrope";
@@ -1738,7 +1867,7 @@ class GameSession {
         ctx.strokeRect(x, y, boxW, boxH);
         ctx.fillStyle = "#f8f4e7";
         ctx.textAlign = "center";
-        ctx.font = "700 30px Georgia";
+        ctx.font = "700 30px 'LXGW WenKai', Manrope";
         const title = bindingMode ? t(language, "settings_keybindings") : this.menu === "settings" ? t(language, "settings_title") : this.menu === "display" ? t(language, "settings_display") : this.menu === "plugins" ? t(language, "plugins_title") : t(language, "pause_title");
         ctx.fillText(title, width / 2, y + 54);
         ctx.font = "14px 'LXGW WenKai', Manrope";
@@ -1929,6 +2058,7 @@ document.addEventListener("keydown", (event) => {
 async function boot(): Promise<void> {
     settings = await storage.loadSettings();
     language = settings.language;
+    document.title = t(language, "window_title");
     await loadExternalPlugins();
     renderLogin();
 }

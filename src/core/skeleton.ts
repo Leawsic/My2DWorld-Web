@@ -1,10 +1,13 @@
 import {MOB_KINDS, type MobKind} from "./entity";
 import {Animation} from "./anim";
-import {loadCharacterAnimations} from "./animations";
+import {loadCharacterAnimations, loadAnimationUrl} from "./animations";
 import {hitboxFor, isHitboxesLoaded} from "./hitboxes";
 
 export type CharacterKind = "player" | MobKind;
 export type CharacterPose = "idle" | "walk" | "attack";
+/** 动画模板家族：插件按家族+姿态注册，覆盖该家族所有变体。 */
+export type AnimationFamily = "player" | "zombie" | "cow" | "pig";
+export type AnimationPose = CharacterPose;
 
 export interface CharacterRenderOptions {
     kind: CharacterKind;
@@ -27,6 +30,8 @@ const particleTextures = new Map<CharacterKind, HTMLCanvasElement>();
 
 /** 预加载的模板动画，key 为 `<家族>/<姿态>`（如 `cow/stand`、`player/walk`）。 */
 const characterAnims = new Map<string, Animation>();
+/** 插件注册的模板动画（家族+姿态），优先级高于文件动画，不会被文件预加载清空。 */
+const pluginAnims = new Map<string, Animation>();
 /** 按 kind+姿态缓存的变体动画（由模板经骨架变体纹理替换生成）。 */
 const variantAnims = new Map<string, Animation>();
 let preloadPromise: Promise<void> | null = null;
@@ -79,6 +84,55 @@ export function preloadCharacterAnimations(manifest: string[]): Promise<void> {
         for (const [key, animation] of loaded) characterAnims.set(key, animation);
     });
     return preloadPromise;
+}
+
+/**
+ * 插件注册一个家族的姿态动画（覆盖同家族所有 kind 变体）。
+ * `url` 通常是 `api.asset()` 生成的插件内资源地址。加载失败返回 false。
+ */
+export async function registerPluginAnimation(family: AnimationFamily, pose: AnimationPose, url: string): Promise<boolean> {
+    const separator = url.includes("?") ? "&" : "?";
+    const animation = await loadAnimationUrl(`${url}${separator}t=${Date.now()}`);
+    if (!animation) return false;
+    pluginAnims.set(`${family}/${pose}`, animation);
+    return true;
+}
+
+/** 清空插件注册的动画（重载扩展时使用）。 */
+export function clearPluginAnimations(): void {
+    pluginAnims.clear();
+}
+
+/** 清空文件动画、变体缓存、缩放缓存与预加载状态（重载动画/图片时使用）。插件动画保留。 */
+export function clearCharacterAnimationState(): void {
+    characterAnims.clear();
+    variantAnims.clear();
+    scaleCache.clear();
+    preloadPromise = null;
+}
+
+/** 重新从 /api/animations 清单加载文件动画并重建相关缓存。 */
+export async function reloadCharacterAnimations(): Promise<void> {
+    clearCharacterAnimationState();
+    try {
+        const res = await fetch("/api/animations");
+        if (res.ok) {
+            const data = (await res.json()) as {animations?: string[]};
+            await preloadCharacterAnimations(data.animations ?? []);
+        }
+    } catch {
+        // 重载失败：保持内置骨架渲染
+    }
+}
+
+/** 清空骨架部件贴图缓存（角色 PNG 与死亡粒子纹理），下次渲染时重新请求。 */
+export function reloadCharacterImages(): void {
+    images.clear();
+    particleTextures.clear();
+    variantAnims.clear();
+    scaleCache.clear();
+    for (const animation of characterAnims.values()) animation.invalidateImages?.();
+    for (const animation of pluginAnims.values()) animation.invalidateImages?.();
 }
 
 function assetFor(kind: CharacterKind): string {
@@ -204,10 +258,14 @@ function renderQuadruped(ctx: CanvasRenderingContext2D, kind: CharacterKind, opt
     drawPart(ctx, feet, foreX, footY, 0.5, 0, -swing, brightness, opt.tint, opt.tintAmount);
 }
 
-/** 取角色动画：按家族+姿态查找模板，再按 kind 替换骨架变体纹理并缓存；没有文件则为 null（用内置骨架）。 */
+/** 取角色动画：优先插件注册的家族动画（不替换变体），否则按家族+姿态查找文件模板并按 kind 替换变体纹理并缓存；都没有则用内置骨架。 */
 function animationFor(kind: CharacterKind, pose: CharacterPose): Animation | null {
     const family = familyOf(kind);
     if (!family) return null;
+    for (const key of [pose, ...FALLBACK_POSES]) {
+        const plugin = pluginAnims.get(`${family}/${key}`);
+        if (plugin) return plugin;
+    }
     let template: Animation | null = null;
     let usedPose: string = pose;
     for (const key of [pose, ...FALLBACK_POSES]) {

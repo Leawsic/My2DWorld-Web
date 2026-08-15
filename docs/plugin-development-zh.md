@@ -142,6 +142,8 @@ const crystal = api.registerBlock({
 | `onGameStop(listener)` | 返回世界列表或浏览器页面卸载前。 |
 | `onSpectateChanged(listener)` | 创造模式按 `F7` 切换灵魂出窍时。 |
 | `onFlyChanged(listener)` | 玩家飞行状态变化时（双击 `Space` 切换、坠入虚空重生等）。 |
+| `onMobKilled(listener)` | 任意怪物死亡（含被破坏方块击杀、坠出世界）时。 |
+| `onPlayerHurt(listener)` | 玩家被怪物攻击扣血时。 |
 
 除 `onWorldCreated` 外，生命周期回调都会收到游戏上下文：
 
@@ -159,7 +161,31 @@ api.onGameTick((context) => {
 });
 ```
 
-方块事件额外提供 `x`、`y` 和 `type`。模式切换事件额外提供 `previousMode` 和切换后的 `mode`。游戏停止事件额外提供 `reason`，当前可能值为 `world-list` 或 `browser-unload`。灵魂出窍事件额外提供切换后的 `spectate` 布尔值；飞行事件额外提供切换后的 `flying` 布尔值。
+方块事件额外提供 `x`、`y` 和 `type`。模式切换事件额外提供 `previousMode` 和切换后的 `mode`。游戏停止事件额外提供 `reason`，当前可能值为 `world-list` 或 `browser-unload`。灵魂出窍事件额外提供切换后的 `spectate` 布尔值；飞行事件额外提供切换后的 `flying` 布尔值；怪物死亡事件额外提供 `kind`、`x`、`y`；玩家受伤事件额外提供 `amount` 和扣血后的 `health`。
+
+## 碰撞箱与动画覆盖
+
+插件可以运行时覆盖怪物碰撞箱和替换某动物家族（`player | zombie | cow | pig`）的动画，优先级高于 `public/hitboxes` 和 `public/animations` 的文件配置。
+
+```js
+install(api) {
+  // 覆盖单个 kind 的碰撞箱：半宽/高度为方块，centerX/centerY 为偏移
+  api.registerHitbox("zombie_baby", { halfWidth: 0.3, height: 0.8, centerX: 0, centerY: 0.1 });
+
+  // 或一次注册多个
+  api.setHitboxes({
+    pig_temperate: { halfWidth: 0.9, height: 0.95 },
+    cow_temperate: { halfWidth: 0.8, height: 1.25 }
+  });
+
+  // 注册家族动画：覆盖 cow 家族所有 kind（cow_cold/cow_warm/...）的 walk 姿态
+  api.registerAnimation("cow", "walk", api.asset("animations/cow.walk.myanim"));
+}
+```
+
+`registerAnimation` 是异步的，返回 `Promise<boolean>`，加载失败时为 `false`（不阻断插件安装）。`.myanim` 格式与 `public/animations` 下的内置文件相同，图片路径相对动画文件所在目录解析。
+
+`/reload hitboxes` 会重新读取文件配置并刷新已存在实体的碰撞箱；`/reload animations` 重新拉取文件动画清单；`/reload plugins` 会清空全部插件注册的碰撞箱和动画覆盖后重新安装。
 
 ## 生命周期示例
 
@@ -278,7 +304,7 @@ const surfaceY = world.getSurfaceHeight(x);
 world.updateView(cameraX);
 ```
 
-`placeBlock()` 在目标位置已有方块、`y < 1` 或超出世界高度时会返回 `false`。不应直接修改 `chunks`、`dirty` 或 `editedChunks`，这些字段属于核心世界状态，直接修改可能破坏区块加载和存档语义。
+`placeBlock()` 在目标位置已有方块、`y < -64` 或超出建造高度上限 `319`（世界高度 `Y=-64` 到 `Y=320`）时会返回 `false`。不应直接修改 `chunks`、`dirty` 或 `editedChunks`，这些字段属于核心世界状态，直接修改可能破坏区块加载和存档语义。
 
 ## 日志和调试
 
@@ -290,7 +316,7 @@ world.updateView(cameraX);
 
 - 只支持 `plugins/<插件ID>/` 目录包和浏览器 ESM `.mjs` 入口，不支持 CommonJS、TypeScript 源文件或目录包的递归发现。`.jar` 风格压缩包仍在后续扩展范围内。
 - 插件没有依赖解析、启用/禁用配置、权限控制、签名或沙箱。
-- 插件不能当前版本中自定义游戏模式、命令、用户界面、实体 AI、合成配方或网络逻辑。
+- 插件不能当前版本中自定义游戏模式、命令、用户界面、实体 AI、合成配方或网络逻辑。实体碰撞箱和家族动画可通过 `api.registerHitbox` / `api.registerAnimation` 覆盖。
 - 注册的方块不会自动加入快捷栏或程序化地形。
 - 插件 API 的运行时实现在 `src/plugins/api.ts`；外部插件的 IDE 类型定义位于 `plugins/my2dworld-plugin-api.d.ts`，通过文件顶部的 reference 指令接入。
 

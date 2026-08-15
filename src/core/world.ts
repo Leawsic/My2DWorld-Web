@@ -24,8 +24,8 @@ export const POPPY = Blocks.MY2DWORLD.POPPY.id;
 export const DANDELION = Blocks.MY2DWORLD.DANDELION.id;
 export const CACTUS = Blocks.MY2DWORLD.CACTUS.id;
 
-/** Rock type below this depth becomes deepslate (aligned with 1.18). */
-const DEEPSLATE_TOP = 12;
+/** Rock type below this depth becomes deepslate (aligned with 1.18: stone above y=0, deepslate below). */
+const DEEPSLATE_TOP = 0;
 /** Vertical band over which stone and deepslate blend. */
 const DEEPSLATE_BAND = 4;
 
@@ -49,14 +49,14 @@ interface OreVein {
 }
 
 const ORE_VEINS: readonly OreVein[] = [
-    {type: Blocks.MY2DWORLD.COAL_ORE.id, deep: Blocks.MY2DWORLD.DEEPSLATE_COAL_ORE.id, minY: 4, maxY: 80, space: 16, chance: 0.45, radius: 1.9, mix: 0x111},
-    {type: Blocks.MY2DWORLD.IRON_ORE.id, deep: Blocks.MY2DWORLD.DEEPSLATE_IRON_ORE.id, minY: 4, maxY: 64, space: 18, chance: 0.33, radius: 1.8, mix: 0x222},
-    {type: Blocks.MY2DWORLD.COPPER_ORE.id, deep: Blocks.MY2DWORLD.DEEPSLATE_COPPER_ORE.id, minY: 4, maxY: 48, space: 18, chance: 0.3, radius: 1.7, mix: 0x333},
-    {type: Blocks.MY2DWORLD.GOLD_ORE.id, deep: Blocks.MY2DWORLD.DEEPSLATE_GOLD_ORE.id, minY: 1, maxY: 32, space: 22, chance: 0.25, radius: 1.6, mix: 0x444},
-    {type: Blocks.MY2DWORLD.REDSTONE_ORE.id, deep: Blocks.MY2DWORLD.DEEPSLATE_REDSTONE_ORE.id, minY: 1, maxY: 16, space: 22, chance: 0.28, radius: 1.5, mix: 0x555},
-    {type: Blocks.MY2DWORLD.LAPIS_ORE.id, deep: Blocks.MY2DWORLD.DEEPSLATE_LAPIS_ORE.id, minY: 1, maxY: 24, space: 24, chance: 0.26, radius: 1.6, mix: 0x666},
-    {type: Blocks.MY2DWORLD.DIAMOND_ORE.id, deep: Blocks.MY2DWORLD.DEEPSLATE_DIAMOND_ORE.id, minY: 1, maxY: 12, space: 26, chance: 0.22, radius: 1.5, mix: 0x777},
-    {type: Blocks.MY2DWORLD.EMERALD_ORE.id, deep: Blocks.MY2DWORLD.DEEPSLATE_EMERALD_ORE.id, minY: 1, maxY: 10, space: 28, chance: 0.2, radius: 1.4, mix: 0x888},
+    {type: Blocks.MY2DWORLD.COAL_ORE.id, deep: Blocks.MY2DWORLD.DEEPSLATE_COAL_ORE.id, minY: 8, maxY: 160, space: 16, chance: 0.45, radius: 1.9, mix: 0x111},
+    {type: Blocks.MY2DWORLD.IRON_ORE.id, deep: Blocks.MY2DWORLD.DEEPSLATE_IRON_ORE.id, minY: -16, maxY: 128, space: 18, chance: 0.33, radius: 1.8, mix: 0x222},
+    {type: Blocks.MY2DWORLD.COPPER_ORE.id, deep: Blocks.MY2DWORLD.DEEPSLATE_COPPER_ORE.id, minY: -32, maxY: 96, space: 18, chance: 0.3, radius: 1.7, mix: 0x333},
+    {type: Blocks.MY2DWORLD.GOLD_ORE.id, deep: Blocks.MY2DWORLD.DEEPSLATE_GOLD_ORE.id, minY: -64, maxY: 48, space: 22, chance: 0.25, radius: 1.6, mix: 0x444},
+    {type: Blocks.MY2DWORLD.REDSTONE_ORE.id, deep: Blocks.MY2DWORLD.DEEPSLATE_REDSTONE_ORE.id, minY: -64, maxY: 32, space: 22, chance: 0.28, radius: 1.5, mix: 0x555},
+    {type: Blocks.MY2DWORLD.LAPIS_ORE.id, deep: Blocks.MY2DWORLD.DEEPSLATE_LAPIS_ORE.id, minY: -64, maxY: 48, space: 24, chance: 0.26, radius: 1.6, mix: 0x666},
+    {type: Blocks.MY2DWORLD.DIAMOND_ORE.id, deep: Blocks.MY2DWORLD.DEEPSLATE_DIAMOND_ORE.id, minY: -64, maxY: 24, space: 26, chance: 0.22, radius: 1.5, mix: 0x777},
+    {type: Blocks.MY2DWORLD.EMERALD_ORE.id, deep: Blocks.MY2DWORLD.DEEPSLATE_EMERALD_ORE.id, minY: -32, maxY: 16, space: 28, chance: 0.2, radius: 1.4, mix: 0x888},
 ];
 
 /** A surface generation profile shared by terrain height and block filling. */
@@ -79,7 +79,7 @@ export interface Biome {
 }
 
 const PLAINS: Biome = {
-    id: "plains", base: 46, amplitude: 7, detail: 2.5,
+    id: "plains", base: 68, amplitude: 7, detail: 3,
     surface: GRASS, surfaceDepth: 1, subSurface: DIRT, subDepth: 4,
     stone: STONE, stoneVariant: COBBLESTONE, variantChance: 0.15,
     grass: "#82c34d", foliage: "#5a9424",
@@ -89,32 +89,35 @@ const PLAINS: Biome = {
 export const DEFAULT_BIOME: Biome = PLAINS;
 
 const FOREST: Biome = {
-    id: "forest", base: 46, amplitude: 6, detail: 3,
+    id: "forest", base: 66, amplitude: 7, detail: 3,
     surface: GRASS, surfaceDepth: 1, subSurface: DIRT, subDepth: 4,
     stone: STONE, stoneVariant: MOSSY_COBBLESTONE, variantChance: 0.2,
     grass: "#5d9e33", foliage: "#3d8a1f",
 };
 
 const DESERT: Biome = {
-    id: "desert", base: 44, amplitude: 6, detail: 3.5,
+    id: "desert", base: 68, amplitude: 6, detail: 3.5,
     surface: SAND, surfaceDepth: 3, subSurface: SAND, subDepth: 4,
     stone: STONE, stoneVariant: COBBLESTONE, variantChance: 0.12,
     grass: "#c7b56f", foliage: "#8a9a4f",
 };
 
 const SNOWY: Biome = {
-    id: "snowy", base: 46, amplitude: 7, detail: 2.5,
+    id: "snowy", base: 88, amplitude: 9, detail: 4,
     surface: SNOW, surfaceDepth: 1, subSurface: GRASS, subDepth: 2,
     stone: STONE, stoneVariant: COBBLESTONE, variantChance: 0.1,
     grass: "#9db98a", foliage: "#8aab77",
 };
 
 const MOUNTAINS: Biome = {
-    id: "mountains", base: 50, amplitude: 18, detail: 5,
+    id: "mountains", base: 132, amplitude: 55, detail: 10,
     surface: GRASS, surfaceDepth: 1, subSurface: STONE, subDepth: 2,
     stone: STONE, stoneVariant: MOSSY_COBBLESTONE, variantChance: 0.3,
     grass: "#6daa3c", foliage: "#4f8324",
 };
+
+/** Snow caps mountain peaks above this elevation. */
+const SNOW_LINE = 148;
 
 /** Low-frequency temperature/humidity field that drives biome selection. */
 interface Climate {
@@ -144,11 +147,21 @@ export function biomeAt(x: number, seed = 0): Biome {
     return hum < HUMIDITY_SPLIT ? PLAINS : FOREST;
 }
 
-export const WORLD_HEIGHT = 128;
+/** Bottom of the world: the bedrock floor sits at Y=-64. */
+export const WORLD_MIN_Y = -64;
+/** Highest placeable block row (build limit is 320, so the top block is Y=319). */
+export const WORLD_MAX_Y = 319;
+/** Total block rows, indexed as `y - WORLD_MIN_Y`. */
+export const WORLD_HEIGHT = WORLD_MAX_Y - WORLD_MIN_Y + 1;
+
+/** Converts a world y to a column offset (for `localX * WORLD_HEIGHT + col`). */
+function columnOf(y: number): number {
+    return y - WORLD_MIN_Y;
+}
 
 export class Chunk {
     readonly start: number;
-    /** Column-major numeric block ids: index = localX * WORLD_HEIGHT + y; air = 0. */
+    /** Column-major numeric block ids: index = localX * WORLD_HEIGHT + (y - WORLD_MIN_Y); air = 0. */
     readonly blocks = new Uint16Array(CHUNK_SIZE * WORLD_HEIGHT);
     readonly surfaces = new Int16Array(CHUNK_SIZE);
 
@@ -159,9 +172,9 @@ export class Chunk {
             const surface = terrainHeight(worldX, seed);
             this.surfaces[local] = surface;
             const column = local * WORLD_HEIGHT;
-            for (let y = 1; y <= surface; y += 1) {
+            for (let y = WORLD_MIN_Y; y <= surface; y += 1) {
                 const type = generatedBlock(worldX, y, surface, seed);
-                if (type) this.blocks[column + y] = numFor(type);
+                if (type) this.blocks[column + columnOf(y)] = numFor(type);
             }
         }
         applyFeatures({
@@ -185,11 +198,11 @@ export class Chunk {
     }
 
     blockAt(localX: number, y: number): number {
-        return this.blocks[localX * WORLD_HEIGHT + y];
+        return this.blocks[localX * WORLD_HEIGHT + columnOf(y)];
     }
 
     setBlock(localX: number, y: number, num: number): void {
-        this.blocks[localX * WORLD_HEIGHT + y] = num;
+        this.blocks[localX * WORLD_HEIGHT + columnOf(y)] = num;
     }
 
     encode(): string {
@@ -291,13 +304,13 @@ function stoneOrDeepslate(x: number, y: number, seed: number): BlockType {
 }
 
 function generatedBlock(x: number, y: number, surface: number, seed = 0): BlockType | null {
-    if (y <= 0) return null;
-    if (y <= BEDROCK_THICKNESS) return BEDROCK;
+    if (y <= WORLD_MIN_Y + BEDROCK_THICKNESS) return BEDROCK;
     const biome = biomeAt(x, seed);
     const depth = surface - y;
-    if (depth === 0) return biome.surface;
-    if (depth <= biome.surfaceDepth) return biome.surface;
-    if (depth <= biome.surfaceDepth + biome.subDepth) return biome.subSurface;
+    const snowyCap = biome.id === "mountains" && y >= SNOW_LINE;
+    if (depth === 0) return snowyCap ? SNOW : biome.surface;
+    if (depth <= biome.surfaceDepth) return snowyCap ? SNOW : biome.surface;
+    if (depth <= biome.surfaceDepth + biome.subDepth) return snowyCap ? SNOW : biome.subSurface;
     if (isCave(x, y, seed)) return null;
     const base = stoneOrDeepslate(x, y, seed);
     const ore = oreAt(x, y, seed, base === DEEPSLATE);
@@ -372,7 +385,7 @@ export class World {
 
     getBlockId(x: number, y: number): BlockType | null {
         const chunk = this.chunks.get(Math.floor(x / CHUNK_SIZE));
-        if (!chunk || y < 1 || y >= WORLD_HEIGHT) return null;
+        if (!chunk || y < WORLD_MIN_Y || y > WORLD_MAX_Y) return null;
         const num = chunk.blockAt(x - chunk.start, y);
         return num ? this.typeFor(num) : null;
     }
@@ -395,13 +408,13 @@ export class World {
     }
 
     placeBlock(x: number, y: number, type: BlockType | Block): boolean {
-        if (y < 1 || y >= WORLD_HEIGHT || this.getBlock(x, y)) return false;
+        if (y < WORLD_MIN_Y || y > WORLD_MAX_Y || this.getBlock(x, y)) return false;
         return this.setBlock(x, y, type);
     }
 
     /** Places or replaces a block in any loaded chunk (used by structure loading). */
     setBlock(x: number, y: number, type: BlockType | Block): boolean {
-        if (y < 1 || y >= WORLD_HEIGHT) return false;
+        if (y < WORLD_MIN_Y || y > WORLD_MAX_Y) return false;
         const id = typeof type === "string" ? type : type.id;
         const num = this.typeToNum.get(id);
         if (!num) return false;

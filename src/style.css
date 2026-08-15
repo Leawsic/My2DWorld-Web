@@ -68,7 +68,7 @@ button {
 .brand small {
     display: block;
     margin-top: 30px;
-    font: 500 13px 'DM Mono', monospace;
+    font: 500 13px 'LXGW WenKai', Manrope, sans-serif;
     letter-spacing: .16em;
     color: #9eb6b0;
     text-transform: uppercase;
@@ -179,7 +179,8 @@ input, select {
     padding: 0;
     color: #9fb5b2;
     background: none;
-    font: 12px 'DM Mono', monospace;
+    font-size: 12px;
+    font-family: inherit;
 }
 
 .login-tools button:hover, .top-actions button:hover {
@@ -379,4 +380,21 @@ input, select {
     .actions .button {
         flex: 1;
     }
+}
+
+/* Chat input overlay: a real DOM input on top of the canvas chat line, so the
+   player can select text, copy/paste and type with an IME. */
+.chat-input {
+    position: fixed;
+    z-index: 40;
+    display: none;
+    box-sizing: border-box;
+    background: transparent;
+    border: none;
+    outline: none;
+    padding: 8px 12px;
+    font: 13px ui-monospace, 'LXGW WenKai', monospace;
+    color: #fff;
+    caret-color: #fff;
+    text-shadow: 0 0 2px rgba(0, 0, 0, .8);
 }

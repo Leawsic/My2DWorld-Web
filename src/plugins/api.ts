@@ -4,9 +4,15 @@ import type {Player} from "../core/player";
 import type {World} from "../core/world";
 import type {WorldMeta} from "../core/types";
 import type {MobKind} from "../core/entity";
-import {blockRegistry, Blocks, GameModes, Registries} from "../core/registry";
+import {blockRegistry, Blocks, CORE_NAMESPACE, GameModes, Registries} from "../core/registry";
+import type {HitboxConfig} from "../core/hitboxes";
+import {clearPluginHitboxes, registerHitbox as registerHitboxOverride, setHitboxes as setHitboxOverrides} from "../core/hitboxes";
+import type {AnimationFamily, AnimationPose} from "../core/skeleton";
+import {clearPluginAnimations, registerPluginAnimation} from "../core/skeleton";
 
 export type {Block, BlockDefinition};
+export type {HitboxConfig};
+export type {AnimationFamily, AnimationPose};
 
 export interface GamePlugin {
     id: string;
@@ -101,6 +107,20 @@ export interface PluginApi {
     /** Resolves a file contained in this plugin package. */
     asset(path: string): string;
 
+    /** Overrides the hitbox of a mob kind. Plugin config beats public/hitboxes files. */
+    registerHitbox(kind: MobKind, config: HitboxConfig): void;
+
+    /** Overrides hitboxes for multiple mob kinds at once. */
+    setHitboxes(configs: Record<string, HitboxConfig>): void;
+
+    /**
+     * Registers a template animation for an animation family + pose (for example
+     * "cow" + "walk"), overriding the built-in file animation for every kind in
+     * that family. `url` is usually produced by `asset(...)`. Resolves false on
+     * load failure.
+     */
+    registerAnimation(family: AnimationFamily, pose: AnimationPose, url: string): Promise<boolean>;
+
     onWorldCreated(listener: (world: World) => void): void;
 
     onGameStart(listener: (context: PluginGameContext) => void): void;
@@ -189,6 +209,36 @@ export class PluginRegistry implements PluginApi {
         return `/plugins/${encodeURIComponent(namespace)}/${clean.split("/").map(encodeURIComponent).join("/")}`;
     }
 
+    registerHitbox(kind: MobKind, config: HitboxConfig): void {
+        registerHitboxOverride(kind, config);
+    }
+
+    setHitboxes(configs: Record<string, HitboxConfig>): void {
+        setHitboxOverrides(configs);
+    }
+
+    async registerAnimation(family: AnimationFamily, pose: AnimationPose, url: string): Promise<boolean> {
+        return registerPluginAnimation(family, pose, url);
+    }
+
+    /**
+     * Uninstalls every plugin and clears all plugin-owned state (blocks,
+     * listeners, hitboxes, animations) so plugins can be reinstalled from
+     * source. Used by `/reload plugins`.
+     */
+    unregisterAll(): void {
+        for (const id of [...blockRegistry.values.keys()]) {
+            const definition = blockRegistry.values.get(id);
+            if (definition && definition.namespace && definition.namespace !== CORE_NAMESPACE) blockRegistry.values.delete(id);
+        }
+        this.blocks.clear();
+        this.plugins.clear();
+        this.listeners.clear();
+        this.worldCreatedListeners.length = 0;
+        clearPluginHitboxes();
+        clearPluginAnimations();
+    }
+
     private apiFor(namespace: string): PluginApi {
         return {
             namespace,
@@ -201,6 +251,9 @@ export class PluginRegistry implements PluginApi {
             block: (id) => this.block(id),
             id: (path) => blockRegistry.id(path, namespace),
             asset: (path) => this.assetFor(namespace, path),
+            registerHitbox: (kind, config) => this.registerHitbox(kind, config),
+            setHitboxes: (configs) => this.setHitboxes(configs),
+            registerAnimation: (family, pose, url) => this.registerAnimation(family, pose, url),
             onWorldCreated: (listener) => this.onWorldCreated(listener),
             onGameStart: (listener) => this.onGameStart(listener),
             onGameTick: (listener) => this.onGameTick(listener),

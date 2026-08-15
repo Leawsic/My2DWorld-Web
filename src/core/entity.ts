@@ -1,4 +1,4 @@
-import {biomeAt, CHUNK_SIZE, type World} from "./world";
+import {biomeAt, CHUNK_SIZE, WORLD_MIN_Y, type World} from "./world";
 import type {Player} from "./player";
 import {moveBody, type PhysicsBody} from "./physics";
 import {mulberry32} from "./noise";
@@ -31,12 +31,12 @@ export interface MobKindConfig {
 }
 
 export const MOB_KINDS: Record<MobKind, MobKindConfig> = {
-    zombie: {id: "zombie", asset: "zombie", shape: "humanoid", hostile: true, scale: 1, halfWidth: 0.4, height: 1.9, speed: 1.6, jumpVelocity: 8, hp: 20, damage: 3, attackCooldown: 0.8, hitRange: 1.2, visual: {width: 1.9, height: 1.9}},
-    zombie_baby: {id: "zombie_baby", asset: "zombie_baby", shape: "humanoid", hostile: true, scale: 0.62, halfWidth: 0.28, height: 1.18, speed: 2.1, jumpVelocity: 7, hp: 10, damage: 2, attackCooldown: 0.65, hitRange: 0.9, visual: {width: 1.18, height: 1.18}},
-    husk: {id: "husk", asset: "husk", shape: "humanoid", hostile: true, scale: 1, halfWidth: 0.4, height: 1.9, speed: 1.6, jumpVelocity: 8, hp: 20, damage: 3, attackCooldown: 0.8, hitRange: 1.2, visual: {width: 1.9, height: 1.9}},
-    husk_baby: {id: "husk_baby", asset: "husk_baby", shape: "humanoid", hostile: true, scale: 0.62, halfWidth: 0.28, height: 1.18, speed: 2.1, jumpVelocity: 7, hp: 10, damage: 2, attackCooldown: 0.65, hitRange: 0.9, visual: {width: 1.18, height: 1.18}},
-    drowned: {id: "drowned", asset: "drowned", shape: "humanoid", hostile: true, scale: 1, halfWidth: 0.4, height: 1.9, speed: 1.6, jumpVelocity: 8, hp: 20, damage: 3, attackCooldown: 0.8, hitRange: 1.2, visual: {width: 1.9, height: 1.9}},
-    drowned_baby: {id: "drowned_baby", asset: "drowned_baby", shape: "humanoid", hostile: true, scale: 0.62, halfWidth: 0.28, height: 1.18, speed: 2.1, jumpVelocity: 7, hp: 10, damage: 2, attackCooldown: 0.65, hitRange: 0.9, visual: {width: 1.18, height: 1.18}},
+    zombie: {id: "zombie", asset: "zombie", shape: "humanoid", hostile: true, scale: 1, halfWidth: 0.4, height: 1.85, speed: 1.6, jumpVelocity: 8, hp: 20, damage: 3, attackCooldown: 0.8, hitRange: 1.2, visual: {width: 1.9, height: 1.85}},
+    zombie_baby: {id: "zombie_baby", asset: "zombie_baby", shape: "humanoid", hostile: true, scale: 0.5, halfWidth: 0.25, height: 0.925, speed: 2.1, jumpVelocity: 7, hp: 10, damage: 2, attackCooldown: 0.65, hitRange: 0.9, visual: {width: 0.95, height: 0.925}},
+    husk: {id: "husk", asset: "husk", shape: "humanoid", hostile: true, scale: 1, halfWidth: 0.4, height: 1.85, speed: 1.6, jumpVelocity: 8, hp: 20, damage: 3, attackCooldown: 0.8, hitRange: 1.2, visual: {width: 1.9, height: 1.85}},
+    husk_baby: {id: "husk_baby", asset: "husk_baby", shape: "humanoid", hostile: true, scale: 0.5, halfWidth: 0.25, height: 0.925, speed: 2.1, jumpVelocity: 7, hp: 10, damage: 2, attackCooldown: 0.65, hitRange: 0.9, visual: {width: 0.95, height: 0.925}},
+    drowned: {id: "drowned", asset: "drowned", shape: "humanoid", hostile: true, scale: 1, halfWidth: 0.4, height: 1.85, speed: 1.6, jumpVelocity: 8, hp: 20, damage: 3, attackCooldown: 0.8, hitRange: 1.2, visual: {width: 1.9, height: 1.85}},
+    drowned_baby: {id: "drowned_baby", asset: "drowned_baby", shape: "humanoid", hostile: true, scale: 0.5, halfWidth: 0.25, height: 0.925, speed: 2.1, jumpVelocity: 7, hp: 10, damage: 2, attackCooldown: 0.65, hitRange: 0.9, visual: {width: 0.95, height: 0.925}},
     pig_cold: {id: "pig_cold", asset: "pig_cold", shape: "pig", hostile: false, scale: 1, halfWidth: 0.8, height: 0.9, speed: 0.75, jumpVelocity: 5, hp: 10, damage: 0, attackCooldown: 0, hitRange: 0, visual: {width: 1.8, height: 0.9}},
     pig_cold_baby: {id: "pig_cold_baby", asset: "pig_cold_baby", shape: "pig", hostile: false, scale: 0.62, halfWidth: 0.55, height: 0.56, speed: 0.85, jumpVelocity: 4, hp: 6, damage: 0, attackCooldown: 0, hitRange: 0, visual: {width: 1.1, height: 0.56}},
     pig_temperate: {id: "pig_temperate", asset: "pig_temperate", shape: "pig", hostile: false, scale: 1, halfWidth: 0.8, height: 0.9, speed: 0.75, jumpVelocity: 5, hp: 10, damage: 0, attackCooldown: 0, hitRange: 0, visual: {width: 1.8, height: 0.9}},
@@ -89,8 +89,8 @@ export class Mob implements PhysicsBody {
     velocityX = 0;
     velocityY = 0;
     onGround = false;
-    readonly halfWidth: number;
-    readonly height: number;
+    halfWidth: number;
+    height: number;
     facing = 1;
     state: MobState = "idle";
     stateTime = 0;
@@ -99,17 +99,52 @@ export class Mob implements PhysicsBody {
     attackCooldown = 0;
     alive = true;
     animationTime = 0;
+    hitboxCenterX: number;
+    hitboxCenterY: number;
     private knockbackTimer = 0;
     private knockbackX = 0;
 
     constructor(readonly kind: MobKind, x: number, y: number) {
         this.x = x;
         this.y = y;
-        const config = MOB_KINDS[kind];
-        const hitbox = hitboxFor(kind);
-        this.hp = config.hp;
+        this.hp = MOB_KINDS[kind].hp;
+        this.halfWidth = 0;
+        this.height = 0;
+        this.hitboxCenterX = 0;
+        this.hitboxCenterY = 0;
+        this.applyHitbox();
+    }
+
+    /** 按当前配置重新计算碰撞箱（重载碰撞箱/扩展后调用以刷新已有实体）。 */
+    applyHitbox(): void {
+        const config = MOB_KINDS[this.kind];
+        const hitbox = hitboxFor(this.kind);
         this.halfWidth = hitbox?.halfWidth ?? config.halfWidth;
         this.height = hitbox?.height ?? config.height;
+        this.hitboxCenterX = hitbox?.centerX ?? 0;
+        this.hitboxCenterY = hitbox?.centerY ?? 0;
+    }
+
+    /** 碰撞箱中心世界坐标。 */
+    get centerX(): number {
+        return this.x + this.hitboxCenterX;
+    }
+    get centerY(): number {
+        return this.y + this.hitboxCenterY;
+    }
+
+    /** 碰撞箱四边（中心 + centerX/centerY，半宽 halfWidth、半高 height/2）。 */
+    get hitboxLeft(): number {
+        return this.centerX - this.halfWidth;
+    }
+    get hitboxRight(): number {
+        return this.centerX + this.halfWidth;
+    }
+    get hitboxBottom(): number {
+        return this.centerY - this.height / 2;
+    }
+    get hitboxTop(): number {
+        return this.centerY + this.height / 2;
     }
 
     update(dt: number, world: World, player: Player, onPlayerDamage: (amount: number) => void): void {
@@ -121,7 +156,7 @@ export class Mob implements PhysicsBody {
 
         const dx = player.x - this.x;
         const distX = Math.abs(dx);
-        const dy = player.y + player.height / 2 - (this.y + this.height / 2);
+        const dy = player.y + player.height / 2 - this.centerY;
         const sameLevel = Math.abs(dy) < SAME_LEVEL_TOLERANCE;
 
         const targetState: MobState = config.hostile
@@ -168,7 +203,7 @@ export class Mob implements PhysicsBody {
             this.velocityX = this.knockbackX;
         }
         moveBody(this, world, seconds);
-        if (this.y < -40) this.alive = false;
+        if (this.y < WORLD_MIN_Y - 2) this.alive = false;
     }
 
     /** Deals damage and knockback away from `sourceX`. Returns true when killed. */
@@ -194,6 +229,8 @@ export class Mob implements PhysicsBody {
  */
 export class MobManager {
     private readonly mobs = new Map<number, Mob>();
+    /** Mobs created via /summon: never despawned by distance and not tied to a chunk. */
+    private readonly summoned: Mob[] = [];
     /** Chunks whose mob died and stay dead while the chunk stays loaded. */
     private readonly dead = new Set<number>();
     private active = 0;
@@ -208,7 +245,20 @@ export class MobManager {
 
     /** All alive mobs currently held by the manager. */
     get total(): number {
-        return this.mobs.size;
+        return this.mobs.size + this.summoned.length;
+    }
+
+    /** Spawns a mob that persists (won't despawn on distance) and returns it. */
+    summon(kind: MobKind, x: number, y: number): Mob {
+        const mob = new Mob(kind, x, y);
+        this.summoned.push(mob);
+        return mob;
+    }
+
+    /** Re-reads hitbox config for all living mobs (used after /reload hitboxes). */
+    refreshHitboxes(): void {
+        for (const mob of this.mobs.values()) mob.applyHitbox();
+        for (const mob of this.summoned) mob.applyHitbox();
     }
 
     update(dt: number, world: World, player: Player, onPlayerDamage: (amount: number) => void, onMobKilled: (kind: MobKind, x: number, y: number) => void): void {
@@ -227,11 +277,25 @@ export class MobManager {
                 this.mobs.delete(chunkX);
                 continue;
             }
-            const d = Math.hypot(player.x - mob.x, player.y + player.height / 2 - (mob.y + mob.height / 2));
+            const d = Math.hypot(player.x - mob.x, player.y + player.height / 2 - mob.centerY);
             if (d > MOB_DESPAWN_RADIUS) {
                 this.mobs.delete(chunkX);
                 continue;
             }
+            if (d <= MOB_UPDATE_RADIUS) {
+                this.active += 1;
+                mob.update(seconds, world, player, onPlayerDamage);
+            }
+        }
+
+        for (let i = this.summoned.length - 1; i >= 0; i -= 1) {
+            const mob = this.summoned[i];
+            if (!mob.alive) {
+                onMobKilled(mob.kind, mob.x, mob.y);
+                this.summoned.splice(i, 1);
+                continue;
+            }
+            const d = Math.hypot(player.x - mob.x, player.y + player.height / 2 - mob.centerY);
             if (d <= MOB_UPDATE_RADIUS) {
                 this.active += 1;
                 mob.update(seconds, world, player, onPlayerDamage);
@@ -257,8 +321,8 @@ export class MobManager {
     /** All mobs within `radius` blocks of the player, for rendering. */
     mobsNear(player: Player, radius: number): Mob[] {
         const result: Mob[] = [];
-        for (const mob of this.mobs.values()) {
-            const d = Math.hypot(player.x - mob.x, player.y + player.height / 2 - (mob.y + mob.height / 2));
+        for (const mob of [...this.mobs.values(), ...this.summoned]) {
+            const d = Math.hypot(player.x - mob.x, player.y + player.height / 2 - mob.centerY);
             if (d <= radius) result.push(mob);
         }
         return result;
@@ -269,21 +333,17 @@ export class MobManager {
         if (!point) return null;
         const [wx, wy] = point;
         if (Math.abs(wx - player.x) > 2.5 || Math.abs(wy - (player.y + player.height / 2)) > 3) return null;
-        for (const mob of this.mobs.values()) {
-            if (wx >= mob.x - mob.halfWidth && wx <= mob.x + mob.halfWidth && wy >= mob.y && wy <= mob.y + mob.height) return mob;
+        for (const mob of [...this.mobs.values(), ...this.summoned]) {
+            if (wx >= mob.hitboxLeft && wx <= mob.hitboxRight && wy >= mob.hitboxBottom && wy <= mob.hitboxTop) return mob;
         }
         return null;
     }
 
     /** True when any alive mob's hitbox overlaps the block cell at (cellX, cellY). */
     occupies(cellX: number, cellY: number): boolean {
-        for (const mob of this.mobs.values()) {
+        for (const mob of [...this.mobs.values(), ...this.summoned]) {
             if (!mob.alive) continue;
-            const left = mob.x - mob.halfWidth;
-            const right = mob.x + mob.halfWidth;
-            const bottom = mob.y;
-            const top = mob.y + mob.height;
-            if (left < cellX + 1 && right > cellX && bottom < cellY && top > cellY - 1) return true;
+            if (mob.hitboxLeft < cellX + 1 && mob.hitboxRight > cellX && mob.hitboxBottom < cellY && mob.hitboxTop > cellY - 1) return true;
         }
         return false;
     }
