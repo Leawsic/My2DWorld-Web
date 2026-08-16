@@ -8,7 +8,6 @@
       "image": "/assets/skeleton/zombies/zombie/torso.png",
       "layer": 3,
       "x": 0, "y": 1.05,
-      "w": 0.25, "h": 0.7,
       "pivot": [0.5, 0.5],
       "nodes": { "arm": [0.5, 0.1667], "leg": [0.5, 1], "head": [0.5, 0] },
       "motion": { "rotate": { "angle": 0, "offset": 0 } }
@@ -19,7 +18,6 @@
       "image": "/assets/skeleton/zombies/zombie/armL.png",
       "layer": 0,
       "attach": { "target": "torso", "node": "arm" },
-      "w": 0.25, "h": 0.7,
       "pivot": [0.5, 0.1667],
       "nodes": { "item": [0.5, 0.8333] },
       "motion": {
@@ -35,7 +33,6 @@
       "image": "/assets/skeleton/zombies/zombie/itemL.png",
       "layer": 1,
       "attach": { "target": "armL", "node": "item" },
-      "w": 0.25, "h": 0.25,
       "pivot": [0.5, 0.5],
       "inheritAngle": "armL"
     },
@@ -45,7 +42,6 @@
       "image": "/assets/skeleton/zombies/zombie/armR.png",
       "layer": 7,
       "attach": { "target": "torso", "node": "arm" },
-      "w": 0.25, "h": 0.7,
       "pivot": [0.5, 0.1667],
       "nodes": { "item": [0.5, 0.8333] },
       "motion": {
@@ -61,7 +57,6 @@
       "image": "/assets/skeleton/zombies/zombie/itemR.png",
       "layer": 6,
       "attach": { "target": "armR", "node": "item" },
-      "w": 0.25, "h": 0.25,
       "pivot": [0.5, 0.5],
       "inheritAngle": "armR"
     },
@@ -71,7 +66,6 @@
       "image": "/assets/skeleton/zombies/zombie/legL.png",
       "layer": 2,
       "attach": { "target": "torso", "node": "leg" },
-      "w": 0.25, "h": 0.7,
       "pivot": [0.5, 0],
       "motion": { "rotate": { "angle": 0, "offset": 0 } }
     },
@@ -81,7 +75,6 @@
       "image": "/assets/skeleton/zombies/zombie/legR.png",
       "layer": 5,
       "attach": { "target": "torso", "node": "leg" },
-      "w": 0.25, "h": 0.7,
       "pivot": [0.5, 0],
       "motion": { "rotate": { "angle": 0, "offset": 0 } }
     },
@@ -91,7 +84,6 @@
       "image": "/assets/skeleton/zombies/zombie/head.png",
       "layer": 4,
       "attach": { "target": "torso", "node": "head" },
-      "w": 0.45, "h": 0.45,
       "pivot": [0.5, 1],
       "motion": { "rotate": { "angle": 0, "offset": 0 } }
     }
