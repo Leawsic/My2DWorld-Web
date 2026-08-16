@@ -173,7 +173,7 @@ run/worlds/<用户名>_<世界ID>.chunk.<区块X>.<区块Y>.dat   被修改区�
 - 方块严格按一个方块尺寸绘制，不重叠覆盖。
 - 方块破坏粒子从被破坏方块的真实纹理中随机裁切，不使用生成颜色。
 - 玩家碰撞盒保持为 `0.5 x 1.9` 世界方块；原始正方形角色贴图以更宽的视觉尺寸绘制，避免人物看起来被压扁。
-- 怪物碰撞箱可配置：默认值在 `src/core/entity.ts` 的 `MOB_KINDS`，可用 `public/hitboxes/<kind>.json`（服务端 `/api/hitboxes` 暴露）按 kind 覆盖，插件运行时可用 `api.registerHitbox()` / `api.setHitboxes()` 覆盖（插件优先级最高）。`F3` 旁的碰撞箱/范围键（默认见键位设置）可开关碰撞箱与破坏范围可视化。
+- 怪物碰撞箱可配置：默认值在 `src/core/entity.ts` 的 `MOB_KINDS`，可用 `public/hitboxes/<kind>.json`（服务端 `/api/hitboxes` 暴露）按 kind 覆盖，插件运行时可用 `api.registerHitbox()` / `api.setHitboxes()` 覆盖（插件优先级最高）。省略 `centerY` 时默认 `height/2`（脚底锚定），物理碰撞、点击/范围判定与可视化共用同一碰撞箱。`F3` 旁的碰撞箱/范围键（默认见键位设置）可开关碰撞箱与破坏范围可视化。
 
 原始纹理许可证保留在 `public/assets/LICENSE.txt`。
 

@@ -1,7 +1,6 @@
 import {MOB_KINDS, type MobKind} from "./entity";
 import {Animation} from "./anim";
 import {loadCharacterAnimations, loadAnimationUrl} from "./animations";
-import {hitboxFor, isHitboxesLoaded} from "./hitboxes";
 
 export type CharacterKind = "player" | MobKind;
 export type CharacterPose = "idle" | "walk" | "attack";
@@ -183,7 +182,7 @@ function drawPart(ctx: CanvasRenderingContext2D, image: HTMLImageElement, x: num
     ctx.restore();
 }
 
-function renderHumanoid(ctx: CanvasRenderingContext2D, asset: string, opt: CharacterRenderOptions, scale: number, brightness: number): void {
+function renderHumanoid(ctx: CanvasRenderingContext2D, asset: string, opt: CharacterRenderOptions, brightness: number): void {
     const torso = imageFor(asset, "torso");
     const head = imageFor(asset, "head");
     const armL = imageFor(asset, "armL");
@@ -194,7 +193,6 @@ function renderHumanoid(ctx: CanvasRenderingContext2D, asset: string, opt: Chara
     const itemR = imageFor(asset, "itemR");
     const [, torsoH] = dimensions(torso, asset.endsWith("_baby") ? [4, 10] : [8, 24]);
     const [, legH] = dimensions(legL, asset.endsWith("_baby") ? [4, 8] : [8, 24]);
-    const humanHeight = asset.endsWith("_baby") ? 30 : 64;
     const bodyY = torsoH / 2 + legH;
     const hipY = legH;
     const shoulderY = bodyY + torsoH * (0.5 - 0.1667);
@@ -215,7 +213,7 @@ function renderHumanoid(ctx: CanvasRenderingContext2D, asset: string, opt: Chara
     const leftHand = hand(armLeftAngle);
     const rightHand = hand(armRightAngle);
 
-    ctx.scale(scale / humanHeight, scale / humanHeight);
+    ctx.scale(SKELETON_PIXEL_BLOCK, SKELETON_PIXEL_BLOCK);
     drawPart(ctx, armL, 0, shoulderY, 0.5, 0.1667, armLeftAngle, brightness, opt.tint, opt.tintAmount);
     drawPart(ctx, itemL, leftHand.x, shoulderY + leftHand.y, 0.5, 0.5, armLeftAngle, brightness, opt.tint, opt.tintAmount);
     drawPart(ctx, legL, 0, hipY, 0.5, 0, legLeftAngle, brightness, opt.tint, opt.tintAmount);
@@ -226,7 +224,7 @@ function renderHumanoid(ctx: CanvasRenderingContext2D, asset: string, opt: Chara
     drawPart(ctx, armR, 0, shoulderY, 0.5, 0.1667, armRightAngle, brightness, opt.tint, opt.tintAmount);
 }
 
-function renderQuadruped(ctx: CanvasRenderingContext2D, kind: CharacterKind, opt: CharacterRenderOptions, scale: number, brightness: number): void {
+function renderQuadruped(ctx: CanvasRenderingContext2D, kind: CharacterKind, opt: CharacterRenderOptions, brightness: number): void {
     const cow = familyOf(kind) === "cow";
     const asset = assetFor(kind);
     const body = imageFor(asset, "body");
@@ -243,9 +241,8 @@ function renderQuadruped(ctx: CanvasRenderingContext2D, kind: CharacterKind, opt
     const headY = bodyY + bodyH / 2 - (cow ? 0.6 : 0.6875) * bodyH;
     const u = triangleWave(opt.time);
     const swing = opt.pose === "walk" ? (-30 + 60 * u) * Math.PI / 180 : 0;
-    const totalHeight = cow ? 40 : 33;
 
-    ctx.scale(scale / totalHeight, scale / totalHeight);
+    ctx.scale(SKELETON_PIXEL_BLOCK, SKELETON_PIXEL_BLOCK);
     drawPart(ctx, feet, hindX, footY, 0.5, 0, swing, brightness, opt.tint, opt.tintAmount);
     drawPart(ctx, feet, foreX, footY, 0.5, 0, swing, brightness, opt.tint, opt.tintAmount);
     drawPart(ctx, body, 0, bodyY, 0.5, 0.5, 0, brightness, opt.tint, opt.tintAmount);
@@ -287,36 +284,37 @@ function animationFor(kind: CharacterKind, pose: CharacterPose): Animation | nul
     return created;
 }
 
-/** 家族静止（idle/stand）动画，用作高度缩放基准。 */
-function restAnimationFor(kind: CharacterKind): Animation | null {
-    return animationFor(kind, "idle");
-}
-
-function targetHeightFor(kind: CharacterKind): number {
-    if (kind === "player") return 1.85;
-    const hitbox = hitboxFor(kind);
-    if (hitbox) return hitbox.height;
-    return MOB_KINDS[kind]?.height ?? 1.9;
-}
+/** 骨骼渲染统一尺寸：源图 1 像素 = 1/4 方块（不再按碰撞箱高度缩放）。 */
+const SKELETON_PIXEL_BLOCK = 0.25;
 
 const scaleCache = new Map<Animation, number>();
 
-/** 高度缩放：以静止动画在 t=0 的包围盒高度为基准，把角色缩放到目标方块高度（图片或碰撞箱配置未就绪时返回 1，稍后重算）。 */
-function heightScaleFor(animation: Animation, kind: CharacterKind): number {
+/** 动画局部单位对应的方块数，使源图 1 像素渲染为 SKELETON_PIXEL_BLOCK 个方块。
+ * 显式指定 w 的动画（player/zombie 模板按方块单位创作）按 图片像素÷显示宽 换算；
+ * 未指定尺寸的动画（cow/pig 模板）1 局部单位即 1 源图像素。图片未就绪时暂按
+ * 1 单位=1 像素渲染且不缓存，加载完成后重算。 */
+function unitScaleFor(animation: Animation): number {
     const cached = scaleCache.get(animation);
     if (cached) return cached;
-    const bounds = animation.boundsAt(0);
-    if (!bounds || bounds.h <= 0) return 1;
-    if (!isHitboxesLoaded()) return 1;
-    const scale = targetHeightFor(kind) / bounds.h;
+    const ratios: number[] = [];
+    for (const obj of animation.def.objects ?? []) {
+        if (obj.type !== "image" || !obj.image || typeof obj.w !== "number" || obj.w <= 0) continue;
+        const image = animation.images.get(obj.id ?? obj.image);
+        if (!image || !image.complete || !image.naturalWidth) continue;
+        ratios.push(image.naturalWidth / obj.w);
+    }
+    if (!ratios.length) return SKELETON_PIXEL_BLOCK;
+    ratios.sort((a, b) => a - b);
+    // 取中位数：个别部件的 authored 尺寸偏差（如头部 0.45）不影响整体比例
+    const scale = SKELETON_PIXEL_BLOCK * ratios[ratios.length >> 1];
     scaleCache.set(animation, scale);
     return scale;
 }
 
-/** 用 .myanim 文件绘制角色，锚点在世界坐标（x,y）（角色脚底），坐标单位为游戏方块。 */
+/** 用 .myanim 文件绘制角色，锚点在世界坐标（x,y）（角色脚底），坐标单位为游戏方块；
+ * 渲染比例统一为源图 1 像素 = 1/4 方块。 */
 function renderCharacterFromAnimation(ctx: CanvasRenderingContext2D, animation: Animation, opt: CharacterRenderOptions): void {
-    const rest = restAnimationFor(opt.kind) ?? animation;
-    const scale = heightScaleFor(rest, opt.kind);
+    const scale = unitScaleFor(animation);
     const screenX = (opt.x - opt.cameraX) * opt.blockSize + ctx.canvas.width / 2;
     const screenY = (opt.cameraY - opt.y) * opt.blockSize + ctx.canvas.height / 2;
     ctx.save();
@@ -341,7 +339,6 @@ export function renderCharacter(ctx: CanvasRenderingContext2D, opt: CharacterRen
     }
     const config = opt.kind === "player" ? undefined : MOB_KINDS[opt.kind];
     const asset = assetFor(opt.kind);
-    const scale = config?.height ?? 1.9;
     const brightness = Math.max(0, opt.brightness ?? 1);
     const screenX = (opt.x - opt.cameraX) * opt.blockSize + ctx.canvas.width / 2;
     const screenY = (opt.cameraY - opt.y) * opt.blockSize + ctx.canvas.height / 2;
@@ -350,8 +347,8 @@ export function renderCharacter(ctx: CanvasRenderingContext2D, opt: CharacterRen
     ctx.globalAlpha = Math.max(0, Math.min(1, opt.alpha ?? 1));
     ctx.translate(screenX, screenY);
     ctx.scale((opt.facing < 0 ? -1 : 1) * opt.blockSize, -opt.blockSize);
-    if (!config || config.shape === "humanoid") renderHumanoid(ctx, asset, opt, scale, brightness);
-    else renderQuadruped(ctx, opt.kind, opt, scale, brightness);
+    if (!config || config.shape === "humanoid") renderHumanoid(ctx, asset, opt, brightness);
+    else renderQuadruped(ctx, opt.kind, opt, brightness);
     ctx.restore();
 }
 

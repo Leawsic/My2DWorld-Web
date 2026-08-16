@@ -1553,7 +1553,7 @@ class GameSession {
         const drawables: Array<{ depth: number; draw: () => void }> = [];
         for (const mob of this.mobs.mobsNear(this.player, MOB_RENDER_RADIUS)) {
             drawables.push({
-                depth: mob.y + mob.height / 2,
+                depth: mob.centerY,
                 draw: () => {
                     const hurtT = mob.hurtTimer > 0 ? Math.min(1, mob.hurtTimer / 0.35) : 0;
                     renderCharacter(ctx, {

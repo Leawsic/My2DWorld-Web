@@ -1,14 +1,15 @@
 // 生物碰撞箱配置：从 /api/hitboxes（public/hitboxes 下的 JSON 文件）加载，
 // 允许按 kind 覆盖内置的 MOB_KINDS 默认碰撞箱。加载失败时回退到内置默认值。
-// 碰撞箱以 mob 位置 (x, y) 为基准：默认中心就在该点（即骨骼 (0,0) 的渲染位置），
-// centerX/centerY 可配置中心偏移（方块为单位）。物理仍以 y 为脚底。
+// 碰撞箱中心相对 mob 位置 (x, y) 的偏移为 centerX/centerY（方块为单位）。
+// 物理碰撞、点击/占用判定与 F5 可视化共用同一碰撞箱；centerY 默认 height/2
+// （即脚底锚定：箱底在 y）。
 
 export interface HitboxConfig {
     halfWidth: number;
     height: number;
     /** 碰撞箱中心相对 mob.x 的水平偏移（方块），默认 0。 */
     centerX?: number;
-    /** 碰撞箱中心相对 mob.y（脚底）的竖直偏移（方块），默认 0。 */
+    /** 碰撞箱中心相对 mob.y 的竖直偏移（方块），默认 height/2（脚底锚定）。 */
     centerY?: number;
 }
 
@@ -38,7 +39,7 @@ export async function loadHitboxes(): Promise<void> {
                         halfWidth: config.halfWidth,
                         height: config.height,
                         centerX: Number.isFinite(config.centerX) ? config.centerX : 0,
-                        centerY: Number.isFinite(config.centerY) ? config.centerY : 0,
+                        centerY: Number.isFinite(config.centerY) ? config.centerY : undefined,
                     });
                 }
             }
@@ -62,7 +63,7 @@ export function registerHitbox(kind: string, config: HitboxConfig): void {
         halfWidth: config.halfWidth,
         height: config.height,
         centerX: Number.isFinite(config.centerX) ? config.centerX : 0,
-        centerY: Number.isFinite(config.centerY) ? config.centerY : 0,
+        centerY: Number.isFinite(config.centerY) ? config.centerY : undefined,
     });
 }
 

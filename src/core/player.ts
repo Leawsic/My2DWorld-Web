@@ -24,6 +24,8 @@ export class Player implements PhysicsBody {
     onGround = false;
     readonly halfWidth = BODY_HALF_WIDTH;
     readonly height = BODY_HEIGHT;
+    readonly centerOffsetX = 0;
+    readonly centerOffsetY = BODY_HEIGHT / 2;
     jumpsUsed = 0;
     flying = false;
     health = 20;

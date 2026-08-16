@@ -249,7 +249,7 @@ declare type MobKind =
     | "pig_cold" | "pig_cold_baby" | "pig_temperate" | "pig_temperate_baby" | "pig_warm" | "pig_warm_baby"
     | "cow_cold" | "cow_temperate" | "cow_warm" | "mooshroom_red" | "mooshroom_brown";
 
-/** 碰撞箱覆盖配置（半宽/高度为方块，centerX/centerY 为相对偏移）。 */
+/** 碰撞箱覆盖配置（半宽/高度为方块，centerX/centerY 为箱中心相对锚点的偏移）。默认 centerY = height/2（脚底锚定），省略时物理碰撞/点击判定与 F5 可视化共用同一碰撞箱。 */
 declare interface HitboxConfig {
     readonly halfWidth: number;
     readonly height: number;

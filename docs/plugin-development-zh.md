@@ -169,7 +169,8 @@ api.onGameTick((context) => {
 
 ```js
 install(api) {
-  // 覆盖单个 kind 的碰撞箱：半宽/高度为方块，centerX/centerY 为偏移
+  // 覆盖单个 kind 的碰撞箱：半宽/高度为方块，centerX/centerY 为箱中心相对锚点的偏移。
+  // 省略 centerY 时默认 height/2（脚底锚定）；物理碰撞、点击判定与 F5 可视化共用同一碰撞箱。
   api.registerHitbox("zombie_baby", { halfWidth: 0.3, height: 0.8, centerX: 0, centerY: 0.1 });
 
   // 或一次注册多个

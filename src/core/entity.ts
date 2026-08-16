@@ -122,7 +122,7 @@ export class Mob implements PhysicsBody {
         this.halfWidth = hitbox?.halfWidth ?? config.halfWidth;
         this.height = hitbox?.height ?? config.height;
         this.hitboxCenterX = hitbox?.centerX ?? 0;
-        this.hitboxCenterY = hitbox?.centerY ?? 0;
+        this.hitboxCenterY = hitbox?.centerY ?? this.height / 2;
     }
 
     /** 碰撞箱中心世界坐标。 */
@@ -131,6 +131,14 @@ export class Mob implements PhysicsBody {
     }
     get centerY(): number {
         return this.y + this.hitboxCenterY;
+    }
+
+    /** 物理碰撞用：碰撞箱中心相对锚点的偏移（与渲染/点击共用同一碰撞箱）。 */
+    get centerOffsetX(): number {
+        return this.hitboxCenterX;
+    }
+    get centerOffsetY(): number {
+        return this.hitboxCenterY;
     }
 
     /** 碰撞箱四边（中心 + centerX/centerY，半宽 halfWidth、半高 height/2）。 */
@@ -186,9 +194,9 @@ export class Mob implements PhysicsBody {
         }
 
         if (this.onGround && this.velocityX !== 0) {
-            const ahead = Math.floor(this.x + this.facing * (this.halfWidth + 0.02));
-            const from = Math.floor(this.y) + 1;
-            const to = Math.ceil(this.y + this.height);
+            const ahead = Math.floor(this.centerX + this.facing * (this.halfWidth + 0.02));
+            const from = Math.floor(this.hitboxBottom) + 1;
+            const to = Math.ceil(this.hitboxTop);
             for (let y = from; y <= to; y += 1) {
                 if (world.isSolid(ahead, y)) {
                     this.velocityY = config.jumpVelocity;
@@ -312,8 +320,8 @@ export class MobManager {
             if (structuresNear(xi, this.seed, 0)) continue;
             if (world.isSolid(xi, surface + 1)) continue;
             const mob = new Mob(roll.kind, xi, surface + 1);
-            if (mob.x + mob.halfWidth >= player.x - player.halfWidth && mob.x - mob.halfWidth <= player.x + player.halfWidth
-                && surface + 1 < player.y + player.height && surface + 1 + mob.height > player.y) continue;
+            if (mob.hitboxRight >= player.x - player.halfWidth && mob.hitboxLeft <= player.x + player.halfWidth
+                && mob.hitboxTop > player.y && mob.hitboxBottom < player.y + player.height) continue;
             this.mobs.set(chunkX, mob);
         }
     }
