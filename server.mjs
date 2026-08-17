@@ -194,6 +194,13 @@ const api = async (req, res) => {
             animations.sort((a, b) => a.localeCompare(b));
             return send(res, 200, {animations});
         }
+        if (url.pathname === "/api/homepage-backgrounds" && req.method === "GET") {
+            const bgDir = join(root, "public", "assets", "Homepage_background");
+            const backgrounds = existsSync(bgDir)
+                ? readdirSync(bgDir).filter((file) => /\.(jpe?g|png|webp)$/i.test(file)).sort((a, b) => a.localeCompare(b))
+                : [];
+            return send(res, 200, {backgrounds});
+        }
         if (url.pathname === "/api/hitboxes" && req.method === "GET") {
             const hitboxes = {};
             const hitboxesDir = join(root, "public", "hitboxes");

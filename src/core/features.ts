@@ -46,6 +46,9 @@ export function applyFeatures(p: FeaturePlacement): void {
                 if (rng() < 0.05 && !structuresNear(x, p.seed, 1) && surface + 3 <= WORLD_MAX_Y) placeCactus(p, local, surface, rng);
                 break;
             case "snowy":
+            case "ocean":
+            case "river":
+                // 海床/河床：不生成植物、岩石与树
                 break;
             default: {
                 if (rng() < 0.4 && !structuresNear(x, p.seed, 0) && surface + 1 <= WORLD_MAX_Y) setBlock(p, local, surface + 1, p.numFor(Blocks.MY2DWORLD.SHORT_GRASS.id));

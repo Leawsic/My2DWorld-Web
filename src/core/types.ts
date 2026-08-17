@@ -38,6 +38,10 @@ export interface PlayerSettings {
     placementBrightness: number;
     spectateAlpha: number;
     spectateBrightness: number;
+    /** 生物仇恨（敌对生物开始走向玩家）的距离，格。 */
+    aggroRange: number;
+    /** 聊天与命令的字体大小（px）。 */
+    chatFontSize: number;
 }
 
 export interface KeyBindings {
@@ -83,4 +87,6 @@ export const DEFAULT_SETTINGS: PlayerSettings = {
     placementBrightness: 0.75,
     spectateAlpha: 0.5,
     spectateBrightness: 0.75,
+    aggroRange: 24,
+    chatFontSize: 13,
 };

@@ -64,7 +64,8 @@ export const MOB_UPDATE_RADIUS = 48;
 export const MOB_RENDER_RADIUS = 54;
 const MOB_DESPAWN_RADIUS = 64;
 const MOB_SPAWN_CHANCE = 0.45;
-const AGGRO_RANGE = 10;
+/** 默认仇恨距离（敌对生物发现玩家并开始走向玩家的水平距离），可通过 /aggro 或设置修改。 */
+const DEFAULT_AGGRO_RANGE = 24;
 const SAME_LEVEL_TOLERANCE = 3;
 const MOB_GRAVITY = 28;
 const MOB_KNOCKBACK = 5;
@@ -103,6 +104,7 @@ export class Mob implements PhysicsBody {
     hitboxCenterY: number;
     private knockbackTimer = 0;
     private knockbackX = 0;
+    private squeezeTimer = 0;
 
     constructor(readonly kind: MobKind, x: number, y: number) {
         this.x = x;
@@ -155,7 +157,7 @@ export class Mob implements PhysicsBody {
         return this.centerY + this.height / 2;
     }
 
-    update(dt: number, world: World, player: Player, onPlayerDamage: (amount: number) => void): void {
+    update(dt: number, world: World, player: Player, onPlayerDamage: (amount: number) => void, aggroRange = DEFAULT_AGGRO_RANGE): void {
         const seconds = Math.min(dt, 0.05);
         this.hurtTimer = Math.max(0, this.hurtTimer - seconds);
         this.attackCooldown = Math.max(0, this.attackCooldown - seconds);
@@ -168,7 +170,7 @@ export class Mob implements PhysicsBody {
         const sameLevel = Math.abs(dy) < SAME_LEVEL_TOLERANCE;
 
         const targetState: MobState = config.hostile
-            ? distX <= config.hitRange && sameLevel ? "attack" : distX <= AGGRO_RANGE && sameLevel ? "walk" : "idle"
+            ? distX <= config.hitRange && sameLevel ? "attack" : distX <= aggroRange && sameLevel ? "walk" : "idle"
             : Math.sin((this.animationTime + this.x * 0.13) * 0.8) > 0.45 ? "walk" : "idle";
         if (targetState !== this.state) {
             this.state = targetState;
@@ -228,6 +230,35 @@ export class Mob implements PhysicsBody {
         }
         return false;
     }
+
+    /** 方块挤压（窒息）伤害：碰撞箱与实心方块重叠时每 0.5s 受 1 点伤害。 */
+    squeezeDamage(dt: number, world: World): void {
+        if (!this.overlapsSolid(world)) {
+            this.squeezeTimer = 0;
+            return;
+        }
+        this.squeezeTimer += dt;
+        if (this.squeezeTimer >= 0.5) {
+            this.squeezeTimer = 0;
+            this.hp -= 1;
+            this.hurtTimer = 0.35;
+            if (this.hp <= 0) this.alive = false;
+        }
+    }
+
+    /** 碰撞箱是否与实心方块重叠（非实心的植物等不算）。 */
+    private overlapsSolid(world: World): boolean {
+        const left = this.x + this.centerOffsetX - this.halfWidth;
+        const right = this.x + this.centerOffsetX + this.halfWidth;
+        const bottom = this.y + this.centerOffsetY - this.height / 2;
+        const top = this.y + this.centerOffsetY + this.height / 2;
+        for (let x = Math.ceil(left); x <= Math.floor(right); x += 1) {
+            for (let y = Math.ceil(bottom); y <= Math.floor(top); y += 1) {
+                if (world.isSolid(x, y)) return true;
+            }
+        }
+        return false;
+    }
 }
 
 /**
@@ -242,6 +273,8 @@ export class MobManager {
     /** Chunks whose mob died and stay dead while the chunk stays loaded. */
     private readonly dead = new Set<number>();
     private active = 0;
+    /** 仇恨距离（敌对生物发现玩家的水平距离），可通过 /aggro 或设置配置。 */
+    aggroRange = DEFAULT_AGGRO_RANGE;
 
     constructor(private readonly seed: number) {
     }
@@ -292,7 +325,8 @@ export class MobManager {
             }
             if (d <= MOB_UPDATE_RADIUS) {
                 this.active += 1;
-                mob.update(seconds, world, player, onPlayerDamage);
+                mob.update(seconds, world, player, onPlayerDamage, this.aggroRange);
+                mob.squeezeDamage(seconds, world);
             }
         }
 
@@ -306,9 +340,12 @@ export class MobManager {
             const d = Math.hypot(player.x - mob.x, player.y + player.height / 2 - mob.centerY);
             if (d <= MOB_UPDATE_RADIUS) {
                 this.active += 1;
-                mob.update(seconds, world, player, onPlayerDamage);
+                mob.update(seconds, world, player, onPlayerDamage, this.aggroRange);
+                mob.squeezeDamage(seconds, world);
             }
         }
+
+        this.separateMobs(world);
 
         for (const chunkX of world.chunks.keys()) {
             if (this.mobs.has(chunkX) || this.dead.has(chunkX)) continue;
@@ -324,6 +361,46 @@ export class MobManager {
                 && mob.hitboxTop > player.y && mob.hitboxBottom < player.y + player.height) continue;
             this.mobs.set(chunkX, mob);
         }
+    }
+
+    /** 生物互挤：把重叠的生物沿水平方向互相推开，防止堆怪。 */
+    private separateMobs(world: World): void {
+        const mobs = [...this.mobs.values(), ...this.summoned].filter((mob) => mob.alive);
+        for (let iteration = 0; iteration < 3; iteration += 1) {
+            let moved = false;
+            for (let i = 0; i < mobs.length; i += 1) {
+                for (let j = i + 1; j < mobs.length; j += 1) {
+                    const a = mobs[i], b = mobs[j];
+                    const overlapX = a.halfWidth + b.halfWidth - Math.abs(a.x - b.x);
+                    const overlapY = (a.height + b.height) / 2 - Math.abs(a.centerY - b.centerY);
+                    if (overlapX <= 0 || overlapY <= 0) continue;
+                    const direction = a.x < b.x ? 1 : -1;
+                    const step = Math.min(overlapX / 2, 0.08);
+                    if (this.canShift(a, direction * step, world)) {
+                        a.x += direction * step;
+                        moved = true;
+                    }
+                    if (this.canShift(b, -direction * step, world)) {
+                        b.x -= direction * step;
+                        moved = true;
+                    }
+                }
+            }
+            if (!moved) break;
+        }
+    }
+
+    /** 水平平移 dx 后是否不与实心方块重叠（避免把生物挤进墙里）。 */
+    private canShift(mob: Mob, dx: number, world: World): boolean {
+        const blockX = dx > 0
+            ? Math.floor(mob.x + mob.centerOffsetX + mob.halfWidth + dx)
+            : Math.floor(mob.x + mob.centerOffsetX - mob.halfWidth + dx);
+        const bottom = Math.floor(mob.y + mob.centerOffsetY - mob.height / 2) + 1;
+        const top = Math.ceil(mob.y + mob.centerOffsetY + mob.height / 2);
+        for (let y = bottom; y <= top; y += 1) {
+            if (world.isSolid(blockX, y)) return false;
+        }
+        return true;
     }
 
     /** All mobs within `radius` blocks of the player, for rendering. */

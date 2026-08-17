@@ -382,19 +382,56 @@ input, select {
     }
 }
 
-/* Chat input overlay: a real DOM input on top of the canvas chat line, so the
-   player can select text, copy/paste and type with an IME. */
-.chat-input {
+/* Chat input overlay: a real DOM textarea on top of the canvas chat box, so the
+   player can select text, copy/paste and type with an IME. A transparent-text
+   textarea sits over a syntax-highlighted layer that colours the command, and
+   the box height grows automatically as long commands wrap. */
+.chat-box {
     position: fixed;
     z-index: 40;
     display: none;
     box-sizing: border-box;
+}
+
+.chat-syntax {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    box-sizing: border-box;
+    padding: 8px 12px;
+    overflow: hidden;
+    white-space: pre-wrap;
+    word-break: break-all;
+    pointer-events: none;
+    font-family: ui-monospace, 'LXGW WenKai', monospace;
+    color: #fff;
+    line-height: 1.4;
+    text-shadow: 0 0 2px rgba(0, 0, 0, .8);
+}
+
+.chat-input {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    box-sizing: border-box;
+    resize: none;
+    overflow: hidden;
     background: transparent;
     border: none;
     outline: none;
     padding: 8px 12px;
-    font: 13px ui-monospace, 'LXGW WenKai', monospace;
-    color: #fff;
+    font-family: ui-monospace, 'LXGW WenKai', monospace;
+    color: transparent;
     caret-color: #fff;
-    text-shadow: 0 0 2px rgba(0, 0, 0, .8);
+    line-height: 1.4;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+.chat-input::selection {
+    background: rgba(226, 188, 104, .4);
 }

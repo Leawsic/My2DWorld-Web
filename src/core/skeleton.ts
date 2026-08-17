@@ -1,5 +1,5 @@
 import {MOB_KINDS, type MobKind} from "./entity";
-import {Animation} from "./anim";
+import {Animation, type AnimDrawOptions, type AnimTransform} from "./anim";
 import {loadCharacterAnimations, loadAnimationUrl} from "./animations";
 
 export type CharacterKind = "player" | MobKind;
@@ -22,6 +22,8 @@ export interface CharacterRenderOptions {
     brightness?: number;
     tint?: string;
     tintAmount?: number;
+    /** 姿态混合标识：同一实体（player/mob 对象）切换姿态时用 0.1s 平滑过渡；缺省则不混合。 */
+    blendKey?: object;
 }
 
 const images = new Map<string, HTMLImageElement>();
@@ -285,7 +287,7 @@ function animationFor(kind: CharacterKind, pose: CharacterPose): Animation | nul
 }
 
 /** 骨骼渲染统一尺寸：源图 1 像素 = 1/4 方块（不再按碰撞箱高度缩放）。 */
-const SKELETON_PIXEL_BLOCK = 0.25;
+const SKELETON_PIXEL_BLOCK = 0.03125;
 
 const scaleCache = new Map<Animation, number>();
 
@@ -330,13 +332,91 @@ function renderCharacterFromAnimation(ctx: CanvasRenderingContext2D, animation: 
     ctx.restore();
 }
 
-/** Draws source .myanim parts in game-world coordinates, anchored at the entity's feet. */
-export function renderCharacter(ctx: CanvasRenderingContext2D, opt: CharacterRenderOptions): void {
-    const fileAnimation = animationFor(opt.kind, opt.pose);
-    if (fileAnimation) {
-        renderCharacterFromAnimation(ctx, fileAnimation, opt);
-        return;
+/** 姿态切换过渡时长：同一物体执行两个相邻 .myanim 时，用 0.25s 从旧动画定格帧过渡到新动画开头。 */
+const POSE_BLEND_SECONDS = 0.25;
+
+interface PoseBlendState {
+    /** 上一姿态的动画与其定格时刻（切换瞬间最后渲染的那一帧，即旧动画的结尾状态）。 */
+    fromAnim: Animation | null;
+    fromTime: number;
+    /** 当前姿态 key（`<kind>/<pose>`）与对应动画。 */
+    toKey: string;
+    toAnim: Animation | null;
+    /** 当前姿态的时钟起点：有效时间 = 传入 time - toStartTime，使新动画从开头播放。 */
+    toStartTime: number;
+    /** 过渡开始时刻（performance.now()，毫秒），用于推进 0.1s 进度。 */
+    startedAt: number;
+    /** 上一帧使用的有效时间（下一次切换时作为旧动画的定格帧）。 */
+    lastEffectiveTime: number;
+}
+
+/** 每个实体（player/mob 对象）独立的姿态过渡状态；WeakMap 让离开视野的实体可被回收。 */
+const poseBlends = new WeakMap<object, PoseBlendState>();
+
+/** 角度插值：取最短路径，避免 180° 附近绕大圈。 */
+function lerpAngle(a: number, b: number, k: number): number {
+    let d = (b - a) % 360;
+    if (d > 180) d -= 360;
+    if (d < -180) d += 360;
+    return a + d * k;
+}
+
+/** 两个动画姿态之间的变换插值（对象级 x/y/angle/pivot/节点）。 */
+function lerpTransform(a: AnimTransform, b: AnimTransform, k: number): AnimTransform {
+    const lerp = (x: number, y: number) => x + (y - x) * k;
+    const nodes: Record<string, {x: number; y: number}> = {};
+    for (const [name, na] of Object.entries(a.nodes)) {
+        const nb = b.nodes[name];
+        nodes[name] = nb ? {x: lerp(na.x, nb.x), y: lerp(na.y, nb.y)} : na;
     }
+    for (const [name, nb] of Object.entries(b.nodes)) {
+        if (!nodes[name]) nodes[name] = nb;
+    }
+    return {
+        x: lerp(a.x, b.x),
+        y: lerp(a.y, b.y),
+        angle: lerpAngle(a.angle, b.angle, k),
+        nodes,
+        pivotLocal: [lerp(a.pivotLocal[0], b.pivotLocal[0]), lerp(a.pivotLocal[1], b.pivotLocal[1])],
+    };
+}
+
+/** 绘制两个动画姿态之间的插值帧：k=0 完全为 from（旧动画定格帧），k=1 完全为 to。 */
+function renderCharacterBlend(
+    ctx: CanvasRenderingContext2D,
+    from: Animation, fromTime: number,
+    to: Animation, toTime: number,
+    k: number,
+    opt: CharacterRenderOptions,
+): void {
+    const scale = unitScaleFor(to);
+    const screenX = (opt.x - opt.cameraX) * opt.blockSize + ctx.canvas.width / 2;
+    const screenY = (opt.cameraY - opt.y) * opt.blockSize + ctx.canvas.height / 2;
+    const fromTx = from.transformsAt(fromTime);
+    const toTx = to.transformsAt(toTime);
+    const drawOptions: AnimDrawOptions = {
+        alpha: opt.alpha,
+        brightness: opt.brightness,
+        tint: opt.tint,
+        tintAmount: opt.tintAmount,
+    };
+    ctx.save();
+    ctx.imageSmoothingEnabled = false;
+    ctx.translate(screenX, screenY);
+    ctx.scale((opt.facing < 0 ? -1 : 1) * opt.blockSize * scale, -opt.blockSize * scale);
+    const objs = [...(to.def.objects ?? [])].sort((a, b) => (a.layer ?? 0) - (b.layer ?? 0));
+    for (const obj of objs) {
+        // 无 id 的对象无法从变换表匹配，直接按各自动画计算变换
+        const trA = obj.id ? fromTx.get(obj.id) : from.transformOf(obj, fromTime);
+        const trB = obj.id ? toTx.get(obj.id) : to.transformOf(obj, toTime);
+        const tr = trA && trB ? lerpTransform(trA, trB, k) : (trB ?? trA);
+        if (tr) to.drawObject(ctx, obj, tr, drawOptions);
+    }
+    ctx.restore();
+}
+
+/** 内置骨架渲染（该 kind 没有 .myanim 文件时的回退，不参与姿态混合）。 */
+function renderFallbackSkeleton(ctx: CanvasRenderingContext2D, opt: CharacterRenderOptions): void {
     const config = opt.kind === "player" ? undefined : MOB_KINDS[opt.kind];
     const asset = assetFor(opt.kind);
     const brightness = Math.max(0, opt.brightness ?? 1);
@@ -350,6 +430,60 @@ export function renderCharacter(ctx: CanvasRenderingContext2D, opt: CharacterRen
     if (!config || config.shape === "humanoid") renderHumanoid(ctx, asset, opt, brightness);
     else renderQuadruped(ctx, opt.kind, opt, brightness);
     ctx.restore();
+}
+
+/** Draws source .myanim parts in game-world coordinates, anchored at the entity's feet.
+ * 带 blendKey 的同一实体切换姿态时，旧动画定格在最后渲染帧，用 0.1s 平滑过渡到新动画开头。 */
+export function renderCharacter(ctx: CanvasRenderingContext2D, opt: CharacterRenderOptions): void {
+    const fileAnimation = animationFor(opt.kind, opt.pose);
+    if (!fileAnimation) {
+        renderFallbackSkeleton(ctx, opt);
+        return;
+    }
+    if (!opt.blendKey) {
+        renderCharacterFromAnimation(ctx, fileAnimation, opt);
+        return;
+    }
+
+    const now = performance.now();
+    const key = `${opt.kind}/${opt.pose}`;
+    const state = poseBlends.get(opt.blendKey);
+    if (!state) {
+        // 首次渲染：从动画开头开始，不产生过渡
+        poseBlends.set(opt.blendKey, {
+            fromAnim: null, fromTime: 0,
+            toKey: key, toAnim: fileAnimation,
+            toStartTime: opt.time, startedAt: now, lastEffectiveTime: 0,
+        });
+        renderCharacterFromAnimation(ctx, fileAnimation, {...opt, time: 0});
+        return;
+    }
+
+    if (state.toKey !== key) {
+        // 姿态切换：旧动画定格在最后渲染的那一帧，新动画从开头开始，0.1s 内平滑过渡
+        state.fromAnim = state.toAnim;
+        state.fromTime = state.lastEffectiveTime;
+        state.toKey = key;
+        state.toAnim = fileAnimation;
+        state.toStartTime = opt.time;
+        state.startedAt = now;
+        state.lastEffectiveTime = 0;
+        if (state.fromAnim) {
+            renderCharacterBlend(ctx, state.fromAnim, state.fromTime, fileAnimation, 0, 0, opt);
+        } else {
+            renderCharacterFromAnimation(ctx, fileAnimation, {...opt, time: 0});
+        }
+        return;
+    }
+
+    const effectiveTime = Math.max(0, opt.time - state.toStartTime);
+    state.lastEffectiveTime = effectiveTime;
+    const k = (now - state.startedAt) / POSE_BLEND_SECONDS;
+    if (k < 1 && state.fromAnim) {
+        renderCharacterBlend(ctx, state.fromAnim, state.fromTime, fileAnimation, effectiveTime, Math.max(0, Math.min(1, k)), opt);
+    } else {
+        renderCharacterFromAnimation(ctx, fileAnimation, {...opt, time: effectiveTime});
+    }
 }
 
 /** Combines source part PNGs into a texture from which death particles are sampled. */

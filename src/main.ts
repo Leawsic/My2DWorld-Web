@@ -1,6 +1,6 @@
 import "./style.css";
 import {type KeyState, Player} from "./core/player";
-import {MobManager, MOB_KINDS, MOB_RENDER_RADIUS, type MobKind} from "./core/entity";
+import {MobManager, MOB_KINDS, MOB_RENDER_RADIUS, type Mob, type MobKind} from "./core/entity";
 import {storage, type PluginPackage} from "./core/storage";
 import {biomeAt, DEFAULT_BIOME, hashSeed, spawnX, World, WORLD_MIN_Y, WORLD_MAX_Y, type Biome} from "./core/world";
 import {clampSpectateOffset} from "./core/spectate";
@@ -26,9 +26,23 @@ import {Blocks, GameModes, blockRegistry} from "./registry";
 const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("App root is missing");
 
-const LOCATE_RANGE = 4096;
-const LOCATABLE_BIOMES = ["plains", "forest", "desert", "snowy", "mountains"];
+const LOCATE_RANGE = 20000;
+const LOCATABLE_BIOMES = ["plains", "forest", "desert", "snowy", "mountains", "ocean", "river"];
 const STRUCTURE_NAME = /^[a-z0-9][a-z0-9_-]{0,31}$/i;
+
+/** 命令补全与语法高亮共用的命令表。 */
+const CHAT_COMMANDS = ["gamemode", "speed", "movespeed", "debug", "seed", "locate", "tp", "summon", "structure", "reload", "aggro"];
+const CHAT_ARG_SUGGESTIONS: Record<string, string[]> = {
+    gamemode: ["creative", "spectator"],
+    debug: ["on", "off", "true", "false"],
+    locate: LOCATABLE_BIOMES,
+    summon: Object.keys(MOB_KINDS),
+    structure: ["export", "load", "list", "delete"],
+    reload: ["images", "animations", "hitboxes", "plugins", "all"],
+};
+
+/** 补全命令后自动补一个空格（还有后续参数）。 */
+const COMMANDS_WITH_ARGS = ["/gamemode", "/debug", "/locate", "/tp", "/summon", "/reload", "/structure", "/aggro"];
 
 /** Region placed by the two-phase /structure export|load flow before confirm. */
 interface StructurePending {
@@ -143,6 +157,7 @@ function nextAutosave(seconds: number): number {
 
 const ALPHA_PRESETS = [0.3, 0.5, 0.7, 1];
 const BRIGHTNESS_PRESETS = [0.5, 0.75, 1];
+const CHAT_FONT_PRESETS = [12, 13, 14, 16, 18, 20, 24];
 
 function nextPreset(value: number, presets: number[]): number {
     const index = presets.indexOf(value);
@@ -154,8 +169,23 @@ const shell = (content: string) => {
 };
 const button = (label: string, action: string, className = "") => `<button class="button ${className}" data-action="${action}">${label}</button>`;
 
+/** 主界面背景：从 /assets/Homepage_background 中随机选一张。 */
+let homepageBackground = "/assets/Homepage_background/1.jpg";
+
+async function loadHomepageBackground(): Promise<void> {
+    try {
+        const res = await fetch("/api/homepage-backgrounds");
+        if (!res.ok) return;
+        const data = (await res.json()) as {backgrounds?: string[]};
+        const list = (data.backgrounds || []).filter((file) => /\.(jpe?g|png|webp)$/i.test(file));
+        if (list.length) homepageBackground = `/assets/Homepage_background/${list[Math.floor(Math.random() * list.length)]}`;
+    } catch {
+        // 接口不可用时保持默认背景
+    }
+}
+
 function renderLogin(message = ""): void {
-    shell(`<section class="login-screen"><div class="brand"><span>MY2D</span><strong>WORLD</strong><small>an endless block journal</small></div><div class="login-panel"><div class="eyebrow">LOCAL SESSION / 01</div><h1>${text("进入世界", "Enter your world")}</h1><p>${text("在浏览器中继续你的无限地形旅程。", "Continue your infinite terrain journey in the browser.")}</p><input id="username" placeholder="${text("账号", "Username")}" /><input id="password" type="password" placeholder="${text("密码", "Password")}" /><div class="actions">${button(text("登录", "Login"), "login", "primary")}${button(text("注册", "Register"), "register")}</div><div class="login-tools"><button data-action="language">${language === "zh" ? "中文" : "English"}</button><button data-action="demo">${text("使用默认账号", "Use demo account")}</button></div><div class="message">${message}</div></div></section>`);
+    shell(`<section class="login-screen" style="background-image: linear-gradient(100deg, rgba(10, 21, 27, .18), #10232c 80%), url('${homepageBackground}')"><div class="brand"><span>MY2D</span><strong>WORLD</strong><small>an endless block journal</small></div><div class="login-panel"><div class="eyebrow">LOCAL SESSION / 01</div><h1>${text("进入世界", "Enter your world")}</h1><p>${text("在浏览器中继续你的无限地形旅程。", "Continue your infinite terrain journey in the browser.")}</p><input id="username" placeholder="${text("账号", "Username")}" /><input id="password" type="password" placeholder="${text("密码", "Password")}" /><div class="actions">${button(text("登录", "Login"), "login", "primary")}${button(text("注册", "Register"), "register")}</div><div class="login-tools"><button data-action="language">${language === "zh" ? "中文" : "English"}</button><button data-action="demo">${text("使用默认账号", "Use demo account")}</button></div><div class="message">${message}</div></div></section>`);
 }
 
 async function renderWorlds(message = ""): Promise<void> {
@@ -214,6 +244,7 @@ class GameSession {
     private selected = 0;
     private health = 20;
     private voidDamageTimer = 0;
+    private squeezeTimer = 0;
     private notice = "";
     private noticeTimer = 0;
     private menu: "pause" | "settings" | "bindings" | "display" | "plugins" | null = null;
@@ -249,6 +280,7 @@ class GameSession {
         this.modeName = meta.mode;
         this.world = new World(8, meta.seed ?? 0);
         this.mobs = new MobManager(meta.seed ?? 0);
+        this.mobs.aggroRange = settings.aggroRange;
         const x = this.initialSave?.playerX ?? spawnX(meta.seed ?? 0);
         const y = this.initialSave?.playerY ?? this.world.getSurfaceHeight(x) + 0.001;
         this.world.updateView(x);
@@ -261,6 +293,7 @@ class GameSession {
         this.loadGui("mode_creative", "/assets/gui/gamemode/creative.png");
         this.loadGui("mode_spectator", "/assets/gui/gamemode/spectator.png");
         this.loadGui("mouse", "/assets/gui/mouse/mouse.png");
+        this.loadGui("mouse_attack", "/assets/gui/mouse/attack.png");
         this.loadGui("mouse_left_broke", "/assets/gui/mouse/mouse_left_broke.png");
         this.loadGui("mouse_right_place_and_move", "/assets/gui/mouse/mouse_right_place_and_move.png");
         this.loadGui("move_fly", "/assets/gui/movemode/creative_fly.png");
@@ -410,6 +443,7 @@ class GameSession {
         });
         this.canvas.addEventListener("mousedown", (event) => {
             if (this.chatOpen || this.inventoryOpen) {
+                if (this.chatOpen && event.button === 0) this.handleSuggestionClick(event.clientX, event.clientY);
                 if (this.inventoryOpen && event.button === 0) this.handleInventoryClick(event.clientX, event.clientY);
                 event.preventDefault();
                 return;
@@ -457,7 +491,7 @@ class GameSession {
         this.canvas.addEventListener("wheel", (event) => {
             event.preventDefault();
             if (this.chatOpen) {
-                this.chatScroll = Math.max(0, Math.min(Math.max(0, this.chatMessages.length - 9), this.chatScroll + Math.sign(event.deltaY)));
+                this.chatScroll = Math.max(0, Math.min(Math.max(0, this.chatLineCount() - 9), this.chatScroll + Math.sign(event.deltaY)));
             } else if (!this.inventoryOpen && this.hotbarSlotAt(event.clientX, event.clientY) >= 0) this.selected = (this.selected + Math.sign(event.deltaY) + this.hotbar.length) % this.hotbar.length; else if (!this.inventoryOpen) this.blockSize = this.snapBlockSize(this.blockSize * (event.deltaY < 0 ? 1.15 : 1 / 1.15));
         }, {passive: false});
     }
@@ -558,45 +592,175 @@ class GameSession {
     private chatScroll = 0;
     private suggestionIndex = 0;
     private suggestions: string[] = [];
-    /** Real DOM input overlay for the chat line: enables native selection, IME and copy/paste. */
-    private chatInput: HTMLInputElement | null = null;
+    /** DOM 聊天框：透明文字的 textarea 覆盖在语法高亮层上，支持原生选中/复制/粘贴/输入法。 */
+    private chatBox: HTMLDivElement | null = null;
+    private chatSyntax: HTMLDivElement | null = null;
+    private chatInput: HTMLTextAreaElement | null = null;
+    /** 输入框当前高度（长命令自动换行后随之增高），canvas 画背景时使用。 */
+    private chatInputHeight = 34;
+    /** 本次渲染算出的建议块点击区域，供鼠标悬停高亮与点击补全。 */
+    private suggestionHitAreas: Array<{x: number; y: number; w: number; h: number; suggestion: string}> = [];
 
     private ensureChatInput(): void {
-        if (this.chatInput && this.chatInput.isConnected) return;
-        if (this.chatInput) this.chatInput.remove();
-        const input = document.createElement("input");
+        if (this.chatBox && this.chatBox.isConnected) return;
+        if (this.chatBox) this.chatBox.remove();
+        const box = document.createElement("div");
+        box.className = "chat-box";
+        const syntax = document.createElement("div");
+        syntax.className = "chat-syntax";
+        const input = document.createElement("textarea");
         input.className = "chat-input";
         input.autocomplete = "off";
         input.spellcheck = false;
+        input.wrap = "soft";
+        input.rows = 1;
         input.addEventListener("input", () => {
             if (input.value.length > 160) input.value = input.value.slice(0, 160);
             this.chatText = input.value;
+            this.renderChatSyntax();
+            this.updateChatInputSize();
             this.resetSuggestions();
         });
-        document.body.appendChild(input);
+        box.appendChild(syntax);
+        box.appendChild(input);
+        document.body.appendChild(box);
+        this.chatBox = box;
+        this.chatSyntax = syntax;
         this.chatInput = input;
     }
 
+    /** 输入框单行行高（line-height × 字号，不含上下内边距）。 */
+    private chatLineHeight(fontSize = settings.chatFontSize): number {
+        return Math.round(fontSize * 1.4);
+    }
+
+    /** 按当前字体宽度把文本折成多行（与 DOM textarea 的 soft-wrap 对齐）。 */
+    private wrappedLineCount(text: string, fontSize: number, maxWidth: number): number {
+        if (!text) return 1;
+        const ctx = this.ctx;
+        ctx.font = `${fontSize}px ui-monospace, 'LXGW WenKai', monospace`;
+        let lines = 1;
+        let width = 0;
+        for (const ch of text) {
+            const w = ctx.measureText(ch).width;
+            if (width + w > maxWidth && width > 0) {
+                lines += 1;
+                width = w;
+            } else width += w;
+        }
+        return lines;
+    }
+
+    /** 根据换行后的行数调整输入框高度并重新定位（长命令自动换行、聊天框随之增高）。 */
+    private updateChatInputSize(): void {
+        if (!this.chatBox || !this.chatInput) return;
+        const fontSize = settings.chatFontSize;
+        const maxWidth = window.innerWidth - 28 - 24;
+        const lineH = this.chatLineHeight(fontSize);
+        this.chatInput.style.fontSize = `${fontSize}px`;
+        this.chatInput.style.lineHeight = `${lineH}px`;
+        if (this.chatSyntax) {
+            this.chatSyntax.style.fontSize = `${fontSize}px`;
+            this.chatSyntax.style.lineHeight = `${lineH}px`;
+        }
+        // 以 DOM scrollHeight 兜底，保证实际 soft-wrap 行数不被裁剪
+        this.chatInput.style.height = "auto";
+        const contentH = Math.max(0, (this.chatInput.scrollHeight ?? 0) - 16);
+        const domLines = Math.max(1, Math.ceil(contentH / lineH));
+        const calcLines = this.wrappedLineCount(this.chatText, fontSize, maxWidth);
+        const lines = Math.max(calcLines, domLines);
+        this.chatInputHeight = lines * lineH + 16;
+        this.chatInput.style.height = `${this.chatInputHeight}px`;
+        this.chatBox.style.height = `${this.chatInputHeight}px`;
+        this.chatBox.style.top = `${window.innerHeight - 12 - this.chatInputHeight}px`;
+    }
+
     private positionChatInput(): void {
-        if (!this.chatInput) return;
-        this.chatInput.style.left = "14px";
-        this.chatInput.style.top = `${window.innerHeight - 40}px`;
-        this.chatInput.style.width = `${window.innerWidth - 28}px`;
+        if (!this.chatBox || !this.chatInput) return;
+        this.chatBox.style.left = "14px";
+        this.chatBox.style.width = `${window.innerWidth - 28}px`;
+        this.updateChatInputSize();
     }
 
     private showChatInput(): void {
-        if (!this.chatInput) return;
-        this.positionChatInput();
+        if (!this.chatBox || !this.chatInput) return;
+        this.chatText = this.chatText.slice(0, 160);
         this.chatInput.value = this.chatText;
-        this.chatInput.style.display = "block";
+        this.chatBox.style.display = "block";
+        this.positionChatInput();
+        this.renderChatSyntax();
         this.chatInput.focus();
-        this.chatInput.setSelectionRange(this.chatInput.value.length, this.chatInput.value.length);
+        this.chatInput.setSelectionRange(this.chatText.length, this.chatText.length);
     }
 
     private hideChatInput(): void {
+        if (!this.chatBox) return;
+        this.chatBox.style.display = "none";
+        this.chatInput?.blur();
+    }
+
+    /** 命令语法高亮：/命令=金色，已知子命令=绿色，数字=蓝色，其余=灰色。保留原始空白保证与输入对齐。 */
+    private renderChatSyntax(): void {
+        if (!this.chatSyntax) return;
+        const text = this.chatText;
+        if (!text.startsWith("/")) {
+            this.chatSyntax.textContent = text;
+            return;
+        }
+        const body = text.slice(1);
+        const command = body.split(/\s+/)[0]?.toLowerCase() ?? "";
+        const knownArgs = CHAT_ARG_SUGGESTIONS[command] || [];
+        let html = `<span style="color:#e2bc68">/</span>`;
+        const tokenRe = /(\S+)/g;
+        let last = 0;
+        let index = 0;
+        for (const match of body.matchAll(tokenRe)) {
+            const token = match[1];
+            const start = match.index ?? 0;
+            html += escapeHtml(body.slice(last, start));
+            last = start + token.length;
+            const lower = token.toLowerCase();
+            let color = "#d2d9d5";
+            if (index === 0) color = CHAT_COMMANDS.includes(lower) ? "#f5dc8e" : "#e2bc68";
+            else if (/^-?\d+(\.\d+)?$/.test(token)) color = "#79c0ff";
+            else if (knownArgs.includes(lower)) color = "#8de0a5";
+            html += `<span style="color:${color}">${escapeHtml(token)}</span>`;
+            index += 1;
+        }
+        html += escapeHtml(body.slice(last));
+        this.chatSyntax.innerHTML = html;
+    }
+
+    /** 把 chatText 同步回 DOM 输入框并刷新语法高亮与输入框尺寸。 */
+    private syncChatInput(): void {
         if (!this.chatInput) return;
-        this.chatInput.style.display = "none";
-        this.chatInput.blur();
+        this.chatInput.value = this.chatText;
+        this.renderChatSyntax();
+        this.updateChatInputSize();
+        this.chatInput.setSelectionRange(this.chatText.length, this.chatText.length);
+    }
+
+    /** 应用一条补全建议（Tab 循环与鼠标点击共用）。 */
+    private applySuggestion(suggestion: string): void {
+        if (suggestion.startsWith("/")) {
+            this.chatText = suggestion + (COMMANDS_WITH_ARGS.includes(suggestion) ? " " : "");
+            this.resetSuggestions();
+        } else {
+            const prefix = this.chatText.includes(" ") ? this.chatText.slice(0, this.chatText.lastIndexOf(" ")) : this.chatText;
+            this.chatText = `${prefix} ${suggestion}`;
+        }
+        this.syncChatInput();
+    }
+
+    /** 鼠标点击命令提示块时补全命令。 */
+    private handleSuggestionClick(clientX: number, clientY: number): void {
+        for (const area of this.suggestionHitAreas) {
+            if (clientX >= area.x && clientX <= area.x + area.w && clientY >= area.y && clientY <= area.y + area.h) {
+                this.suggestionIndex = 0;
+                this.applySuggestion(area.suggestion);
+                return;
+            }
+        }
     }
 
     private openChat(initial = ""): void {
@@ -638,20 +802,9 @@ class GameSession {
         } else if (event.key === "Tab") {
             const suggestions = this.suggestions.length ? this.suggestions : this.getSuggestions();
             if (suggestions.length) {
-                const suggestion = suggestions[this.suggestionIndex % suggestions.length];
-                this.suggestionIndex += 1;
                 this.suggestions = suggestions;
-                if (suggestion.startsWith("/")) {
-                    this.chatText = suggestion + (["/gamemode", "/debug", "/locate", "/tp", "/summon", "/reload"].includes(suggestion) ? " " : "");
-                    this.resetSuggestions();
-                } else {
-                    const prefix = this.chatText.includes(" ") ? this.chatText.slice(0, this.chatText.lastIndexOf(" ")) : this.chatText;
-                    this.chatText = `${prefix} ${suggestion}`;
-                }
-                if (this.chatInput) {
-                    this.chatInput.value = this.chatText;
-                    this.chatInput.setSelectionRange(this.chatInput.value.length, this.chatInput.value.length);
-                }
+                this.applySuggestion(suggestions[this.suggestionIndex % suggestions.length]);
+                this.suggestionIndex += 1;
             }
             event.preventDefault();
         } else if (event.key === "ArrowUp") {
@@ -659,10 +812,7 @@ class GameSession {
                 this.chatHistoryCursor = this.chatHistoryCursor === null ? this.chatHistory.length - 1 : Math.max(0, this.chatHistoryCursor - 1);
                 this.chatText = this.chatHistory[this.chatHistoryCursor];
                 this.resetSuggestions();
-                if (this.chatInput) {
-                    this.chatInput.value = this.chatText;
-                    this.chatInput.setSelectionRange(this.chatInput.value.length, this.chatInput.value.length);
-                }
+                this.syncChatInput();
             }
             event.preventDefault();
         } else if (event.key === "ArrowDown") {
@@ -673,14 +823,11 @@ class GameSession {
                     this.chatText = "";
                 } else this.chatText = this.chatHistory[this.chatHistoryCursor];
                 this.resetSuggestions();
-                if (this.chatInput) {
-                    this.chatInput.value = this.chatText;
-                    this.chatInput.setSelectionRange(this.chatInput.value.length, this.chatInput.value.length);
-                }
+                this.syncChatInput();
             }
             event.preventDefault();
         } else if (event.key === "PageUp" || event.key === "PageDown") {
-            const maxScroll = Math.max(0, this.chatMessages.length - 9);
+            const maxScroll = Math.max(0, this.chatLineCount() - 9);
             this.chatScroll = event.key === "PageUp" ? Math.max(0, this.chatScroll + 9) : Math.min(maxScroll, this.chatScroll - 9);
             event.preventDefault();
         }
@@ -722,6 +869,12 @@ class GameSession {
             settings.debugDefault = this.debug;
             storage.saveSettings(settings);
             this.addChat(`Debug ${this.debug ? "on" : "off"}`);
+        } else if (command === "aggro" && Number.isFinite(Number(parts[1]))) {
+            const range = Math.max(1, Math.min(128, Math.round(Number(parts[1]))));
+            this.mobs.aggroRange = range;
+            settings.aggroRange = range;
+            storage.saveSettings(settings);
+            this.addChat(`Aggro range set to ${range}`);
         } else if (command === "seed") this.addChat(`Seed: ${this.meta.seed ?? 0}`);
         else if (command === "locate") {
             const target = (parts[1] ?? "").toLowerCase();
@@ -775,6 +928,7 @@ class GameSession {
             this.loadGui("mode_creative", "/assets/gui/gamemode/creative.png", true);
             this.loadGui("mode_spectator", "/assets/gui/gamemode/spectator.png", true);
             this.loadGui("mouse", "/assets/gui/mouse/mouse.png", true);
+            this.loadGui("mouse_attack", "/assets/gui/mouse/attack.png", true);
             this.loadGui("mouse_left_broke", "/assets/gui/mouse/mouse_left_broke.png", true);
             this.loadGui("mouse_right_place_and_move", "/assets/gui/mouse/mouse_right_place_and_move.png", true);
             this.loadGui("move_fly", "/assets/gui/movemode/creative_fly.png", true);
@@ -983,24 +1137,126 @@ class GameSession {
         const body = this.chatText.slice(1);
         const parts = body.split(/\s+/);
         const trailing = body.endsWith(" ");
-        const commands = ["gamemode", "speed", "movespeed", "debug", "seed", "locate", "tp", "summon", "structure", "reload"];
-        if (!parts[0]) return commands.map((command) => `/${command}`);
-        if (parts.length === 1 && !trailing) return commands.filter((command) => command.startsWith(parts[0].toLowerCase())).map((command) => `/${command}`);
-        const args: Record<string, string[]> = {
-            gamemode: ["creative", "spectator"],
-            debug: ["on", "off", "true", "false"],
-            locate: LOCATABLE_BIOMES,
-            summon: Object.keys(MOB_KINDS),
-            structure: ["export", "load", "list", "delete"],
-            reload: ["images", "animations", "hitboxes", "plugins", "all"],
-        };
+        if (!parts[0]) return CHAT_COMMANDS.map((command) => `/${command}`);
+        if (parts.length === 1 && !trailing) return CHAT_COMMANDS.filter((command) => command.startsWith(parts[0].toLowerCase())).map((command) => `/${command}`);
         const prefix = trailing ? "" : parts.at(-1)?.toLowerCase() || "";
-        return (args[parts[0].toLowerCase()] || []).filter((argument) => argument.startsWith(prefix));
+        return (CHAT_ARG_SUGGESTIONS[parts[0].toLowerCase()] || []).filter((argument) => argument.startsWith(prefix));
     }
 
     private resetSuggestions(): void {
         this.suggestionIndex = 0;
         this.suggestions = [];
+    }
+
+    /** 当前可见聊天（关闭时按 7 秒淡出过滤）的折行总数，供滚动换算。 */
+    private chatLineCount(): number {
+        const maxWidth = Math.min(window.innerWidth - 28, 600) - 16;
+        const messages = this.chatOpen ? this.chatMessages : this.chatMessages.filter((message) => message.age < 7);
+        let count = 0;
+        for (const message of messages) count += this.wrapTextLines(message.text, maxWidth).length;
+        return count;
+    }
+
+    /** 把文本按最大宽度折成多行（canvas 测量，与输入框 soft-wrap 一致）。 */
+    private wrapTextLines(text: string, maxWidth: number): string[] {
+        const ctx = this.ctx;
+        ctx.font = `${settings.chatFontSize}px ui-monospace, 'LXGW WenKai', monospace`;
+        const lines: string[] = [];
+        let current = "";
+        let width = 0;
+        for (const ch of text) {
+            const w = ctx.measureText(ch).width;
+            if (width + w > maxWidth && current) {
+                lines.push(current);
+                current = ch;
+                width = w;
+            } else {
+                current += ch;
+                width += w;
+            }
+        }
+        if (current) lines.push(current);
+        return lines.length ? lines : [""];
+    }
+
+    /** 按命令语法给一行文本上色（/命令=金，子命令=绿，数字=蓝，其余=灰）；普通聊天保持原色。 */
+    private drawChatLine(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, fallbackColor: string, maxWidth: number): void {
+        if (!text.startsWith("> /") && !text.startsWith("/")) {
+            ctx.fillStyle = fallbackColor;
+            ctx.fillText(text, x, y);
+            return;
+        }
+        const tokenRe = /(\S+)/g;
+        let last = 0;
+        let consumed = 0;
+        const drawToken = (token: string, color: string): void => {
+            const w = ctx.measureText(token).width;
+            if (consumed + w > maxWidth) return;
+            ctx.fillStyle = color;
+            ctx.fillText(token, x + consumed, y);
+            consumed += w;
+        };
+        for (const match of text.matchAll(tokenRe)) {
+            const token = match[1];
+            const start = match.index ?? 0;
+            const space = text.slice(last, start);
+            if (space) {
+                const w = ctx.measureText(space).width;
+                if (consumed + w > maxWidth) break;
+                ctx.fillStyle = fallbackColor;
+                ctx.fillText(space, x + consumed, y);
+                consumed += w;
+            }
+            last = start + token.length;
+            const lower = token.toLowerCase();
+            const color = /^-?\d+(\.\d+)?$/.test(token) ? "#79c0ff"
+                : lower.startsWith(">") || lower.startsWith("/") || CHAT_COMMANDS.includes(lower.replace(/^[>\/]+/, "")) ? "#f5dc8e"
+                : Object.values(CHAT_ARG_SUGGESTIONS).some((list) => list.includes(lower)) ? "#8de0a5"
+                : "#d2d9d5";
+            drawToken(token, color);
+            if (consumed >= maxWidth) break;
+        }
+    }
+
+    /** 绘制命令提示块（自动换行），返回面板顶部 y；悬停的块变黄，点击可补全。 */
+    private renderSuggestionChips(ctx: CanvasRenderingContext2D, suggestions: string[], bottom: number, width: number): number {
+        const fontSize = settings.chatFontSize;
+        const chipH = fontSize + 12;
+        const gap = 6;
+        const boxW = width - 28;
+        const left = 14;
+        const padX = 10;
+        ctx.font = `${fontSize}px ui-monospace, 'LXGW WenKai', monospace`;
+        const areas: Array<{x: number; y: number; w: number; h: number; suggestion: string}> = [];
+        let x = left + 8;
+        let y = bottom - chipH - 6;
+        let top = y;
+        for (const suggestion of suggestions) {
+            const textW = ctx.measureText(suggestion).width;
+            const chipW = textW + padX * 2;
+            if (x + chipW > left + boxW - 8 && x > left + 8) {
+                x = left + 8;
+                y -= chipH + 4;
+                top = y;
+            }
+            areas.push({x, y, w: chipW, h: chipH, suggestion});
+            x += chipW + gap;
+        }
+        this.suggestionHitAreas = areas;
+        const panelTop = top - 4;
+        ctx.fillStyle = "rgba(0,0,0,.78)";
+        ctx.fillRect(left, panelTop, boxW, bottom - panelTop);
+        ctx.textBaseline = "middle";
+        for (const area of areas) {
+            const hovered = this.lastMouseX >= area.x && this.lastMouseX <= area.x + area.w
+                && this.lastMouseY >= area.y && this.lastMouseY <= area.y + area.h;
+            ctx.fillStyle = hovered ? "#e2bc68" : "#28434a";
+            ctx.fillRect(area.x, area.y, area.w, area.h);
+            ctx.fillStyle = hovered ? "#14222a" : area.suggestion.startsWith("/") ? "#f5dc8e" : "#8de0a5";
+            ctx.fillText(area.suggestion, area.x + padX, area.y + chipH / 2 + 0.5);
+        }
+        ctx.textBaseline = "alphabetic";
+        return panelTop;
     }
 
     private snapBlockSize(size: number): number {
@@ -1081,6 +1337,7 @@ class GameSession {
             }
             this.world.updateView(this.player.x);
             this.updateVoid(dt);
+            this.updateSqueeze(dt);
             this.fx.update(dt);
             const damagePlayer = this.modeName === "creative" ? () => undefined : (amount: number) => this.damagePlayer(amount);
             this.mobs.update(dt, this.world, this.player, damagePlayer, (kind, x, y) => {
@@ -1123,6 +1380,33 @@ class GameSession {
             this.noticeTimer = 3;
             plugins.notifyPlayerRespawn(this.pluginContext());
             storage.log("Player respawned", {world: this.meta.name, reason: "void"});
+        }
+    }
+
+    /** 方块挤压（窒息）伤害：玩家身体与实心方块重叠时每 0.5s 受 1 点伤害。 */
+    private updateSqueeze(dt: number): void {
+        if (this.modeName !== "creative" || this.spectate) {
+            this.squeezeTimer = 0;
+            return;
+        }
+        const p = this.player;
+        let inside = false;
+        for (let x = Math.ceil(p.x - p.halfWidth); x <= Math.floor(p.x + p.halfWidth) && !inside; x += 1) {
+            for (let y = Math.ceil(p.y); y <= Math.floor(p.y + p.height); y += 1) {
+                if (this.world.isSolid(x, y)) {
+                    inside = true;
+                    break;
+                }
+            }
+        }
+        if (!inside) {
+            this.squeezeTimer = 0;
+            return;
+        }
+        this.squeezeTimer += dt;
+        if (this.squeezeTimer >= 0.5) {
+            this.squeezeTimer = 0;
+            this.damagePlayer(1);
         }
     }
 
@@ -1351,7 +1635,7 @@ class GameSession {
     private handleMenuClick(clientX: number, clientY: number): void {
         const boxW = Math.min(460, window.innerWidth - 40);
         const x = (window.innerWidth - boxW) / 2;
-        const menuHeight = this.menu === "bindings" ? 680 : this.menu === "settings" ? 540 : this.menu === "plugins" ? Math.min(620, window.innerHeight - 40) : this.menu === "pause" ? 476 : 410;
+        const menuHeight = this.menu === "bindings" ? 680 : this.menu === "settings" ? 540 : this.menu === "plugins" ? Math.min(620, window.innerHeight - 40) : this.menu === "pause" ? 476 : this.menu === "display" ? 480 : 410;
         const y = (window.innerHeight - menuHeight) / 2;
         if (clientX < x + 52 || clientX > x + boxW - 52) return;
         if (this.menu === "plugins") {
@@ -1359,7 +1643,7 @@ class GameSession {
             return;
         }
         const index = Math.floor((clientY - (y + (this.menu === "bindings" ? 82 : 92))) / (this.menu === "bindings" ? 55 : 66));
-        if (index < 0 || index > (this.menu === "bindings" ? 9 : this.menu === "settings" ? 6 : this.menu === "display" ? 4 : this.menu === "pause" ? 3 : 2)) return;
+        if (index < 0 || index > (this.menu === "bindings" ? 9 : this.menu === "settings" ? 6 : this.menu === "display" ? 5 : this.menu === "pause" ? 3 : 2)) return;
         const rowY = y + (this.menu === "bindings" ? 82 : 92) + index * (this.menu === "bindings" ? 55 : 66);
         const rowH = this.menu === "bindings" ? 42 : 44;
         if (clientY < rowY || clientY > rowY + rowH) return;
@@ -1418,7 +1702,11 @@ class GameSession {
                 settings.spectateBrightness = nextPreset(settings.spectateBrightness, BRIGHTNESS_PRESETS);
                 storage.saveSettings(settings);
             }
-            if (index === 4) this.menu = "settings";
+            if (index === 4) {
+                settings.chatFontSize = nextPreset(settings.chatFontSize, CHAT_FONT_PRESETS);
+                storage.saveSettings(settings);
+            }
+            if (index === 5) this.menu = "settings";
             return;
         }
         if (index === 9) {
@@ -1560,6 +1848,7 @@ class GameSession {
                         kind: mob.kind,
                         pose: mob.state === "attack" ? "attack" : mob.velocityX !== 0 ? "walk" : "idle",
                         time: mob.animationTime,
+                        blendKey: mob,
                         x: mob.x,
                         y: mob.y,
                         facing: mob.facing,
@@ -1578,11 +1867,25 @@ class GameSession {
         });
         drawables.sort((a, b) => b.depth - a.depth);
         drawables.forEach((entry) => entry.draw());
+        // 悬停的生物绘制在方块与其它生物之上，并显示红色高亮框
+        if (!this.paused && !this.chatOpen && !this.inventoryOpen) {
+            const hoveredMob = this.hoveredMob();
+            if (hoveredMob) {
+                const sx = (hoveredMob.hitboxLeft - cameraX) * this.blockSize + width / 2;
+                const sy = (cameraY - hoveredMob.hitboxTop) * this.blockSize + height / 2;
+                const sw = (hoveredMob.hitboxRight - hoveredMob.hitboxLeft) * this.blockSize;
+                const sh = (hoveredMob.hitboxTop - hoveredMob.hitboxBottom) * this.blockSize;
+                ctx.strokeStyle = "rgba(255,90,70,.95)";
+                ctx.lineWidth = 2;
+                ctx.strokeRect(sx - 1.5, sy - 1.5, sw + 3, sh + 3);
+            }
+        }
         if (this.spectate) {
             renderCharacter(ctx, {
                 kind: "player",
                 pose: this.player.velocityX ? "walk" : "idle",
                 time: this.player.animationT,
+                blendKey: this.player,
                 x: cameraX,
                 y: cameraY,
                 facing: this.player.facing,
@@ -1644,6 +1947,11 @@ class GameSession {
         ctx.restore();
     }
 
+    /** 鼠标指向的生物（在玩家攻击范围内），用于攻击光标与悬停高亮。 */
+    private hoveredMob(): Mob | null {
+        return this.mobs.hitMob(this.worldAtMouse(), this.player);
+    }
+
     private renderCursor(): void {
         if (this.paused || this.chatOpen || this.inventoryOpen) {
             this.canvas.style.cursor = settings.cursorStyle === "crosshair" ? "crosshair" : "default";
@@ -1657,7 +1965,8 @@ class GameSession {
         let key = "mouse";
         const target = this.hovered();
         const placement = this.getPlacementTarget();
-        if (this.modeName === "creative") {
+        if (this.hoveredMob()) key = "mouse_attack";
+        else if (this.modeName === "creative") {
             if (!target && placement) key = "mouse_right_place_and_move";
             else if (target) key = "mouse_left_broke";
         } else if (this.modeName === "spectator" && this.dragging) {
@@ -1752,32 +2061,42 @@ class GameSession {
             ];
             lines.forEach((line, index) => ctx.fillText(line, 30, 147 + index * 16));
         }
-        const messages = this.chatOpen ? this.chatMessages : this.chatMessages.filter((message) => message.age < 7);
-        const end = messages.length - (this.chatOpen ? this.chatScroll : 0);
-        const visible = messages.slice(Math.max(0, end - 9), end);
-        ctx.font = "13px ui-monospace";
-        visible.forEach((message, index) => {
-            ctx.globalAlpha = this.chatOpen ? 1 : Math.max(0, Math.min(1, (7 - message.age) / 3));
-            const y = height - (this.chatOpen ? 54 : 18) - (visible.length - index) * 22;
-            ctx.fillStyle = "rgba(0,0,0,.6)";
-            ctx.fillRect(14, y, Math.min(width - 28, 600), 20);
-            ctx.fillStyle = message.color;
-            ctx.fillText(message.text, 22, y + 14);
-        });
-        ctx.globalAlpha = 1;
+        const chatFontSize = settings.chatFontSize;
+        const chatLineH = this.chatLineHeight(chatFontSize) + 7;
+        const boxWidth = Math.min(width - 28, 600);
+        const inputTop = height - 12 - this.chatInputHeight;
+        let chatBottom = this.chatOpen ? inputTop : height - 14;
         if (this.chatOpen) {
             const suggestions = this.getSuggestions();
-            if (suggestions.length) {
-                ctx.fillStyle = "rgba(0,0,0,.78)";
-                ctx.fillRect(14, height - 70, width - 28, 24);
-                ctx.fillStyle = "#d2d9d5";
-                ctx.fillText(suggestions.join("  "), 24, height - 54);
-            }
+            if (suggestions.length) chatBottom = this.renderSuggestionChips(ctx, suggestions, inputTop - 4, width);
+            else this.suggestionHitAreas = [];
+        }
+        const messages = this.chatOpen ? this.chatMessages : this.chatMessages.filter((message) => message.age < 7);
+        const ordered: Array<{message: {text: string; color: string; age: number}; line: string}> = [];
+        for (const message of messages) {
+            for (const line of this.wrapTextLines(message.text, boxWidth - 16)) ordered.push({message, line});
+        }
+        const total = ordered.length;
+        const end = total - (this.chatOpen ? this.chatScroll : 0);
+        const start = Math.max(0, end - 9);
+        ctx.font = `${chatFontSize}px ui-monospace, 'LXGW WenKai', monospace`;
+        let cursorY = chatBottom - 4;
+        for (let i = end - 1; i >= start; i -= 1) {
+            const {message, line} = ordered[i];
+            cursorY -= chatLineH;
+            if (cursorY < 0) break;
+            ctx.globalAlpha = this.chatOpen ? 1 : Math.max(0, Math.min(1, (7 - message.age) / 3));
+            ctx.fillStyle = "rgba(0,0,0,.6)";
+            ctx.fillRect(14, cursorY, boxWidth, chatLineH - 2);
+            this.drawChatLine(ctx, line, 22, cursorY + chatLineH - 6, message.color, boxWidth - 16);
+        }
+        ctx.globalAlpha = 1;
+        if (this.chatOpen) {
             ctx.fillStyle = "rgba(0,0,0,.88)";
-            ctx.fillRect(14, height - 40, width - 28, 30);
+            ctx.fillRect(14, inputTop, width - 28, this.chatInputHeight);
             ctx.strokeStyle = "#d8e4df";
-            ctx.strokeRect(14, height - 40, width - 28, 30);
-            // 输入文本与光标由叠加的 DOM 输入框渲染（支持选中/复制/粘贴/输入法）。
+            ctx.strokeRect(14, inputTop, width - 28, this.chatInputHeight);
+            // 输入文本（语法高亮）与光标由叠加的 DOM 层渲染（支持选中/复制/粘贴/输入法）。
         }
         if (this.noticeTimer > 0) {
             ctx.font = "600 16px Manrope";
@@ -1858,7 +2177,7 @@ class GameSession {
         ctx.fillRect(0, 0, width, height);
         const bindingMode = this.menu === "bindings";
         const boxW = Math.min(460, width - 40);
-        const boxH = bindingMode ? 680 : this.menu === "settings" ? 540 : this.menu === "plugins" ? Math.min(620, height - 40) : this.menu === "pause" ? 476 : 410;
+        const boxH = bindingMode ? 680 : this.menu === "settings" ? 540 : this.menu === "plugins" ? Math.min(620, height - 40) : this.menu === "pause" ? 476 : this.menu === "display" ? 480 : 410;
         const x = (width - boxW) / 2;
         const y = (height - boxH) / 2;
         ctx.fillStyle = "#13252d";
@@ -1948,6 +2267,7 @@ class GameSession {
                         `${t(language, "display_placement_brightness")}: ${Math.round(settings.placementBrightness * 100)}%`,
                         `${t(language, "display_spectate_alpha")}: ${Math.round(settings.spectateAlpha * 100)}%`,
                         `${t(language, "display_spectate_brightness")}: ${Math.round(settings.spectateBrightness * 100)}%`,
+                        `${t(language, "display_chat_font")}: ${settings.chatFontSize}px`,
                         t(language, "settings_back"),
                     ]
                     : [t(language, "pause_resume"), t(language, "settings_title"), t(language, "pause_plugins"), t(language, "pause_homepage")];
@@ -2060,6 +2380,7 @@ async function boot(): Promise<void> {
     language = settings.language;
     document.title = t(language, "window_title");
     await loadExternalPlugins();
+    await loadHomepageBackground();
     renderLogin();
 }
 

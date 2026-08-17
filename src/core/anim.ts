@@ -382,6 +382,23 @@ export class Animation {
         return {x: px, y: py, angle, nodes, pivotLocal};
     }
 
+    /** 计算整份动画在时刻 t 的所有对象变换（id → 变换），供姿态混合等场景复用。 */
+    transformsAt(t: number): Map<string, AnimTransform> {
+        this._tx = new Map();
+        this._computing = new Set();
+        const result = new Map<string, AnimTransform>();
+        for (const obj of this.objects) {
+            const tr = this.transformOf(obj, t);
+            if (obj.id) {
+                this._tx.set(obj.id, tr);
+                result.set(obj.id, tr);
+            }
+        }
+        this._tx = null;
+        this._computing.clear();
+        return result;
+    }
+
     /** 把整份动画在时刻 t 绘制到当前坐标系（对象坐标即世界坐标，y 向上，锚点即原点）。 */
     render(ctx: CanvasRenderingContext2D, t: number, options: AnimDrawOptions = {}): void {
         this._tx = new Map();
@@ -396,7 +413,8 @@ export class Animation {
         this._computing.clear();
     }
 
-    private drawObject(ctx: CanvasRenderingContext2D, obj: AnimObject, tr: AnimTransform, options: AnimDrawOptions): void {
+    /** 按给定变换绘制单个对象（姿态混合渲染时也复用此方法）。 */
+    drawObject(ctx: CanvasRenderingContext2D, obj: AnimObject, tr: AnimTransform, options: AnimDrawOptions): void {
         const [w, h] = this.sizeOf(obj);
         ctx.save();
         ctx.translate(tr.x, tr.y);

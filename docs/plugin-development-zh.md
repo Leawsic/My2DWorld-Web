@@ -169,14 +169,16 @@ api.onGameTick((context) => {
 
 ```js
 install(api) {
-  // 覆盖单个 kind 的碰撞箱：半宽/高度为方块，centerX/centerY 为箱中心相对锚点的偏移。
+  // 覆盖碰撞箱：半宽/高度为方块，centerX/centerY 为箱中心相对锚点的偏移。
   // 省略 centerY 时默认 height/2（脚底锚定）；物理碰撞、点击判定与 F5 可视化共用同一碰撞箱。
+  // key 可为分类名（大/小 × 牛/猪/僵尸：cow/cow_baby/pig/pig_baby/zombie/zombie_baby，
+  // 覆盖整个分类的所有 kind 变体），也可为具体 kind（如 "zombie_baby"，精确 kind 优先于分类）。
   api.registerHitbox("zombie_baby", { halfWidth: 0.3, height: 0.8, centerX: 0, centerY: 0.1 });
 
-  // 或一次注册多个
+  // 或一次注册多个（同样支持分类名，如 pig 覆盖全部大猪、pig_baby 覆盖全部小猪）
   api.setHitboxes({
-    pig_temperate: { halfWidth: 0.9, height: 0.95 },
-    cow_temperate: { halfWidth: 0.8, height: 1.25 }
+    pig: { halfWidth: 0.9, height: 0.95 },
+    cow: { halfWidth: 0.8, height: 1.25 }
   });
 
   // 注册家族动画：覆盖 cow 家族所有 kind（cow_cold/cow_warm/...）的 walk 姿态

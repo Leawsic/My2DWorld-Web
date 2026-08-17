@@ -119,6 +119,22 @@ const MOUNTAINS: Biome = {
 /** Snow caps mountain peaks above this elevation. */
 const SNOW_LINE = 148;
 
+/** 海洋：大型群系，可延伸 5000+ 格。无水的干涸海床——低而平坦的沙地。 */
+const OCEAN: Biome = {
+    id: "ocean", base: 50, amplitude: 2, detail: 1,
+    surface: SAND, surfaceDepth: 3, subSurface: SAND, subDepth: 6,
+    stone: STONE, stoneVariant: COBBLESTONE, variantChance: 0.1,
+    grass: "#82c34d", foliage: "#5a9424",
+};
+
+/** 河流：小型群系，跨度约 50-100 格，略低于周围地形的沙质河床。 */
+const RIVER: Biome = {
+    id: "river", base: 60, amplitude: 2, detail: 1.5,
+    surface: SAND, surfaceDepth: 2, subSurface: DIRT, subDepth: 4,
+    stone: STONE, stoneVariant: COBBLESTONE, variantChance: 0.1,
+    grass: "#82c34d", foliage: "#5a9424",
+};
+
 /** Low-frequency temperature/humidity field that drives biome selection. */
 interface Climate {
     temp: number;
@@ -132,14 +148,27 @@ const SNOWY_TEMP = 0.3;
 const DESERT_TEMP = 0.7;
 const HUMIDITY_SPLIT = 0.5;
 
+/** 大陆/海洋尺度：基频波长约 3300 格，海洋区域可延伸 5000+ 格。 */
+const OCEAN_FREQ = 0.0003;
+const OCEAN_SEED = 0x0ce4;
+const OCEAN_THRESHOLD = 0.45;
+/** 河流尺度：约 50-100 格宽的窄带（abs(noise-0.5) < band）。 */
+const RIVER_FREQ = 0.008;
+const RIVER_SEED = 0x11e9;
+const RIVER_BAND = 0.09;
+
 function climate(x: number, seed: number): Climate {
     return {
-        temp: fbm2D(x * 0.004, 0.37, seed ^ 0x9e37, 3),
-        hum: fbm2D(x * 0.0032, 0.71, seed ^ 0x5bd1, 3),
+        temp: fbm2D(x * 0.0016, 0.37, seed ^ 0x9e37, 3),
+        hum: fbm2D(x * 0.0012, 0.71, seed ^ 0x5bd1, 3),
     };
 }
 
+/** 多尺度群系选择：海洋（5000+ 格）→ 河流（50-100 格窄带）→ 气候带（数百至上千格）。 */
 export function biomeAt(x: number, seed = 0): Biome {
+    if (fbm2D(x * OCEAN_FREQ, 0.9, (seed ^ OCEAN_SEED) >>> 0, 2) < OCEAN_THRESHOLD) return OCEAN;
+    const river = fbm2D(x * RIVER_FREQ, 0.3, (seed ^ RIVER_SEED) >>> 0, 2);
+    if (Math.abs(river - 0.5) < RIVER_BAND) return RIVER;
     const {temp, hum} = climate(x, seed);
     if (fbm2D(x * RUGGED_FREQ, 0.5, seed ^ RUGGED_SEED, 3) > RUGGED_THRESHOLD) return MOUNTAINS;
     if (temp < SNOWY_TEMP) return SNOWY;
@@ -248,8 +277,9 @@ export function spawnX(seed = 0): number {
     return Math.floor((hashNoise(seed) - 0.5) * 400);
 }
 
-/** Half-width (in columns) of the triangular height-blend window across biome transitions. */
-const TRANSITION_BAND = 3;
+/** Half-width (in columns) of the triangular height-blend window across biome transitions.
+ * 加宽后海洋与陆地之间是缓坡海岸，不会出现悬崖式断层。 */
+const TRANSITION_BAND = 6;
 
 export function terrainHeight(x: number, seed = 0): number {
     // Blend the per-biome heights across a short window so elevation changes

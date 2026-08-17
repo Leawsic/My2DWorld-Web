@@ -54,6 +54,8 @@ export const storage = {
             placementBrightness: typeof saved.placementBrightness === "number" && saved.placementBrightness >= 0 && saved.placementBrightness <= 1 ? saved.placementBrightness : DEFAULT_SETTINGS.placementBrightness,
             spectateAlpha: typeof saved.spectateAlpha === "number" && saved.spectateAlpha >= 0 && saved.spectateAlpha <= 1 ? saved.spectateAlpha : DEFAULT_SETTINGS.spectateAlpha,
             spectateBrightness: typeof saved.spectateBrightness === "number" && saved.spectateBrightness >= 0 && saved.spectateBrightness <= 1 ? saved.spectateBrightness : DEFAULT_SETTINGS.spectateBrightness,
+            aggroRange: typeof saved.aggroRange === "number" && saved.aggroRange >= 1 && saved.aggroRange <= 128 ? saved.aggroRange : DEFAULT_SETTINGS.aggroRange,
+            chatFontSize: typeof saved.chatFontSize === "number" && saved.chatFontSize >= 10 && saved.chatFontSize <= 28 ? saved.chatFontSize : DEFAULT_SETTINGS.chatFontSize,
         };
     },
     async saveSettings(settings: PlayerSettings): Promise<boolean> {

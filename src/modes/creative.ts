@@ -34,6 +34,7 @@ export class CreativeMode extends GameMode {
             kind: "player",
             pose: player.velocityX ? "walk" : "idle",
             time: player.animationT,
+            blendKey: player,
             x: player.x,
             y: player.y,
             facing: player.facing,
