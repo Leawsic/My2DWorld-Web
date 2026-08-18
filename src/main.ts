@@ -311,7 +311,9 @@ class GameSession {
         plugins.notifyGameStart(this.pluginContext());
         storage.log("Game started", {world: meta.name, worldId: meta.id, mode: this.modeName});
         void this.preloadAnimations();
-        void loadHitboxes();
+        // 碰撞箱是异步加载的：加载完成后刷新所有已生成的生物，
+        // 否则先出生（或已在第一帧生成）的生物会用内置默认碰撞箱显示/碰撞（reload 前错误）。
+        void loadHitboxes().then(() => this.mobs.refreshHitboxes());
         requestAnimationFrame(this.tick);
     }
 
@@ -947,6 +949,8 @@ class GameSession {
         }
         if (part === "plugins" || part === "all") {
             await this.reloadPlugins();
+            // 插件可能注册了碰撞箱覆盖：重新应用到现有生物上，避免显示/碰撞沿用旧值。
+            this.mobs.refreshHitboxes();
             reloaded.push("plugins");
         }
         this.addChat(`${text("重载完成", "Reloaded")}: ${reloaded.join(", ")}`);
@@ -1351,7 +1355,7 @@ class GameSession {
                 this.addChat(text("你击败了", "You slew") + ` ${name}`, "#ffd24a");
                 plugins.notifyMobKilled({...this.pluginContext(), kind, x, y});
                 storage.log("Mob killed", {world: this.meta.name, kind, x, y});
-            });
+            }, !this.spectate);
             plugins.notifyGameTick({...this.pluginContext(), dt});
             this.autosaveElapsed += dt;
             if (settings.autosaveInterval > 0 && this.autosaveElapsed >= settings.autosaveInterval) {

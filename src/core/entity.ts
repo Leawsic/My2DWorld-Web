@@ -1,6 +1,6 @@
 import {biomeAt, CHUNK_SIZE, WORLD_MIN_Y, type World} from "./world";
 import type {Player} from "./player";
-import {moveBody, type PhysicsBody} from "./physics";
+import {moveBody, resolveEntityCollision, type PhysicsBody} from "./physics";
 import {mulberry32} from "./noise";
 import {structuresNear} from "./structures";
 import {hitboxFor} from "./hitboxes";
@@ -69,6 +69,16 @@ const DEFAULT_AGGRO_RANGE = 24;
 const SAME_LEVEL_TOLERANCE = 3;
 const MOB_GRAVITY = 28;
 const MOB_KNOCKBACK = 5;
+/** 实体间碰撞的恢复系数（弹性）：碰撞后沿法线反弹的比例。 */
+const ENTITY_RESTITUTION = 0.3;
+/** 玩家主动推怪时的质量因子（略大于生物，可轻微顶回玩家）。 */
+const PLAYER_PUSH_FACTOR = 6;
+/** 玩家静止/远离时视为不可推动的墙的质量因子。 */
+const PLAYER_IMMOVABLE_FACTOR = 100;
+const MOB_MIN_MASS = 0.1;
+/** 生物被玩家顶住时短暂弹开的速度与时长（AI 结束后恢复寻路）。 */
+const MOB_ELASTIC_BOUNCE = 1.5;
+const MOB_ELASTIC_BOUNCE_TIME = 0.1;
 
 /** Deterministic per-chunk mob roll: at most one mob per chunk, or null when the chunk is empty. */
 function chunkSpawn(chunkX: number, seed: number): {kind: MobKind; x: number} | null {
@@ -231,6 +241,13 @@ export class Mob implements PhysicsBody {
         return false;
     }
 
+    /** 弹性碰撞反弹：沿 dirX 方向短暂弹开（受击击退优先，AI 结束后恢复寻路）。 */
+    elasticBounce(dirX: number): void {
+        if (this.knockbackTimer > 0) return;
+        this.knockbackTimer = MOB_ELASTIC_BOUNCE_TIME;
+        this.knockbackX = dirX * MOB_ELASTIC_BOUNCE;
+    }
+
     /** 方块挤压（窒息）伤害：碰撞箱与实心方块重叠时每 0.5s 受 1 点伤害。 */
     squeezeDamage(dt: number, world: World): void {
         if (!this.overlapsSolid(world)) {
@@ -302,7 +319,7 @@ export class MobManager {
         for (const mob of this.summoned) mob.applyHitbox();
     }
 
-    update(dt: number, world: World, player: Player, onPlayerDamage: (amount: number) => void, onMobKilled: (kind: MobKind, x: number, y: number) => void): void {
+    update(dt: number, world: World, player: Player, onPlayerDamage: (amount: number) => void, onMobKilled: (kind: MobKind, x: number, y: number) => void, collideWithPlayer = true): void {
         const seconds = Math.min(dt, 0.05);
         const center = Math.floor(player.x / CHUNK_SIZE);
 
@@ -345,7 +362,7 @@ export class MobManager {
             }
         }
 
-        this.separateMobs(world);
+        this.separateBodies(world, player, collideWithPlayer);
 
         for (const chunkX of world.chunks.keys()) {
             if (this.mobs.has(chunkX) || this.dead.has(chunkX)) continue;
@@ -363,44 +380,49 @@ export class MobManager {
         }
     }
 
-    /** 生物互挤：把重叠的生物沿水平方向互相推开，防止堆怪。 */
-    private separateMobs(world: World): void {
+    /** 实体互挤：所有活着的生物两两之间、以及与玩家之间的 AABB 重叠按质量加权完全推开，
+     *  并施加弹性反弹，防止堆怪、重叠闪烁与穿体。推入实心方块的方向会被拒绝。 */
+    private separateBodies(world: World, player: Player, collideWithPlayer: boolean): void {
         const mobs = [...this.mobs.values(), ...this.summoned].filter((mob) => mob.alive);
         for (let iteration = 0; iteration < 3; iteration += 1) {
             let moved = false;
             for (let i = 0; i < mobs.length; i += 1) {
+                const a = mobs[i];
+                if (collideWithPlayer && this.resolvePlayerMob(a, player, world)) moved = true;
                 for (let j = i + 1; j < mobs.length; j += 1) {
-                    const a = mobs[i], b = mobs[j];
-                    const overlapX = a.halfWidth + b.halfWidth - Math.abs(a.x - b.x);
-                    const overlapY = (a.height + b.height) / 2 - Math.abs(a.centerY - b.centerY);
-                    if (overlapX <= 0 || overlapY <= 0) continue;
-                    const direction = a.x < b.x ? 1 : -1;
-                    const step = Math.min(overlapX / 2, 0.08);
-                    if (this.canShift(a, direction * step, world)) {
-                        a.x += direction * step;
-                        moved = true;
-                    }
-                    if (this.canShift(b, -direction * step, world)) {
-                        b.x -= direction * step;
-                        moved = true;
-                    }
+                    if (this.resolveMobMob(a, mobs[j], world)) moved = true;
                 }
             }
             if (!moved) break;
         }
     }
 
-    /** 水平平移 dx 后是否不与实心方块重叠（避免把生物挤进墙里）。 */
-    private canShift(mob: Mob, dx: number, world: World): boolean {
-        const blockX = dx > 0
-            ? Math.floor(mob.x + mob.centerOffsetX + mob.halfWidth + dx)
-            : Math.floor(mob.x + mob.centerOffsetX - mob.halfWidth + dx);
-        const bottom = Math.floor(mob.y + mob.centerOffsetY - mob.height / 2) + 1;
-        const top = Math.ceil(mob.y + mob.centerOffsetY + mob.height / 2);
-        for (let y = bottom; y <= top; y += 1) {
-            if (world.isSolid(blockX, y)) return false;
-        }
-        return true;
+    /** 等效质量：越大越难被推动（面积近似）。 */
+    private static mobMass(mob: Mob): number {
+        return Math.max(MOB_MIN_MASS, mob.halfWidth * 2 * mob.height);
+    }
+
+    /** 生物 × 生物：质量加权推开 + 弹性反弹。 */
+    private resolveMobMob(a: Mob, b: Mob, world: World): boolean {
+        return resolveEntityCollision(a, b, MobManager.mobMass(a), MobManager.mobMass(b), world, ENTITY_RESTITUTION);
+    }
+
+    /** 生物 × 玩家：玩家主动推怪时用正常质量（可被轻微顶回），否则视为不可推动的墙。
+     *  被玩家顶住且未主动推怪的生物会短暂弹开（可见的「弹开」效果）。 */
+    private resolvePlayerMob(mob: Mob, player: Player, world: World): boolean {
+        const ax = player.x, ay = player.y + player.height / 2;
+        const bx = mob.centerX, by = mob.centerY;
+        const penX = player.halfWidth + mob.halfWidth - Math.abs(bx - ax);
+        const penY = (player.height + mob.height) / 2 - Math.abs(by - ay);
+        const axis = penX <= penY ? "x" : "y";
+        const dir = (axis === "x" ? bx - ax : by - ay) >= 0 ? 1 : -1;
+        const v = axis === "x" ? player.velocityX : player.velocityY;
+        const pushing = v !== 0 && Math.sign(v) === Math.sign(dir);
+        const base = player.halfWidth * 2 * player.height;
+        const playerMass = pushing ? base * PLAYER_PUSH_FACTOR : base * PLAYER_IMMOVABLE_FACTOR;
+        const moved = resolveEntityCollision(mob, player, MobManager.mobMass(mob), playerMass, world, ENTITY_RESTITUTION);
+        if (moved && !pushing && axis === "x") mob.elasticBounce(mob.x >= player.x ? 1 : -1);
+        return moved;
     }
 
     /** All mobs within `radius` blocks of the player, for rendering. */
