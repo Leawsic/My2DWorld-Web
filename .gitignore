@@ -20,3 +20,4 @@ bin/
 run/
 .reasonix/
 reasonix.toml
+.jspace/
