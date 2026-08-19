@@ -1,6 +1,6 @@
 import {biomeAt, CHUNK_SIZE, WORLD_MIN_Y, type World} from "./world";
 import type {Player} from "./player";
-import {moveBody, resolveEntityCollision, type PhysicsBody} from "./physics";
+import {canShiftX, moveBody, resolveEntityCollision, type PhysicsBody} from "./physics";
 import {mulberry32} from "./noise";
 import {structuresNear} from "./structures";
 import {hitboxFor} from "./hitboxes";
@@ -8,7 +8,8 @@ import {hitboxFor} from "./hitboxes";
 export type MobKind =
     | "zombie" | "zombie_baby" | "husk" | "husk_baby" | "drowned" | "drowned_baby"
     | "pig_cold" | "pig_cold_baby" | "pig_temperate" | "pig_temperate_baby" | "pig_warm" | "pig_warm_baby"
-    | "cow_cold" | "cow_temperate" | "cow_warm" | "mooshroom_red" | "mooshroom_brown";
+    | "cow_cold" | "cow_temperate" | "cow_warm" | "mooshroom_red" | "mooshroom_brown"
+    | "cow_cold_baby" | "cow_temperate_baby" | "cow_warm_baby" | "mooshroom_red_baby" | "mooshroom_brown_baby";
 export type MobState = "idle" | "walk" | "attack";
 export type MobShape = "humanoid" | "pig" | "cow";
 
@@ -48,6 +49,11 @@ export const MOB_KINDS: Record<MobKind, MobKindConfig> = {
     cow_warm: {id: "cow_warm", asset: "cow_warm", shape: "cow", hostile: false, scale: 1, halfWidth: 0.75, height: 1.2, speed: 0.65, jumpVelocity: 5, hp: 16, damage: 0, attackCooldown: 0, hitRange: 0, visual: {width: 2.2, height: 1.2}},
     mooshroom_red: {id: "mooshroom_red", asset: "mooshroom_red", shape: "cow", hostile: false, scale: 1, halfWidth: 0.75, height: 1.2, speed: 0.65, jumpVelocity: 5, hp: 16, damage: 0, attackCooldown: 0, hitRange: 0, visual: {width: 2.2, height: 1.2}},
     mooshroom_brown: {id: "mooshroom_brown", asset: "mooshroom_brown", shape: "cow", hostile: false, scale: 1, halfWidth: 0.75, height: 1.2, speed: 0.65, jumpVelocity: 5, hp: 16, damage: 0, attackCooldown: 0, hitRange: 0, visual: {width: 2.2, height: 1.2}},
+    cow_cold_baby: {id: "cow_cold_baby", asset: "cow_cold_baby", shape: "cow", hostile: false, scale: 0.62, halfWidth: 0.5, height: 0.75, speed: 0.85, jumpVelocity: 4, hp: 8, damage: 0, attackCooldown: 0, hitRange: 0, visual: {width: 1.4, height: 0.75}},
+    cow_temperate_baby: {id: "cow_temperate_baby", asset: "cow_temperate_baby", shape: "cow", hostile: false, scale: 0.62, halfWidth: 0.5, height: 0.75, speed: 0.85, jumpVelocity: 4, hp: 8, damage: 0, attackCooldown: 0, hitRange: 0, visual: {width: 1.4, height: 0.75}},
+    cow_warm_baby: {id: "cow_warm_baby", asset: "cow_warm_baby", shape: "cow", hostile: false, scale: 0.62, halfWidth: 0.5, height: 0.75, speed: 0.85, jumpVelocity: 4, hp: 8, damage: 0, attackCooldown: 0, hitRange: 0, visual: {width: 1.4, height: 0.75}},
+    mooshroom_red_baby: {id: "mooshroom_red_baby", asset: "mooshroom_red_baby", shape: "cow", hostile: false, scale: 0.62, halfWidth: 0.5, height: 0.75, speed: 0.85, jumpVelocity: 4, hp: 8, damage: 0, attackCooldown: 0, hitRange: 0, visual: {width: 1.4, height: 0.75}},
+    mooshroom_brown_baby: {id: "mooshroom_brown_baby", asset: "mooshroom_brown_baby", shape: "cow", hostile: false, scale: 0.62, halfWidth: 0.5, height: 0.75, speed: 0.85, jumpVelocity: 4, hp: 8, damage: 0, attackCooldown: 0, hitRange: 0, visual: {width: 1.4, height: 0.75}},
 };
 
 const BIOME_SPAWN_POOLS: Record<string, readonly MobKind[]> = {
@@ -79,6 +85,19 @@ const MOB_MIN_MASS = 0.1;
 /** 生物被玩家顶住时短暂弹开的速度与时长（AI 结束后恢复寻路）。 */
 const MOB_ELASTIC_BOUNCE = 1.5;
 const MOB_ELASTIC_BOUNCE_TIME = 0.1;
+/** MC 式实体挤压伤害参数。 */
+const SQUEEZE_RADIUS = 10;              // 检测半径：仅检查玩家附近实体（性能）
+const SQUEEZE_BASE_DAMAGE = 2;          // 基础伤害
+const SQUEEZE_THRESHOLD_RATIO = 0.4;    // 水平重叠深度超过实体宽度 40% 才判定为挤压
+const SQUEEZE_CONTACT = 0.05;           // 墙角挤压所需的最小接触深度
+const SQUEEZE_IFRAME = 1;               // 挤压无敌帧（秒），期间不再受挤压伤害（击退仍生效）
+const SQUEEZE_MAX_DAMAGE = 10;          // 单次结算上限：多实体挤压线性叠加但不超此值
+const SQUEEZE_DIFFICULTY = 1;           // 难度系数（普通=1，困难=1.5）
+const SQUEEZE_CORNER_MULTIPLIER = 2;    // 被实体+实心方块夹击（墙角窒息）时伤害翻倍
+const SQUEEZE_CORNER_FLOOR = 0.5;       // 墙角挤压的深度下限比例（接触即可生效）
+const PLAYER_SQUEEZE_DAMAGE_RATIO = 0.5; // 玩家挤压怪物时伤害减半（主要效果是推开）
+/** 亡灵生物（挤压附带缓慢效果，时长/减速比例在 main/player 侧）。 */
+const UNDEAD_KINDS: readonly MobKind[] = ["zombie", "zombie_baby", "husk", "husk_baby", "drowned", "drowned_baby"];
 
 /** Deterministic per-chunk mob roll: at most one mob per chunk, or null when the chunk is empty. */
 function chunkSpawn(chunkX: number, seed: number): {kind: MobKind; x: number} | null {
@@ -115,6 +134,8 @@ export class Mob implements PhysicsBody {
     private knockbackTimer = 0;
     private knockbackX = 0;
     private squeezeTimer = 0;
+    /** 实体挤压伤害的 1s 无敌帧计时（期间不再被挤压扣血，但击退仍生效）。 */
+    squeezeIframe = 0;
 
     constructor(readonly kind: MobKind, x: number, y: number) {
         this.x = x;
@@ -171,6 +192,7 @@ export class Mob implements PhysicsBody {
         const seconds = Math.min(dt, 0.05);
         this.hurtTimer = Math.max(0, this.hurtTimer - seconds);
         this.attackCooldown = Math.max(0, this.attackCooldown - seconds);
+        this.squeezeIframe = Math.max(0, this.squeezeIframe - seconds);
         this.animationTime += seconds;
         const config = MOB_KINDS[this.kind];
 
@@ -248,6 +270,19 @@ export class Mob implements PhysicsBody {
         this.knockbackX = dirX * MOB_ELASTIC_BOUNCE;
     }
 
+    /** 实体挤压伤害：进入 1s 挤压无敌帧并扣血。返回是否死亡。 */
+    takeSqueezeDamage(amount: number): boolean {
+        if (!this.alive || this.squeezeIframe > 0) return false;
+        this.squeezeIframe = SQUEEZE_IFRAME;
+        this.hp -= amount;
+        this.hurtTimer = 0.35;
+        if (this.hp <= 0) {
+            this.alive = false;
+            return true;
+        }
+        return false;
+    }
+
     /** 方块挤压（窒息）伤害：碰撞箱与实心方块重叠时每 0.5s 受 1 点伤害。 */
     squeezeDamage(dt: number, world: World): void {
         if (!this.overlapsSolid(world)) {
@@ -319,7 +354,7 @@ export class MobManager {
         for (const mob of this.summoned) mob.applyHitbox();
     }
 
-    update(dt: number, world: World, player: Player, onPlayerDamage: (amount: number) => void, onMobKilled: (kind: MobKind, x: number, y: number) => void, collideWithPlayer = true): void {
+    update(dt: number, world: World, player: Player, onPlayerDamage: (amount: number) => void, onMobKilled: (kind: MobKind, x: number, y: number) => void, collideWithPlayer = true, onPlayerSqueezed: (damage: number, undead: boolean) => void = () => undefined): void {
         const seconds = Math.min(dt, 0.05);
         const center = Math.floor(player.x / CHUNK_SIZE);
 
@@ -362,6 +397,8 @@ export class MobManager {
             }
         }
 
+        // 实体挤压伤害需在分离（separateBodies）之前结算：此刻帧内重叠深度是最新值
+        this.squeezeEntities(world, player, onPlayerSqueezed);
         this.separateBodies(world, player, collideWithPlayer);
 
         for (const chunkX of world.chunks.keys()) {
@@ -400,6 +437,77 @@ export class MobManager {
     /** 等效质量：越大越难被推动（面积近似）。 */
     private static mobMass(mob: Mob): number {
         return Math.max(MOB_MIN_MASS, mob.halfWidth * 2 * mob.height);
+    }
+
+    /**
+     * MC 式实体挤压伤害（每帧在分离之前结算，此时帧内重叠深度是最新值）：
+     * - 只算水平（X 轴）重叠；垂直踩踏不视为挤压。
+     * - 水平重叠深度超过实体宽度 40% 才触发；伤害 = 基础 × (重叠深度/宽度) × 难度。
+     * - 同一实体被多个实体挤压时线性叠加，但单次结算不超过上限。
+     * - 受击方获得 1s 挤压无敌帧（击退不受影响）。
+     * - 被实体 + 实心方块夹击（墙角窒息）时伤害翻倍。
+     * - 玩家挤压怪物伤害减半并推开；亡灵生物挤压玩家附带 5s 缓慢。
+     */
+    private squeezeEntities(world: World, player: Player, onPlayerSqueezed: (damage: number, undead: boolean) => void): void {
+        const mobs = [...this.mobs.values(), ...this.summoned].filter(
+            (mob) => mob.alive && Math.hypot(player.x - mob.x, player.y + player.height / 2 - mob.centerY) <= SQUEEZE_RADIUS,
+        );
+        const mobDamage = new Map<Mob, number>();
+        const mobShove = new Map<Mob, number>();
+        let playerDamage = 0;
+        let playerUndead = false;
+
+        /** 单个方向的挤压伤害；返回 0 表示未达阈值。corner 表示受害者的背面紧贴实心方块。 */
+        const squeezedBy = (victim: PhysicsBody, pusher: PhysicsBody, penX: number, dmgScale: number): {dmg: number; corner: boolean} => {
+            const width = victim.halfWidth * 2;
+            const ratio = penX / width;
+            const vcx = victim.x + (victim.centerOffsetX ?? 0);
+            const pcx = pusher.x + (pusher.centerOffsetX ?? 0);
+            // 逃逸方向 = 远离挤压者的一侧；该方向被实心方块挡住即为「墙角窒息」
+            const corner = penX > SQUEEZE_CONTACT && !canShiftX(victim, vcx >= pcx ? 0.2 : -0.2, world);
+            if (!corner && ratio < SQUEEZE_THRESHOLD_RATIO) return {dmg: 0, corner: false};
+            const depth = Math.min(1, corner ? Math.max(SQUEEZE_CORNER_FLOOR, ratio) : ratio);
+            const dmg = SQUEEZE_BASE_DAMAGE * depth * SQUEEZE_DIFFICULTY * (corner ? SQUEEZE_CORNER_MULTIPLIER : 1) * dmgScale;
+            return {dmg, corner};
+        };
+
+        // 玩家 × 生物
+        for (const mob of mobs) {
+            const penX = player.halfWidth + mob.halfWidth - Math.abs(player.x - mob.centerX);
+            const penY = (player.height + mob.height) / 2 - Math.abs(player.y + player.height / 2 - mob.centerY);
+            if (penX <= 0 || penY <= 0) continue;
+            const onMob = squeezedBy(mob, player, penX, PLAYER_SQUEEZE_DAMAGE_RATIO);
+            if (onMob.dmg > 0) {
+                mobDamage.set(mob, Math.min(SQUEEZE_MAX_DAMAGE, (mobDamage.get(mob) ?? 0) + onMob.dmg));
+                mobShove.set(mob, mob.x >= player.x ? 1 : -1);
+            }
+            const onPlayer = squeezedBy(player, mob, penX, 1);
+            if (onPlayer.dmg > 0) {
+                playerDamage = Math.min(SQUEEZE_MAX_DAMAGE, playerDamage + onPlayer.dmg);
+                if (UNDEAD_KINDS.includes(mob.kind)) playerUndead = true;
+            }
+        }
+        // 生物 × 生物（互相挤压）
+        for (let i = 0; i < mobs.length; i += 1) {
+            for (let j = i + 1; j < mobs.length; j += 1) {
+                const a = mobs[i], b = mobs[j];
+                const penX = a.halfWidth + b.halfWidth - Math.abs(a.centerX - b.centerX);
+                const penY = (a.height + b.height) / 2 - Math.abs(a.centerY - b.centerY);
+                if (penX <= 0 || penY <= 0) continue;
+                const dA = squeezedBy(a, b, penX, 1);
+                if (dA.dmg > 0) mobDamage.set(a, Math.min(SQUEEZE_MAX_DAMAGE, (mobDamage.get(a) ?? 0) + dA.dmg));
+                const dB = squeezedBy(b, a, penX, 1);
+                if (dB.dmg > 0) mobDamage.set(b, Math.min(SQUEEZE_MAX_DAMAGE, (mobDamage.get(b) ?? 0) + dB.dmg));
+            }
+        }
+
+        // 结算：生物扣血（各自 1s 无敌帧）；被玩家挤压的额外推开
+        for (const [mob, dmg] of mobDamage) {
+            if (mob.takeSqueezeDamage(dmg)) continue;
+            const shove = mobShove.get(mob);
+            if (shove) mob.elasticBounce(shove);
+        }
+        if (playerDamage > 0) onPlayerSqueezed(playerDamage, playerUndead);
     }
 
     /** 生物 × 生物：质量加权推开 + 弹性反弹。 */

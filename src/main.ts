@@ -29,6 +29,10 @@ if (!app) throw new Error("App root is missing");
 const LOCATE_RANGE = 20000;
 const LOCATABLE_BIOMES = ["plains", "forest", "desert", "snowy", "mountains", "ocean", "river"];
 const STRUCTURE_NAME = /^[a-z0-9][a-z0-9_-]{0,31}$/i;
+/** 玩家被实体挤压后的 1s 无敌帧（期间不再受挤压伤害，击退仍生效）。 */
+const PLAYER_SQUEEZE_IFRAME = 1;
+/** 亡灵生物挤压玩家附带的缓慢时长（秒）。 */
+const UNDEAD_SLOW_SECONDS = 5;
 
 /** 命令补全与语法高亮共用的命令表。 */
 const CHAT_COMMANDS = ["gamemode", "speed", "movespeed", "debug", "seed", "locate", "tp", "summon", "structure", "reload", "aggro"];
@@ -245,6 +249,8 @@ class GameSession {
     private health = 20;
     private voidDamageTimer = 0;
     private squeezeTimer = 0;
+    /** 玩家被实体挤压后的 1s 无敌帧（期间不再受挤压伤害，击退仍生效）。 */
+    private squeezeIframe = 0;
     private notice = "";
     private noticeTimer = 0;
     private menu: "pause" | "settings" | "bindings" | "display" | "plugins" | null = null;
@@ -1317,6 +1323,7 @@ class GameSession {
             if (this.titleMessage.age >= this.titleMessage.duration) this.titleMessage = null;
         }
         if (this.noticeTimer > 0) this.noticeTimer -= dt;
+        this.squeezeIframe = Math.max(0, this.squeezeIframe - dt);
         if (!this.paused && !this.chatOpen && !this.inventoryOpen) {
             if (!this.spectate) this.mode.update({
                 player: this.player,
@@ -1355,7 +1362,13 @@ class GameSession {
                 this.addChat(text("你击败了", "You slew") + ` ${name}`, "#ffd24a");
                 plugins.notifyMobKilled({...this.pluginContext(), kind, x, y});
                 storage.log("Mob killed", {world: this.meta.name, kind, x, y});
-            }, !this.spectate);
+            }, !this.spectate, (damage, undead) => {
+                // MC 式实体挤压伤害：创造/旁观模式免伤；1s 无敌帧；亡灵挤压附带 5s 缓慢
+                if (this.modeName === "creative" || this.spectate || this.squeezeIframe > 0) return;
+                this.squeezeIframe = PLAYER_SQUEEZE_IFRAME;
+                if (undead) this.player.slowTimer = UNDEAD_SLOW_SECONDS;
+                damagePlayer(damage);
+            });
             plugins.notifyGameTick({...this.pluginContext(), dt});
             this.autosaveElapsed += dt;
             if (settings.autosaveInterval > 0 && this.autosaveElapsed >= settings.autosaveInterval) {

@@ -123,8 +123,8 @@ export function moveBody(body: PhysicsBody, world: World, dt: number): void {
     }
 }
 
-/** 水平平移 dx 后碰撞箱是否不与实心方块重叠（实体互推时防止挤进墙里）。 */
-function canShiftX(body: PhysicsBody, dx: number, world: World): boolean {
+/** 水平平移 dx 后碰撞箱是否不与实心方块重叠（实体互推/挤压墙角判定时防止挤进墙里）。 */
+export function canShiftX(body: PhysicsBody, dx: number, world: World): boolean {
     const cx = body.x + (body.centerOffsetX ?? 0) + dx;
     const blockX = dx > 0 ? Math.floor(cx + body.halfWidth) : Math.floor(cx - body.halfWidth);
     const bottom = Math.floor(body.y + (body.centerOffsetY ?? 0) - body.height / 2) + 1;

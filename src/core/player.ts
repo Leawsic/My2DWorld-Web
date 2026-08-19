@@ -30,6 +30,8 @@ export class Player implements PhysicsBody {
     flying = false;
     health = 20;
     facing = 1;
+    /** 缓慢效果剩余时间（秒）：>0 时移动/飞行速度 -20%（亡灵生物挤压附带）。 */
+    slowTimer = 0;
     private jumpWasDown = false;
     private doubleSpaceTimer = 0;
     private animationTime = 0;
@@ -41,6 +43,8 @@ export class Player implements PhysicsBody {
 
     update(keys: KeyState, dt: number, world: World): void {
         const seconds = Math.min(dt, 0.05);
+        this.slowTimer = Math.max(0, this.slowTimer - seconds);
+        const slow = this.slowTimer > 0 ? 0.8 : 1;
         const pressed = keys.jump && !this.jumpWasDown;
         this.doubleSpaceTimer = Math.max(0, this.doubleSpaceTimer - seconds);
         if (pressed) {
@@ -53,12 +57,12 @@ export class Player implements PhysicsBody {
         }
         this.jumpWasDown = keys.jump;
 
-        this.velocityX = keys.left === keys.right ? 0 : keys.left ? -this.movement.walkSpeed : this.movement.walkSpeed;
+        this.velocityX = keys.left === keys.right ? 0 : keys.left ? -this.movement.walkSpeed * slow : this.movement.walkSpeed * slow;
         if (this.velocityX) this.facing = Math.sign(this.velocityX);
         if (this.flying) {
             const up = keys.up || keys.jump;
             const down = keys.down || keys.sneak;
-            this.velocityY = up === down ? 0 : up ? this.movement.flySpeed : -this.movement.flySpeed;
+            this.velocityY = up === down ? 0 : up ? this.movement.flySpeed * slow : -this.movement.flySpeed * slow;
         } else {
             if (pressed && this.jumpsUsed < MAX_JUMPS) {
                 this.velocityY = this.movement.jumpVelocity;
@@ -82,6 +86,7 @@ export class Player implements PhysicsBody {
         this.jumpsUsed = 0;
         this.flying = false;
         this.health = 20;
+        this.slowTimer = 0;
     }
 
     get animationT(): number {
