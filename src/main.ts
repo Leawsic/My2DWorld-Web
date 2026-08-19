@@ -35,7 +35,7 @@ const PLAYER_SQUEEZE_IFRAME = 1;
 const UNDEAD_SLOW_SECONDS = 5;
 
 /** 命令补全与语法高亮共用的命令表。 */
-const CHAT_COMMANDS = ["gamemode", "speed", "movespeed", "debug", "seed", "locate", "tp", "summon", "structure", "reload", "aggro"];
+const CHAT_COMMANDS = ["gamemode", "speed", "movespeed", "debug", "seed", "locate", "tp", "summon", "structure", "reload", "aggro", "clearchat", "spawnpoint"];
 const CHAT_ARG_SUGGESTIONS: Record<string, string[]> = {
     gamemode: ["creative", "spectator"],
     debug: ["on", "off", "true", "false"],
@@ -43,10 +43,11 @@ const CHAT_ARG_SUGGESTIONS: Record<string, string[]> = {
     summon: Object.keys(MOB_KINDS),
     structure: ["export", "load", "list", "delete"],
     reload: ["images", "animations", "hitboxes", "plugins", "all"],
+    spawnpoint: ["@p", "@a", "@r", "left", "right"],
 };
 
 /** 补全命令后自动补一个空格（还有后续参数）。 */
-const COMMANDS_WITH_ARGS = ["/gamemode", "/debug", "/locate", "/tp", "/summon", "/reload", "/structure", "/aggro"];
+const COMMANDS_WITH_ARGS = ["/gamemode", "/debug", "/locate", "/tp", "/summon", "/reload", "/structure", "/aggro", "/spawnpoint"];
 
 /** Region placed by the two-phase /structure export|load flow before confirm. */
 interface StructurePending {
@@ -118,6 +119,9 @@ async function loadExternalPlugins(bust = false): Promise<void> {
 
 // Coordinates are source pixels in tab_inventory.png (512 x 512). Adjust these
 // values to fine-tune the imported GUI artwork without changing interaction code.
+// The artwork's opaque content is not centered in the 512x512 canvas; its bbox
+// center sits at (contentCenterX, contentCenterY), which the layout aligns to the
+// screen center so the visible inventory is centered.
 const CREATIVE_INVENTORY_GUI = {
     panelOffsetX: 80,
     panelOffsetY: 100,
@@ -128,6 +132,9 @@ const CREATIVE_INVENTORY_GUI = {
     hotbarOffsetY: 222,
     heldItemOffsetX: 0,
     heldItemOffsetY: 0,
+    /** 源图中不透明内容的包围盒中心（512x512 坐标）。 */
+    contentCenterX: 194.5,
+    contentCenterY: 135.5,
 } as const;
 
 function toggleLanguage(): void {
@@ -139,6 +146,37 @@ function toggleLanguage(): void {
 
 const text = (zh: string, en: string) => language === "zh" ? zh : en;
 const AUTOSAVE_OPTIONS = [0, 60, 300, 600];
+
+/** 击杀提示用的生物显示名（区分大/小、品种与哞菇颜色）。 */
+const MOB_DISPLAY_NAMES: Record<MobKind, [string, string]> = {
+    zombie: ["僵尸", "Zombie"],
+    zombie_baby: ["小僵尸", "Baby Zombie"],
+    husk: ["尸壳", "Husk"],
+    husk_baby: ["小尸壳", "Baby Husk"],
+    drowned: ["溺尸", "Drowned"],
+    drowned_baby: ["小溺尸", "Baby Drowned"],
+    pig_cold: ["雪原猪", "Snowy Pig"],
+    pig_cold_baby: ["小雪原猪", "Baby Snowy Pig"],
+    pig_temperate: ["草原猪", "Plains Pig"],
+    pig_temperate_baby: ["小草原猪", "Baby Plains Pig"],
+    pig_warm: ["沙漠猪", "Desert Pig"],
+    pig_warm_baby: ["小沙漠猪", "Baby Desert Pig"],
+    cow_cold: ["雪原牛", "Snowy Cow"],
+    cow_cold_baby: ["小雪原牛", "Baby Snowy Cow"],
+    cow_temperate: ["草原牛", "Plains Cow"],
+    cow_temperate_baby: ["小草原牛", "Baby Plains Cow"],
+    cow_warm: ["沙漠牛", "Desert Cow"],
+    cow_warm_baby: ["小沙漠牛", "Baby Desert Cow"],
+    mooshroom_red: ["红色哞菇", "Red Mooshroom"],
+    mooshroom_red_baby: ["小红哞菇", "Baby Red Mooshroom"],
+    mooshroom_brown: ["棕色哞菇", "Brown Mooshroom"],
+    mooshroom_brown_baby: ["小棕哞菇", "Baby Brown Mooshroom"],
+};
+
+const mobName = (kind: MobKind): string => {
+    const names = MOB_DISPLAY_NAMES[kind];
+    return names ? text(names[0], names[1]) : kind;
+};
 
 /** Scale an "#rrggbb" colour by a brightness factor. */
 function shadeColor(hex: string, factor: number): string {
@@ -251,6 +289,8 @@ class GameSession {
     private squeezeTimer = 0;
     /** 玩家被实体挤压后的 1s 无敌帧（期间不再受挤压伤害，击退仍生效）。 */
     private squeezeIframe = 0;
+    /** /spawnpoint 设置的重生点（玩家死亡后的出生位置）；未设置时回落到世界出生点。 */
+    private spawnPoint: {x: number; y: number; facing?: -1 | 1} | null = null;
     private notice = "";
     private noticeTimer = 0;
     private menu: "pause" | "settings" | "bindings" | "display" | "plugins" | null = null;
@@ -294,6 +334,9 @@ class GameSession {
         plugins.notifyWorldCreated(this.world);
         this.player = new Player(x, y, meta.physics);
         if (this.initialSave?.mode) this.modeName = this.initialSave.mode;
+        if (this.initialSave?.spawnX !== undefined && this.initialSave?.spawnY !== undefined) {
+            this.spawnPoint = {x: this.initialSave.spawnX, y: this.initialSave.spawnY, facing: this.initialSave.spawnFacing};
+        }
         this.mode = createMode(this.modeName);
         [...new Set([...blockRegistry.list().map((block) => block.id), ...plugins.blocks.keys()].filter((type): type is string => type !== null))].forEach((type) => this.loadBlock(type));
         this.loadGui("mode_creative", "/assets/gui/gamemode/creative.png");
@@ -907,15 +950,78 @@ class GameSession {
             else {
                 let x = this.player.x + this.player.facing * 1.5;
                 let y = this.player.y;
-                if (Number.isFinite(Number(parts[2]))) x = Number(parts[2]);
-                if (Number.isFinite(Number(parts[3]))) y = Number(parts[3]);
-                // 数量（第 5 个参数，1~64，默认 1）：沿水平方向排成一排
-                const count = Number.isFinite(Number(parts[4])) ? Math.max(1, Math.min(64, Math.floor(Number(parts[4])))) : 1;
+                let count = 1;
+                const a = parts.slice(2);
+                if (a.length === 1 && Number.isFinite(Number(a[0]))) {
+                    // /summon <生物> [数量]：只有一个数字参数时视为数量，在默认位置生成
+                    count = Math.max(1, Math.min(64, Math.floor(Number(a[0]))));
+                } else if (a.length >= 2 && Number.isFinite(Number(a[0])) && Number.isFinite(Number(a[1]))) {
+                    x = Number(a[0]);
+                    y = Number(a[1]);
+                    if (a.length >= 3 && Number.isFinite(Number(a[2]))) count = Math.max(1, Math.min(64, Math.floor(Number(a[2]))));
+                }
+                // 多个生物沿水平方向排成一排生成
                 for (let i = 0; i < count; i += 1) {
                     this.mobs.summon(kind, x + (i - (count - 1) / 2) * 0.6, y);
                 }
                 this.addChat(`${text("召唤", "Summoned")} ${count}× ${kind} @ ${x.toFixed(1)}, ${y.toFixed(1)}`);
             }
+        } else if (command === "clearchat") {
+            this.chatMessages = [];
+        } else if (command === "spawnpoint") {
+            // /spawnpoint [<targets>] [<pos>] [<facing>]
+            // <targets>: @p / @a / @r / 玩家名（本游戏为单机，全部指向本地玩家），默认 @p
+            // <pos>: 二维坐标 <x> <y>，支持绝对（100 64）、相对（~ ~）、偏移相对（~5 ~-3）
+            // <facing>: left | right，默认保持死亡前的朝向
+            let target = "@p";
+            let rest = parts.slice(1);
+            const first = rest[0] ?? "";
+            if (first.startsWith("@") || first === username) {
+                target = first;
+                rest = rest.slice(1);
+            }
+            if (!["@p", "@a", "@r", username].includes(target)) {
+                this.addChat(`Unknown target "${target}"`);
+                return;
+            }
+            let x = this.player.x;
+            let y = this.player.y;
+            let facing: -1 | 1 | undefined;
+            const coordish = (t: string): boolean => /^-?\d/.test(t) || t.startsWith("~");
+            const parseCoord = (t: string, current: number): number | null => {
+                if (t === "~") return current;
+                if (t.startsWith("~")) {
+                    const off = Number(t.slice(1));
+                    return Number.isFinite(off) ? current + off : null;
+                }
+                const v = Number(t);
+                return Number.isFinite(v) ? v : null;
+            };
+            if (rest.length >= 2 && coordish(rest[0]) && coordish(rest[1])) {
+                const px = parseCoord(rest[0], this.player.x);
+                const py = parseCoord(rest[1], this.player.y);
+                if (px === null || py === null) {
+                    this.addChat("Invalid coordinates");
+                    return;
+                }
+                x = px;
+                y = py;
+                const ft = rest[2]?.toLowerCase();
+                if (ft === "left") facing = -1;
+                else if (ft === "right") facing = 1;
+                else if (ft !== undefined && ft !== "") {
+                    this.addChat(`Invalid facing "${ft}" (left|right)`);
+                    return;
+                }
+            } else if (rest.length === 1 && (rest[0] === "left" || rest[0] === "right")) {
+                facing = rest[0] === "left" ? -1 : 1;
+            } else if (rest.some(coordish)) {
+                this.addChat("Usage: /spawnpoint [target] [x y] [left|right]");
+                return;
+            }
+            this.spawnPoint = {x, y, facing};
+            this.save();
+            this.addChat(`Spawnpoint set to ${Math.floor(x)}, ${Math.floor(y)}${facing ? (facing === 1 ? ", facing right" : ", facing left") : ""} for ${target}`);
         } else if (command === "structure") {
             await this.handleStructureCommand(parts);
         } else if (command === "reload") {
@@ -1366,13 +1472,7 @@ class GameSession {
             const damagePlayer = this.modeName === "creative" ? () => undefined : (amount: number) => this.damagePlayer(amount);
             this.mobs.update(dt, this.world, this.player, damagePlayer, (kind, x, y) => {
                 this.fx.burst(x, y, characterParticleTexture(kind));
-                const name = kind.startsWith("zombie") ? text("僵尸", "Zombie")
-                    : kind.startsWith("husk") ? text("尸壳", "Husk")
-                    : kind.startsWith("drowned") ? text("溺尸", "Drowned")
-                    : kind.startsWith("pig") ? text("猪", "Pig")
-                    : kind.startsWith("cow") ? text("牛", "Cow")
-                    : text("哞菇", "Mooshroom");
-                this.addChat(text("你击败了", "You slew") + ` ${name}`, "#ffd24a");
+                this.addChat(text("你击败了", "You slew") + ` ${mobName(kind)}`, "#ffd24a");
                 plugins.notifyMobKilled({...this.pluginContext(), kind, x, y});
                 storage.log("Mob killed", {world: this.meta.name, kind, x, y});
             }, !this.spectate, (damage, undead) => {
@@ -1401,23 +1501,32 @@ class GameSession {
         this.voidDamageTimer += dt;
         this.health = Math.max(0, this.health - 20 * dt);
         if (this.health <= 0) {
-            const spawnXPos = spawnX(this.meta.seed ?? 0);
-            const spawnYPos = this.world.getSurfaceHeight(spawnXPos) + 0.001;
-            this.player.reset(spawnXPos, spawnYPos);
-            this.health = 20;
-            this.save();
-            this.notice = text("你掉入虚空并重生了", "You fell into the void and respawned");
-            this.noticeTimer = 3;
-            plugins.notifyPlayerRespawn(this.pluginContext());
-            storage.log("Player respawned", {world: this.meta.name, reason: "void"});
+            this.respawn("void");
         }
     }
 
+    /** 死亡重生：优先使用 /spawnpoint 设置的重生点，否则回落到世界出生点。
+     *  未指定面朝方向时保持死亡前的朝向（reset 不会重置 facing）。 */
+    private respawn(reason: "void" | "mob"): void {
+        const sp = this.spawnPoint;
+        const x = sp ? sp.x : spawnX(this.meta.seed ?? 0);
+        const y = sp ? sp.y : this.world.getSurfaceHeight(Math.floor(x)) + 0.001;
+        this.player.reset(x, y);
+        if (sp?.facing) this.player.facing = sp.facing;
+        this.health = 20;
+        this.save();
+        this.notice = reason === "void" ? text("你掉入虚空并重生了", "You fell into the void and respawned") : text("你被怪物击败并重生了", "You were slain and respawned");
+        this.noticeTimer = 3;
+        plugins.notifyPlayerRespawn(this.pluginContext());
+        storage.log("Player respawned", {world: this.meta.name, reason});
+    }
+
     /** 方块挤压（窒息）伤害：玩家身体与实心方块重叠时每 0.5s 受 1 点伤害。
+     *  创造模式免疫（创造只受虚空伤害），旁观模式免疫。
      *  格子坐标 = 方块顶面（cell [c-1, c)），查碰撞箱接触到的所有格子（floor(边缘)+1 ..
      *  ceil(边缘)）；脚底 0.001 留边落在空气格，站立时不会误判地面。 */
     private updateSqueeze(dt: number): void {
-        if (this.modeName !== "creative" || this.spectate) {
+        if (this.modeName === "creative" || this.spectate) {
             this.squeezeTimer = 0;
             return;
         }
@@ -1447,15 +1556,7 @@ class GameSession {
         this.health = Math.max(0, this.health - amount);
         plugins.notifyPlayerHurt({...this.pluginContext(), amount, health: this.health});
         if (this.health <= 0) {
-            const spawnXPos = spawnX(this.meta.seed ?? 0);
-            const spawnYPos = this.world.getSurfaceHeight(spawnXPos) + 0.001;
-            this.player.reset(spawnXPos, spawnYPos);
-            this.health = 20;
-            this.save();
-            this.notice = text("你被怪物击败并重生了", "You were slain and respawned");
-            this.noticeTimer = 3;
-            plugins.notifyPlayerRespawn(this.pluginContext());
-            storage.log("Player respawned", {world: this.meta.name, reason: "mob"});
+            this.respawn("mob");
         }
     }
 
@@ -1624,8 +1725,9 @@ class GameSession {
         const slot = CREATIVE_INVENTORY_GUI.slotSize * scale;
         const panelW = 512 * scale;
         const panelH = 512 * scale;
-        const panelX = (window.innerWidth - panelW) / 2;
-        const panelY = (window.innerHeight - panelH) / 2;
+        // 让「图片内容中心」与屏幕中心吻合（图片本身 512x512 居中，但内容偏左上）
+        const panelX = (window.innerWidth - panelW) / 2 + (256 - CREATIVE_INVENTORY_GUI.contentCenterX) * scale;
+        const panelY = (window.innerHeight - panelH) / 2 + (256 - CREATIVE_INVENTORY_GUI.contentCenterY) * scale;
         return {
             panelX,
             panelY,
@@ -1755,6 +1857,7 @@ class GameSession {
             playerX: this.player.x,
             playerY: this.player.y,
             mode: this.modeName,
+            ...(this.spawnPoint ? {spawnX: this.spawnPoint.x, spawnY: this.spawnPoint.y, spawnFacing: this.spawnPoint.facing} : {}),
             idTable: changes.idTable,
             chunks: changes.chunks,
         });
@@ -2014,6 +2117,11 @@ class GameSession {
     }
 
     private renderHud(ctx: CanvasRenderingContext2D, width: number, height: number): void {
+        // 聊天打开时压暗背景（与打开背包一致的遮罩效果），聊天内容绘制在其上
+        if (this.chatOpen) {
+            ctx.fillStyle = "rgba(0, 0, 0, .5)";
+            ctx.fillRect(0, 0, width, height);
+        }
         ctx.fillStyle = "rgba(9,17,24,.78)";
         ctx.fillRect(18, 18, 184, 60);
         ctx.fillStyle = "#f8f4e7";
@@ -2057,18 +2165,22 @@ class GameSession {
                 ctx.drawImage(moveImage, width - 18 - 38, 66, 38, 38);
             }
         }
-        const slot = 48;
-        const barWidth = slot * this.hotbar.length;
-        ctx.fillStyle = "rgba(9,17,24,.88)";
-        ctx.fillRect((width - barWidth) / 2 - 8, height - 68, barWidth + 16, 56);
-        this.hotbar.forEach((type, index) => {
-            const x = (width - barWidth) / 2 + index * slot;
-            ctx.strokeStyle = index === this.selected ? "#f2d67b" : "#52666a";
-            ctx.lineWidth = index === this.selected ? 3 : 1;
-            ctx.strokeRect(x, height - 60, 42, 42);
-            const image = type ? this.iconFor(type) : undefined;
-            if (image && (!("naturalWidth" in image) || (image.complete && image.naturalWidth))) ctx.drawImage(image, x + 7, height - 53, 28, 28);
-        });
+        // 背包打开时不画 HUD 物品栏：会透过面板底部的透明区域显示出来（第一格草方块
+        // 变成一个「不明绿色物体」），背包里已有自己的物品栏行。
+        if (!this.inventoryOpen) {
+            const slot = 48;
+            const barWidth = slot * this.hotbar.length;
+            ctx.fillStyle = "rgba(9,17,24,.88)";
+            ctx.fillRect((width - barWidth) / 2 - 8, height - 68, barWidth + 16, 56);
+            this.hotbar.forEach((type, index) => {
+                const x = (width - barWidth) / 2 + index * slot;
+                ctx.strokeStyle = index === this.selected ? "#f2d67b" : "#52666a";
+                ctx.lineWidth = index === this.selected ? 3 : 1;
+                ctx.strokeRect(x, height - 60, 42, 42);
+                const image = type ? this.iconFor(type) : undefined;
+                if (image && (!("naturalWidth" in image) || (image.complete && image.naturalWidth))) ctx.drawImage(image, x + 7, height - 53, 28, 28);
+            });
+        }
         if (this.debug) {
             ctx.fillStyle = "#102229";
             ctx.fillRect(18, 124, 370, 304);

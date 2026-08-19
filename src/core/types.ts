@@ -22,6 +22,11 @@ export interface WorldSave {
     playerX: number;
     playerY: number;
     mode: GameModeName;
+    /** /spawnpoint 设置的重生点（可选，缺省回落世界出生点）。 */
+    spawnX?: number;
+    spawnY?: number;
+    /** 重生面朝方向：1=right，-1=left（缺省保持死亡前朝向）。 */
+    spawnFacing?: -1 | 1;
     idTable: string[];
     chunks: Record<string, string>;
 }
