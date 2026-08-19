@@ -756,6 +756,8 @@ class GameSession {
         } else {
             const prefix = this.chatText.includes(" ") ? this.chatText.slice(0, this.chatText.lastIndexOf(" ")) : this.chatText;
             this.chatText = `${prefix} ${suggestion}`;
+            // 含空格的建议（如 /tp 的 "x y" 坐标）无法通过「替换末段」循环，应用后清空候选
+            if (suggestion.includes(" ")) this.resetSuggestions();
         }
         this.syncChatInput();
     }
@@ -907,8 +909,12 @@ class GameSession {
                 let y = this.player.y;
                 if (Number.isFinite(Number(parts[2]))) x = Number(parts[2]);
                 if (Number.isFinite(Number(parts[3]))) y = Number(parts[3]);
-                this.mobs.summon(kind, x, y);
-                this.addChat(`${text("召唤", "Summoned")} ${kind} @ ${x.toFixed(1)}, ${y.toFixed(1)}`);
+                // 数量（第 5 个参数，1~64，默认 1）：沿水平方向排成一排
+                const count = Number.isFinite(Number(parts[4])) ? Math.max(1, Math.min(64, Math.floor(Number(parts[4])))) : 1;
+                for (let i = 0; i < count; i += 1) {
+                    this.mobs.summon(kind, x + (i - (count - 1) / 2) * 0.6, y);
+                }
+                this.addChat(`${text("召唤", "Summoned")} ${count}× ${kind} @ ${x.toFixed(1)}, ${y.toFixed(1)}`);
             }
         } else if (command === "structure") {
             await this.handleStructureCommand(parts);
@@ -1149,8 +1155,15 @@ class GameSession {
         const trailing = body.endsWith(" ");
         if (!parts[0]) return CHAT_COMMANDS.map((command) => `/${command}`);
         if (parts.length === 1 && !trailing) return CHAT_COMMANDS.filter((command) => command.startsWith(parts[0].toLowerCase())).map((command) => `/${command}`);
+        const command = parts[0].toLowerCase();
+        // /tp：Tab 补全当前坐标（整数）。无参数时一次给出 "x y"，已有 x 时补 y。
+        if (command === "tp") {
+            const args = parts.slice(1).filter(Boolean);
+            if (args.length === 0) return [`${Math.floor(this.player.x)} ${Math.floor(this.player.y)}`];
+            if (args.length === 1) return [String(Math.floor(this.player.y))];
+        }
         const prefix = trailing ? "" : parts.at(-1)?.toLowerCase() || "";
-        return (CHAT_ARG_SUGGESTIONS[parts[0].toLowerCase()] || []).filter((argument) => argument.startsWith(prefix));
+        return (CHAT_ARG_SUGGESTIONS[command] || []).filter((argument) => argument.startsWith(prefix));
     }
 
     private resetSuggestions(): void {
@@ -1400,7 +1413,9 @@ class GameSession {
         }
     }
 
-    /** 方块挤压（窒息）伤害：玩家身体与实心方块重叠时每 0.5s 受 1 点伤害。 */
+    /** 方块挤压（窒息）伤害：玩家身体与实心方块重叠时每 0.5s 受 1 点伤害。
+     *  格子坐标 = 方块顶面（cell [c-1, c)），查碰撞箱接触到的所有格子（floor(边缘)+1 ..
+     *  ceil(边缘)）；脚底 0.001 留边落在空气格，站立时不会误判地面。 */
     private updateSqueeze(dt: number): void {
         if (this.modeName !== "creative" || this.spectate) {
             this.squeezeTimer = 0;
@@ -1408,8 +1423,8 @@ class GameSession {
         }
         const p = this.player;
         let inside = false;
-        for (let x = Math.ceil(p.x - p.halfWidth); x <= Math.floor(p.x + p.halfWidth) && !inside; x += 1) {
-            for (let y = Math.ceil(p.y); y <= Math.floor(p.y + p.height); y += 1) {
+        for (let x = Math.floor(p.x - p.halfWidth) + 1; x <= Math.ceil(p.x + p.halfWidth) && !inside; x += 1) {
+            for (let y = Math.floor(p.y) + 1; y <= Math.ceil(p.y + p.height); y += 1) {
                 if (this.world.isSolid(x, y)) {
                     inside = true;
                     break;

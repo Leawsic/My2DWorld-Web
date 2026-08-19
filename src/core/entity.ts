@@ -298,14 +298,17 @@ export class Mob implements PhysicsBody {
         }
     }
 
-    /** 碰撞箱是否与实心方块重叠（非实心的植物等不算）。 */
+    /** 碰撞箱是否与实心方块重叠（非实心的植物等不算）。
+     *  格子坐标 = 方块顶面（cell [c-1, c)），因此接触到的格子从 floor(边缘)+1 到
+     *  ceil(边缘)；站立时脚底 0.001 的留边正好落在空气格，不会误判地面。
+     *  旧实现只查「完全包含在箱体内的格子」，小生物或压线重叠会漏判窒息伤害。 */
     private overlapsSolid(world: World): boolean {
         const left = this.x + this.centerOffsetX - this.halfWidth;
         const right = this.x + this.centerOffsetX + this.halfWidth;
         const bottom = this.y + this.centerOffsetY - this.height / 2;
         const top = this.y + this.centerOffsetY + this.height / 2;
-        for (let x = Math.ceil(left); x <= Math.floor(right); x += 1) {
-            for (let y = Math.ceil(bottom); y <= Math.floor(top); y += 1) {
+        for (let x = Math.floor(left) + 1; x <= Math.ceil(right); x += 1) {
+            for (let y = Math.floor(bottom) + 1; y <= Math.ceil(top); y += 1) {
                 if (world.isSolid(x, y)) return true;
             }
         }
