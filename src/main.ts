@@ -575,7 +575,12 @@ class GameSession {
             event.preventDefault();
             if (this.chatOpen) {
                 this.chatScroll = Math.max(0, Math.min(Math.max(0, this.chatLineCount() - 9), this.chatScroll + Math.sign(event.deltaY)));
-            } else if (!this.inventoryOpen && this.hotbarSlotAt(event.clientX, event.clientY) >= 0) this.selected = (this.selected + Math.sign(event.deltaY) + this.hotbar.length) % this.hotbar.length; else if (!this.inventoryOpen) this.blockSize = this.snapBlockSize(this.blockSize * (event.deltaY < 0 ? 1.15 : 1 / 1.15));
+            } else if (!this.inventoryOpen && this.hotbarSlotAt(event.clientX, event.clientY) >= 0) {
+                // 滚轮向上时快捷栏向上切换（与移动方向一致）
+                this.selected = (this.selected - Math.sign(event.deltaY) + this.hotbar.length) % this.hotbar.length;
+            } else if (!this.inventoryOpen) {
+                this.blockSize = this.snapBlockSize(this.blockSize * (event.deltaY < 0 ? 1.15 : 1 / 1.15));
+            }
         }, {passive: false});
     }
 
@@ -1739,8 +1744,18 @@ class GameSession {
         if (this.inventoryOpen) return;
         if (this.heldInventoryItem) {
             const emptyIndex = this.inventorySlots.findIndex((item) => item === null);
-            if (emptyIndex >= 0) this.inventorySlots[emptyIndex] = this.heldInventoryItem;
-            else this.hotbar[this.selected] = this.heldInventoryItem;
+            if (emptyIndex >= 0) {
+                this.inventorySlots[emptyIndex] = this.heldInventoryItem;
+            } else {
+                // 快捷栏无空位时放入第一个空槽，避免覆盖当前选中项导致物品消失
+                const firstEmptyHotbar = this.hotbar.findIndex((item) => item === null);
+                if (firstEmptyHotbar >= 0) {
+                    this.hotbar[firstEmptyHotbar] = this.heldInventoryItem;
+                } else {
+                    // 极端情况仍放入当前选中位
+                    this.hotbar[this.selected] = this.heldInventoryItem;
+                }
+            }
             this.heldInventoryItem = null;
             this.save();
         }

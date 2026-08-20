@@ -79,7 +79,7 @@ export const DEFAULT_KEY_BINDINGS: KeyBindings = {
 
 export const DEFAULT_MOVEMENT: MovementSettings = {
     walkSpeed: 1.8,
-    flySpeed: 3.5,
+    flySpeed: 7,           // 飞行速度默认7（之前3.5）
     jumpVelocity: 9.5,
     gravity: 14,
 };
