@@ -136,7 +136,7 @@ export function canShiftX(body: PhysicsBody, dx: number, world: World): boolean 
 }
 
 /** 竖直平移 dy 后碰撞箱是否不与实心方块重叠。 */
-function canShiftY(body: PhysicsBody, dy: number, world: World): boolean {
+export function canShiftY(body: PhysicsBody, dy: number, world: World): boolean {
     const cy = body.y + (body.centerOffsetY ?? 0) + dy;
     const blockY = dy > 0 ? Math.ceil(cy + body.height / 2) : Math.ceil(cy - body.height / 2);
     const xl = Math.floor(body.x + (body.centerOffsetX ?? 0) - body.halfWidth);

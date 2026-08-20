@@ -27,6 +27,10 @@ export interface WorldSave {
     spawnY?: number;
     /** 重生面朝方向：1=right，-1=left（缺省保持死亡前朝向）。 */
     spawnFacing?: -1 | 1;
+    /** 创造背包主网格（3×9=27 格）内容，保存放置顺序；缺省时使用默认填充。 */
+    inventorySlots?: (string | null)[];
+    /** 物品栏（快捷栏 9 格）内容，保存放置顺序；缺省时使用默认填充。 */
+    hotbar?: (string | null)[];
     idTable: string[];
     chunks: Record<string, string>;
 }

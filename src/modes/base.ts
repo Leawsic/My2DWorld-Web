@@ -15,6 +15,8 @@ export interface ModeContext {
     blockSize: number;
     dt: number;
     textures: ReadonlyMap<string, HTMLImageElement | HTMLCanvasElement>;
+    /** 取某方块在 x 列的生物群系染色贴图（草方块/树叶/短草按群系着色）；缺省回落 raw textures。 */
+    blockTextureAt?: (type: BlockType, x: number) => HTMLImageElement | HTMLCanvasElement | undefined;
     onBlockBroken?: (x: number, y: number, type: BlockType) => void;
     onPlayerDamage?: (amount: number) => void;
 }

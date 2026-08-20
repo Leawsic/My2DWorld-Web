@@ -138,7 +138,11 @@ const api = async (req, res) => {
                 playerX: Number(data.playerX) || 0,
                 playerY: Number(data.playerY) || 0,
                 mode: data.mode === "spectator" ? "spectator" : "creative",
-                idTable: Array.isArray(data.idTable) ? data.idTable : []
+                ...(Number.isFinite(Number(data.spawnX)) && Number.isFinite(Number(data.spawnY)) ? {spawnX: Number(data.spawnX), spawnY: Number(data.spawnY)} : {}),
+                ...(data.spawnFacing === 1 || data.spawnFacing === -1 ? {spawnFacing: data.spawnFacing} : {}),
+                idTable: Array.isArray(data.idTable) ? data.idTable : [],
+                inventorySlots: Array.isArray(data.inventorySlots) ? data.inventorySlots : [],
+                hotbar: Array.isArray(data.hotbar) ? data.hotbar : []
             }, null, 2));
             if (data.chunks && typeof data.chunks === "object") {
                 for (const [cell, encoded] of Object.entries(data.chunks)) {

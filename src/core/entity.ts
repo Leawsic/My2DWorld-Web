@@ -1,6 +1,6 @@
 import {biomeAt, CHUNK_SIZE, WORLD_MIN_Y, type World} from "./world";
 import type {Player} from "./player";
-import {canShiftX, moveBody, resolveEntityCollision, type PhysicsBody} from "./physics";
+import {canShiftX, canShiftY, moveBody, resolveEntityCollision, type PhysicsBody} from "./physics";
 import {mulberry32} from "./noise";
 import {structuresNear} from "./structures";
 import {hitboxFor} from "./hitboxes";
@@ -444,8 +444,8 @@ export class MobManager {
 
     /**
      * MC 式实体挤压伤害（每帧在分离之前结算，此时帧内重叠深度是最新值）：
-     * - 只算水平（X 轴）重叠；垂直踩踏不视为挤压。
-     * - 水平重叠深度超过实体宽度 40% 才触发；伤害 = 基础 × (重叠深度/宽度) × 难度。
+     * - 同时检查水平（X 轴）与竖直（Y 轴）重叠，取较大伤害。
+     * - 重叠深度超过实体对应方向尺寸 40% 才触发；伤害 = 基础 × (重叠深度/尺寸) × 难度。
      * - 同一实体被多个实体挤压时线性叠加，但单次结算不超过上限。
      * - 受击方获得 1s 挤压无敌帧（击退不受影响）。
      * - 被实体 + 实心方块夹击（墙角窒息）时伤害翻倍。
@@ -460,18 +460,25 @@ export class MobManager {
         let playerDamage = 0;
         let playerUndead = false;
 
-        /** 单个方向的挤压伤害；返回 0 表示未达阈值。corner 表示受害者的背面紧贴实心方块。 */
-        const squeezedBy = (victim: PhysicsBody, pusher: PhysicsBody, penX: number, dmgScale: number): {dmg: number; corner: boolean} => {
-            const width = victim.halfWidth * 2;
-            const ratio = penX / width;
+        /** 沿单一轴的挤压伤害；返回 0 表示未达阈值。canEscape=false 表示逃逸方向被实心方块挡住（墙角窒息）。 */
+        const axisDamage = (penAxis: number, size: number, canEscape: boolean, dmgScale: number): number => {
+            const ratio = penAxis / size;
+            const corner = penAxis > SQUEEZE_CONTACT && !canEscape;
+            if (!corner && ratio < SQUEEZE_THRESHOLD_RATIO) return 0;
+            const depth = Math.min(1, corner ? Math.max(SQUEEZE_CORNER_FLOOR, ratio) : ratio);
+            return SQUEEZE_BASE_DAMAGE * depth * SQUEEZE_DIFFICULTY * (corner ? SQUEEZE_CORNER_MULTIPLIER : 1) * dmgScale;
+        };
+
+        /** 计算受害方被挤压者沿水平+竖直两轴的挤压伤害，取较大者。返回 0 表示未达阈值。 */
+        const squeezedBy = (victim: PhysicsBody, pusher: PhysicsBody, penX: number, penY: number, dmgScale: number): number => {
             const vcx = victim.x + (victim.centerOffsetX ?? 0);
             const pcx = pusher.x + (pusher.centerOffsetX ?? 0);
+            const vcy = victim.y + (victim.centerOffsetY ?? 0);
+            const pcy = pusher.y + (pusher.centerOffsetY ?? 0);
             // 逃逸方向 = 远离挤压者的一侧；该方向被实心方块挡住即为「墙角窒息」
-            const corner = penX > SQUEEZE_CONTACT && !canShiftX(victim, vcx >= pcx ? 0.2 : -0.2, world);
-            if (!corner && ratio < SQUEEZE_THRESHOLD_RATIO) return {dmg: 0, corner: false};
-            const depth = Math.min(1, corner ? Math.max(SQUEEZE_CORNER_FLOOR, ratio) : ratio);
-            const dmg = SQUEEZE_BASE_DAMAGE * depth * SQUEEZE_DIFFICULTY * (corner ? SQUEEZE_CORNER_MULTIPLIER : 1) * dmgScale;
-            return {dmg, corner};
+            const xDmg = axisDamage(penX, victim.halfWidth * 2, canShiftX(victim, vcx >= pcx ? 0.2 : -0.2, world), dmgScale);
+            const yDmg = axisDamage(penY, victim.height, canShiftY(victim, vcy >= pcy ? 0.2 : -0.2, world), dmgScale);
+            return Math.max(xDmg, yDmg);
         };
 
         // 玩家 × 生物
@@ -479,14 +486,14 @@ export class MobManager {
             const penX = player.halfWidth + mob.halfWidth - Math.abs(player.x - mob.centerX);
             const penY = (player.height + mob.height) / 2 - Math.abs(player.y + player.height / 2 - mob.centerY);
             if (penX <= 0 || penY <= 0) continue;
-            const onMob = squeezedBy(mob, player, penX, PLAYER_SQUEEZE_DAMAGE_RATIO);
-            if (onMob.dmg > 0) {
-                mobDamage.set(mob, Math.min(SQUEEZE_MAX_DAMAGE, (mobDamage.get(mob) ?? 0) + onMob.dmg));
+            const onMobDmg = squeezedBy(mob, player, penX, penY, PLAYER_SQUEEZE_DAMAGE_RATIO);
+            if (onMobDmg > 0) {
+                mobDamage.set(mob, Math.min(SQUEEZE_MAX_DAMAGE, (mobDamage.get(mob) ?? 0) + onMobDmg));
                 mobShove.set(mob, mob.x >= player.x ? 1 : -1);
             }
-            const onPlayer = squeezedBy(player, mob, penX, 1);
-            if (onPlayer.dmg > 0) {
-                playerDamage = Math.min(SQUEEZE_MAX_DAMAGE, playerDamage + onPlayer.dmg);
+            const onPlayerDmg = squeezedBy(player, mob, penX, penY, 1);
+            if (onPlayerDmg > 0) {
+                playerDamage = Math.min(SQUEEZE_MAX_DAMAGE, playerDamage + onPlayerDmg);
                 if (UNDEAD_KINDS.includes(mob.kind)) playerUndead = true;
             }
         }
@@ -497,10 +504,10 @@ export class MobManager {
                 const penX = a.halfWidth + b.halfWidth - Math.abs(a.centerX - b.centerX);
                 const penY = (a.height + b.height) / 2 - Math.abs(a.centerY - b.centerY);
                 if (penX <= 0 || penY <= 0) continue;
-                const dA = squeezedBy(a, b, penX, 1);
-                if (dA.dmg > 0) mobDamage.set(a, Math.min(SQUEEZE_MAX_DAMAGE, (mobDamage.get(a) ?? 0) + dA.dmg));
-                const dB = squeezedBy(b, a, penX, 1);
-                if (dB.dmg > 0) mobDamage.set(b, Math.min(SQUEEZE_MAX_DAMAGE, (mobDamage.get(b) ?? 0) + dB.dmg));
+                const dA = squeezedBy(a, b, penX, penY, 1);
+                if (dA > 0) mobDamage.set(a, Math.min(SQUEEZE_MAX_DAMAGE, (mobDamage.get(a) ?? 0) + dA));
+                const dB = squeezedBy(b, a, penX, penY, 1);
+                if (dB > 0) mobDamage.set(b, Math.min(SQUEEZE_MAX_DAMAGE, (mobDamage.get(b) ?? 0) + dB));
             }
         }
 

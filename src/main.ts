@@ -358,6 +358,17 @@ class GameSession {
         if (this.initialSave?.spawnX !== undefined && this.initialSave?.spawnY !== undefined) {
             this.spawnPoint = {x: this.initialSave.spawnX, y: this.initialSave.spawnY, facing: this.initialSave.spawnFacing};
         }
+        // 恢复背包/物品栏：按保存顺序逐格填回，保存短于默认长度时保留默认项。
+        if (this.initialSave?.hotbar) {
+            for (let i = 0; i < this.hotbar.length && i < this.initialSave.hotbar.length; i += 1) {
+                this.hotbar[i] = this.initialSave.hotbar[i] ?? null;
+            }
+        }
+        if (this.initialSave?.inventorySlots) {
+            for (let i = 0; i < this.inventorySlots.length && i < this.initialSave.inventorySlots.length; i += 1) {
+                this.inventorySlots[i] = this.initialSave.inventorySlots[i] ?? null;
+            }
+        }
         this.mode = createMode(this.modeName);
         [...new Set([...blockRegistry.list().map((block) => block.id), ...plugins.blocks.keys()].filter((type): type is string => type !== null))].forEach((type) => this.loadBlock(type));
         this.loadGui("mode_creative", "/assets/gui/gamemode/creative.png");
@@ -1476,6 +1487,7 @@ class GameSession {
                 blockSize: this.blockSize,
                 dt,
                 textures: this.blockImages,
+                blockTextureAt: (type, x) => this.blockImageFor(type, x),
                 onBlockBroken: (x, y, type) => {
                     plugins.notifyBlockBroken({...this.pluginContext(), x, y, type});
                     storage.log("Block broken", {world: this.meta.name, x, y, type});
@@ -1730,6 +1742,7 @@ class GameSession {
             if (emptyIndex >= 0) this.inventorySlots[emptyIndex] = this.heldInventoryItem;
             else this.hotbar[this.selected] = this.heldInventoryItem;
             this.heldInventoryItem = null;
+            this.save();
         }
     }
 
@@ -1779,6 +1792,7 @@ class GameSession {
         slots[slot.index] = this.heldInventoryItem;
         this.heldInventoryItem = slotItem;
         if (slot.kind === "hotbar") this.selected = slot.index;
+        this.save();
         storage.log("Creative inventory slot changed", {
             world: this.meta.name,
             slot: slot.index,
@@ -1879,6 +1893,8 @@ class GameSession {
             playerY: this.player.y,
             mode: this.modeName,
             ...(this.spawnPoint ? {spawnX: this.spawnPoint.x, spawnY: this.spawnPoint.y, spawnFacing: this.spawnPoint.facing} : {}),
+            inventorySlots: this.inventorySlots,
+            hotbar: this.hotbar,
             idTable: changes.idTable,
             chunks: changes.chunks,
         });
@@ -1992,7 +2008,8 @@ class GameSession {
             mobs: this.mobs,
             blockSize: this.blockSize,
             dt: 0,
-            textures: this.blockImages
+            textures: this.blockImages,
+            blockTextureAt: (type, x) => this.blockImageFor(type, x)
         };
         const drawables: Array<{ depth: number; draw: () => void }> = [];
         for (const mob of this.mobs.mobsNear(this.player, MOB_RENDER_RADIUS)) {
@@ -2308,12 +2325,14 @@ class GameSession {
         }
         ctx.font = "12px ui-monospace";
         ctx.textAlign = "left";
-        const drawSlot = (slots: ReadonlyArray<string | null>, gridX: number, gridY: number): void => {
+        const hovered = this.inventorySlotAt(this.lastMouseX, this.lastMouseY);
+        const drawSlot = (slots: ReadonlyArray<string | null>, gridX: number, gridY: number, kind: "inventory" | "hotbar"): void => {
             slots.forEach((type, index) => {
                 const x = gridX + (index % 9) * layout.slot;
                 const y = gridY + Math.floor(index / 9) * layout.slot;
-                ctx.strokeStyle = "#3f5860";
-                ctx.lineWidth = 1;
+                const isHovered = hovered?.kind === kind && hovered.index === index;
+                ctx.strokeStyle = isHovered ? "#f2d67b" : "#3f5860";
+                ctx.lineWidth = isHovered ? 2 : 1;
                 ctx.strokeRect(x, y, layout.slot, layout.slot);
                 if (type) {
                     const image = this.iconFor(type);
@@ -2324,8 +2343,8 @@ class GameSession {
                 }
             });
         };
-        drawSlot(this.inventorySlots, layout.gridX, layout.gridY);
-        drawSlot(this.hotbar, layout.hotbarX, layout.hotbarY);
+        drawSlot(this.inventorySlots, layout.gridX, layout.gridY, "inventory");
+        drawSlot(this.hotbar, layout.hotbarX, layout.hotbarY, "hotbar");
         if (this.heldInventoryItem) {
             const image = this.iconFor(this.heldInventoryItem);
             if (image && (!("naturalWidth" in image) || (image.complete && image.naturalWidth))) {
@@ -2333,6 +2352,31 @@ class GameSession {
                 const y = this.lastMouseY - layout.slot / 2;
                 const inset = layout.slot * 0.15;
                 ctx.drawImage(image, x + inset, y + inset, layout.slot - inset * 2, layout.slot - inset * 2);
+            }
+        }
+        if (hovered) {
+            const slots = hovered.kind === "hotbar" ? this.hotbar : this.inventorySlots;
+            const type = slots[hovered.index];
+            if (type) {
+                const label = this.blockName(type);
+                ctx.font = "13px ui-monospace";
+                const padX = 8, padY = 6;
+                const textW = ctx.measureText(label).width;
+                const boxW = textW + padX * 2;
+                const boxH = 13 + padY * 2;
+                let tx = this.lastMouseX + 16;
+                let ty = this.lastMouseY + 16;
+                if (tx + boxW > ctx.canvas.width) tx = this.lastMouseX - boxW - 8;
+                if (ty + boxH > ctx.canvas.height) ty = this.lastMouseY - boxH - 8;
+                ctx.fillStyle = "rgba(9,17,24,.94)";
+                ctx.fillRect(tx, ty, boxW, boxH);
+                ctx.strokeStyle = "#e2bc68";
+                ctx.lineWidth = 1;
+                ctx.strokeRect(tx + 0.5, ty + 0.5, boxW - 1, boxH - 1);
+                ctx.fillStyle = "#f8f4e7";
+                ctx.textBaseline = "middle";
+                ctx.fillText(label, tx + padX, ty + boxH / 2 + 0.5);
+                ctx.textBaseline = "alphabetic";
             }
         }
     }

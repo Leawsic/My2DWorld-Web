@@ -20,7 +20,7 @@ export class CreativeMode extends GameMode {
             } else if (context.hovered) {
                 const [x, y, type] = context.hovered;
                 if (context.world.breakBlock(x, y)) {
-                    this.particles.spawn(x, y, context.textures.get(type));
+                    this.particles.spawn(x, y, context.blockTextureAt?.(type, x) ?? context.textures.get(type));
                     context.onBlockBroken?.(x, y, type);
                 }
                 this.breakCooldown = 8;
