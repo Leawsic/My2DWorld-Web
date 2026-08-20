@@ -135,7 +135,12 @@ const CREATIVE_INVENTORY_GUI = {
     /** 源图中不透明内容的包围盒中心（512x512 坐标）。 */
     contentCenterX: 194.5,
     contentCenterY: 135.5,
+    /** 创造背包主网格：3 行 × 9 列（不得超出，否则会叠到下方物品栏行）。 */
+    gridColumns: 9,
+    gridRows: 3,
 } as const;
+const INVENTORY_SLOT_COUNT = CREATIVE_INVENTORY_GUI.gridColumns * CREATIVE_INVENTORY_GUI.gridRows;
+const HOTBAR_SLOT_COUNT = 9;
 
 function toggleLanguage(): void {
     language = language === "zh" ? "en" : "zh";
@@ -281,8 +286,24 @@ class GameSession {
     private last = performance.now();
     private frame = 0;
     private autosaveElapsed = 0;
-    private hotbar: Array<string | null> = [Blocks.MY2DWORLD.GRASS_BLOCK, Blocks.MY2DWORLD.DIRT, Blocks.MY2DWORLD.STONE, Blocks.MY2DWORLD.OAK_LOG, Blocks.MY2DWORLD.OAK_LEAVES, Blocks.MY2DWORLD.SHORT_GRASS, Blocks.MY2DWORLD.POPPY, Blocks.MY2DWORLD.SAND, Blocks.MY2DWORLD.SNOW].map((block) => block.id);
-    private inventorySlots: Array<string | null> = [Blocks.MY2DWORLD.DIAMOND_BLOCK, Blocks.MY2DWORLD.COAL_ORE, Blocks.MY2DWORLD.IRON_ORE, Blocks.MY2DWORLD.GOLD_ORE, Blocks.MY2DWORLD.DIAMOND_ORE, Blocks.MY2DWORLD.EMERALD_ORE, Blocks.MY2DWORLD.LAPIS_ORE, Blocks.MY2DWORLD.REDSTONE_ORE, Blocks.MY2DWORLD.COPPER_ORE, Blocks.MY2DWORLD.BEDROCK, Blocks.MY2DWORLD.DEEPSLATE, Blocks.MY2DWORLD.DEEPSLATE_COAL_ORE, Blocks.MY2DWORLD.DEEPSLATE_IRON_ORE, Blocks.MY2DWORLD.DEEPSLATE_GOLD_ORE, Blocks.MY2DWORLD.DEEPSLATE_DIAMOND_ORE, Blocks.MY2DWORLD.DEEPSLATE_EMERALD_ORE, Blocks.MY2DWORLD.DEEPSLATE_LAPIS_ORE, Blocks.MY2DWORLD.DEEPSLATE_REDSTONE_ORE, Blocks.MY2DWORLD.DEEPSLATE_COPPER_ORE, Blocks.MY2DWORLD.RAW_IRON_BLOCK, Blocks.MY2DWORLD.RAW_GOLD_BLOCK, Blocks.MY2DWORLD.NETHER_QUARTZ_ORE, Blocks.MY2DWORLD.NETHER_GOLD_ORE, Blocks.MY2DWORLD.IRON_BARS, Blocks.MY2DWORLD.IRON_CHAIN, Blocks.MY2DWORLD.MOSSY_COBBLESTONE, Blocks.MY2DWORLD.DANDELION, Blocks.MY2DWORLD.CACTUS].map((block) => block.id);
+    private hotbar: Array<string | null> = [
+        Blocks.MY2DWORLD.GRASS_BLOCK, Blocks.MY2DWORLD.DIRT, Blocks.MY2DWORLD.STONE,
+        Blocks.MY2DWORLD.OAK_LOG, Blocks.MY2DWORLD.OAK_LEAVES, Blocks.MY2DWORLD.SHORT_GRASS,
+        Blocks.MY2DWORLD.POPPY, Blocks.MY2DWORLD.SAND, Blocks.MY2DWORLD.SNOW,
+    ].map((block) => block.id).slice(0, HOTBAR_SLOT_COUNT);
+    // 主网格仅 3×9=27 格。多出的第 28 项（曾是仙人掌）会画到第 4 行，正好叠在下方物品栏第一格上，
+    // 表现为「HUD 第一格为空，打开背包后却出现不明绿色物体」。
+    private inventorySlots: Array<string | null> = [
+        Blocks.MY2DWORLD.DIAMOND_BLOCK, Blocks.MY2DWORLD.COAL_ORE, Blocks.MY2DWORLD.IRON_ORE,
+        Blocks.MY2DWORLD.GOLD_ORE, Blocks.MY2DWORLD.DIAMOND_ORE, Blocks.MY2DWORLD.EMERALD_ORE,
+        Blocks.MY2DWORLD.LAPIS_ORE, Blocks.MY2DWORLD.REDSTONE_ORE, Blocks.MY2DWORLD.COPPER_ORE,
+        Blocks.MY2DWORLD.BEDROCK, Blocks.MY2DWORLD.DEEPSLATE, Blocks.MY2DWORLD.DEEPSLATE_COAL_ORE,
+        Blocks.MY2DWORLD.DEEPSLATE_IRON_ORE, Blocks.MY2DWORLD.DEEPSLATE_GOLD_ORE, Blocks.MY2DWORLD.DEEPSLATE_DIAMOND_ORE,
+        Blocks.MY2DWORLD.DEEPSLATE_EMERALD_ORE, Blocks.MY2DWORLD.DEEPSLATE_LAPIS_ORE, Blocks.MY2DWORLD.DEEPSLATE_REDSTONE_ORE,
+        Blocks.MY2DWORLD.DEEPSLATE_COPPER_ORE, Blocks.MY2DWORLD.RAW_IRON_BLOCK, Blocks.MY2DWORLD.RAW_GOLD_BLOCK,
+        Blocks.MY2DWORLD.NETHER_QUARTZ_ORE, Blocks.MY2DWORLD.NETHER_GOLD_ORE, Blocks.MY2DWORLD.IRON_BARS,
+        Blocks.MY2DWORLD.IRON_CHAIN, Blocks.MY2DWORLD.MOSSY_COBBLESTONE, Blocks.MY2DWORLD.DANDELION,
+    ].map((block) => block.id).slice(0, INVENTORY_SLOT_COUNT);
     private selected = 0;
     private health = 20;
     private voidDamageTimer = 0;
