@@ -12,6 +12,8 @@ export type MobKind =
     | "cow_cold_baby" | "cow_temperate_baby" | "cow_warm_baby" | "mooshroom_red_baby" | "mooshroom_brown_baby";
 export type MobState = "idle" | "walk" | "attack";
 export type MobShape = "humanoid" | "pig" | "cow";
+/** 生物死亡原因，用于聊天栏死因播报。 */
+export type MobDeathCause = "player" | "entity_squeeze" | "suffocation" | "void" | "unknown";
 
 export interface MobKindConfig {
     readonly id: MobKind;
@@ -128,6 +130,8 @@ export class Mob implements PhysicsBody {
     hurtTimer = 0;
     attackCooldown = 0;
     alive = true;
+    /** 最近一次致死原因（alive 变为 false 时写入，供聊天播报）。 */
+    deathCause: MobDeathCause = "unknown";
     animationTime = 0;
     hitboxCenterX: number;
     hitboxCenterY: number;
@@ -245,7 +249,10 @@ export class Mob implements PhysicsBody {
             this.velocityX = this.knockbackX;
         }
         moveBody(this, world, seconds);
-        if (this.y < WORLD_MIN_Y - 2) this.alive = false;
+        if (this.y < WORLD_MIN_Y - 2) {
+            this.deathCause = "void";
+            this.alive = false;
+        }
     }
 
     /** Deals damage and knockback away from `sourceX`. Returns true when killed. */
@@ -257,6 +264,7 @@ export class Mob implements PhysicsBody {
         this.knockbackX = (this.x >= sourceX ? 1 : -1) * MOB_KNOCKBACK;
         this.velocityY = 2;
         if (this.hp <= 0) {
+            this.deathCause = "player";
             this.alive = false;
             return true;
         }
@@ -277,6 +285,7 @@ export class Mob implements PhysicsBody {
         this.hp -= amount;
         this.hurtTimer = 0.35;
         if (this.hp <= 0) {
+            this.deathCause = "entity_squeeze";
             this.alive = false;
             return true;
         }
@@ -294,7 +303,10 @@ export class Mob implements PhysicsBody {
             this.squeezeTimer = 0;
             this.hp -= 1;
             this.hurtTimer = 0.35;
-            if (this.hp <= 0) this.alive = false;
+            if (this.hp <= 0) {
+                this.deathCause = "suffocation";
+                this.alive = false;
+            }
         }
     }
 
@@ -357,7 +369,7 @@ export class MobManager {
         for (const mob of this.summoned) mob.applyHitbox();
     }
 
-    update(dt: number, world: World, player: Player, onPlayerDamage: (amount: number) => void, onMobKilled: (kind: MobKind, x: number, y: number) => void, collideWithPlayer = true, onPlayerSqueezed: (damage: number, undead: boolean) => void = () => undefined): void {
+    update(dt: number, world: World, player: Player, onPlayerDamage: (amount: number) => void, onMobKilled: (kind: MobKind, x: number, y: number, cause: MobDeathCause) => void, collideWithPlayer = true, onPlayerSqueezed: (damage: number, undead: boolean) => void = () => undefined): void {
         const seconds = Math.min(dt, 0.05);
         const center = Math.floor(player.x / CHUNK_SIZE);
 
@@ -368,7 +380,7 @@ export class MobManager {
         this.active = 0;
         for (const [chunkX, mob] of [...this.mobs]) {
             if (!mob.alive) {
-                onMobKilled(mob.kind, mob.x, mob.y);
+                onMobKilled(mob.kind, mob.x, mob.y, mob.deathCause);
                 this.dead.add(chunkX);
                 this.mobs.delete(chunkX);
                 continue;
@@ -388,7 +400,7 @@ export class MobManager {
         for (let i = this.summoned.length - 1; i >= 0; i -= 1) {
             const mob = this.summoned[i];
             if (!mob.alive) {
-                onMobKilled(mob.kind, mob.x, mob.y);
+                onMobKilled(mob.kind, mob.x, mob.y, mob.deathCause);
                 this.summoned.splice(i, 1);
                 continue;
             }

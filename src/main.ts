@@ -1,6 +1,6 @@
 import "./style.css";
 import {type KeyState, Player} from "./core/player";
-import {MobManager, MOB_KINDS, MOB_RENDER_RADIUS, type Mob, type MobKind} from "./core/entity";
+import {MobManager, MOB_KINDS, MOB_RENDER_RADIUS, type Mob, type MobDeathCause, type MobKind} from "./core/entity";
 import {storage, type PluginPackage} from "./core/storage";
 import {biomeAt, DEFAULT_BIOME, hashSeed, spawnX, World, WORLD_MIN_Y, WORLD_MAX_Y, type Biome} from "./core/world";
 import {clampSpectateOffset} from "./core/spectate";
@@ -574,7 +574,8 @@ class GameSession {
         this.canvas.addEventListener("wheel", (event) => {
             event.preventDefault();
             if (this.chatOpen) {
-                this.chatScroll = Math.max(0, Math.min(Math.max(0, this.chatLineCount() - 9), this.chatScroll + Math.sign(event.deltaY)));
+                // 滚轮方向与快捷栏/移动一致：向上滚动查看更早消息
+                this.chatScroll = Math.max(0, Math.min(Math.max(0, this.chatLineCount() - 9), this.chatScroll - Math.sign(event.deltaY)));
             } else if (!this.inventoryOpen && this.hotbarSlotAt(event.clientX, event.clientY) >= 0) {
                 // 滚轮向上时快捷栏向上切换（与移动方向一致）
                 this.selected = (this.selected - Math.sign(event.deltaY) + this.hotbar.length) % this.hotbar.length;
@@ -1258,6 +1259,18 @@ class GameSession {
         this.chatScroll = 0;
     }
 
+    /** 按生物死因生成聊天栏播报文案。 */
+    private mobDeathLine(kind: MobKind, cause: MobDeathCause): string {
+        const name = mobName(kind);
+        switch (cause) {
+            case "player": return `${text("你击败了", "You slew")} ${name}`;
+            case "entity_squeeze": return `${name} ${text("被挤死了", "was crushed to death")}`;
+            case "suffocation": return `${name} ${text("窒息而死", "suffocated")}`;
+            case "void": return `${name} ${text("掉入了虚空", "fell into the void")}`;
+            default: return `${name} ${text("死了", "died")}`;
+        }
+    }
+
     private titleMessage: {
         title: string;
         color: string;
@@ -1508,11 +1521,11 @@ class GameSession {
             this.updateSqueeze(dt);
             this.fx.update(dt);
             const damagePlayer = this.modeName === "creative" ? () => undefined : (amount: number) => this.damagePlayer(amount);
-            this.mobs.update(dt, this.world, this.player, damagePlayer, (kind, x, y) => {
+            this.mobs.update(dt, this.world, this.player, damagePlayer, (kind, x, y, cause) => {
                 this.fx.burst(x, y, characterParticleTexture(kind));
-                this.addChat(text("你击败了", "You slew") + ` ${mobName(kind)}`, "#ffd24a");
+                this.addChat(this.mobDeathLine(kind, cause), "#ffd24a");
                 plugins.notifyMobKilled({...this.pluginContext(), kind, x, y});
-                storage.log("Mob killed", {world: this.meta.name, kind, x, y});
+                storage.log("Mob killed", {world: this.meta.name, kind, x, y, cause});
             }, !this.spectate, (damage, undead) => {
                 // MC 式实体挤压伤害：创造/旁观模式免伤；1s 无敌帧；亡灵挤压附带 5s 缓慢
                 if (this.modeName === "creative" || this.spectate || this.squeezeIframe > 0) return;
@@ -2561,7 +2574,7 @@ app.addEventListener("click", async (event) => {
             mode: (document.querySelector<HTMLSelectElement>("#world-mode")?.value || "spectator") as GameModeName,
             physics: {
                 walkSpeed: Number(get("walk-speed")) || 1.8,
-                flySpeed: Number(get("fly-speed")) || 3.5,
+                flySpeed: Number(get("fly-speed")) || 7,
                 jumpVelocity: Number(get("jump-velocity")) || 9.5,
                 gravity: Number(get("gravity")) || 14
             },
