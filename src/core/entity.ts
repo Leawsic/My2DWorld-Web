@@ -4,7 +4,7 @@ import {moveBody, resolveEntityCollision, type PhysicsBody} from "./physics";
 import {mulberry32} from "./noise";
 import {structuresNear} from "./structures";
 import {hitboxFor, rectsForFacing, type HitboxRect} from "./hitboxes";
-import {squeezeBoxFor, squeezeParams, SQUEEZE_DEFAULTS, SQUEEZE_INFLATE_HALF_WIDTH, SQUEEZE_INFLATE_HEIGHT, type ResolvedSqueeze} from "./squeeze";
+import {squeezeBoxFor, squeezeParams, SQUEEZE_DEFAULTS, SQUEEZE_SHRINK_HALF_WIDTH, SQUEEZE_SHRINK_HEIGHT, SQUEEZE_MIN_HALF_WIDTH, SQUEEZE_MIN_HEIGHT, type ResolvedSqueeze} from "./squeeze";
 
 export type MobKind =
     | "zombie" | "zombie_baby" | "husk" | "husk_baby" | "drowned" | "drowned_baby"
@@ -111,11 +111,12 @@ function chunkSpawn(chunkX: number, seed: number): {kind: MobKind; x: number} | 
     return {kind, x};
 }
 
-/** 挤压箱回退：把碰撞矩形四周外扩一圈（半宽/高度 + SQUEEZE_INFLATE_*，中心不变）。 */
-function inflateSqueezeRect(rect: HitboxRect): HitboxRect {
+/** 挤压箱回退：把碰撞矩形四周缩小一圈（半宽/高度 - SQUEEZE_SHRINK_*，中心不变；
+ *  太小则夹取最小值，避免缩成 0 或负数）。 */
+function shrinkSqueezeRect(rect: HitboxRect): HitboxRect {
     return {
-        halfWidth: rect.halfWidth + SQUEEZE_INFLATE_HALF_WIDTH,
-        height: rect.height + SQUEEZE_INFLATE_HEIGHT,
+        halfWidth: Math.max(SQUEEZE_MIN_HALF_WIDTH, rect.halfWidth - SQUEEZE_SHRINK_HALF_WIDTH),
+        height: Math.max(SQUEEZE_MIN_HEIGHT, rect.height - SQUEEZE_SHRINK_HEIGHT),
         centerX: rect.centerX ?? 0,
         centerY: rect.centerY ?? rect.height / 2,
     };
@@ -176,15 +177,15 @@ export class Mob implements PhysicsBody {
             this.boxesLeft = [def];
         }
         // 挤压箱几何独立配置（public/squeeze，结构与碰撞箱一致）；未配置时回退到
-        // 「碰撞箱外扩一圈」（SQUEEZE_INFLATE_*），保证挤压伤害永远按挤压箱结算，
+        // 「碰撞箱缩小一圈」（SQUEEZE_SHRINK_*），保证挤压伤害永远按挤压箱结算，
         // 不会退化成按碰撞箱结算。
         const squeeze = squeezeBoxFor(this.kind);
         if (squeeze) {
             this.squeezeBoxesRight = rectsForFacing(squeeze, 1);
             this.squeezeBoxesLeft = rectsForFacing(squeeze, -1);
         } else {
-            this.squeezeBoxesRight = this.boxesRight.map(inflateSqueezeRect);
-            this.squeezeBoxesLeft = this.boxesLeft.map(inflateSqueezeRect);
+            this.squeezeBoxesRight = this.boxesRight.map(shrinkSqueezeRect);
+            this.squeezeBoxesLeft = this.boxesLeft.map(shrinkSqueezeRect);
         }
     }
 
@@ -599,13 +600,15 @@ export class MobManager {
             return Math.max(axisDamage(penX, size.width, dmgScale), axisDamage(penY, size.height, dmgScale));
         };
 
-        /** 玩家挤压箱（玩家没有独立的 JSON 配置，按与生物相同的约定：身体外扩一圈）。
+        /** 玩家挤压箱（玩家没有独立的 JSON 配置，按与生物相同的约定：比身体碰撞箱小一圈，
+         *  上下各收进 (BODY_HEIGHT - PLAYER_SQUEEZE_HEIGHT)/2，水平各收进 0.1）。
          *  挤压伤害严格按挤压箱结算——玩家侧也用挤压箱，而不是碰撞箱。 */
+        const squeezeInsetY = (player.height - PLAYER_SQUEEZE_HEIGHT) / 2;
         const playerBox: MobBox = {
             left: player.x - PLAYER_SQUEEZE_HALF_WIDTH,
             right: player.x + PLAYER_SQUEEZE_HALF_WIDTH,
-            bottom: player.y,
-            top: player.y + PLAYER_SQUEEZE_HEIGHT,
+            bottom: player.y + squeezeInsetY,
+            top: player.y + player.height - squeezeInsetY,
         };
         const playerSize = {width: PLAYER_SQUEEZE_HALF_WIDTH * 2, height: PLAYER_SQUEEZE_HEIGHT};
 

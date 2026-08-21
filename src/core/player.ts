@@ -4,10 +4,10 @@ import {moveBody, type PhysicsBody} from "./physics";
 
 export const BODY_HALF_WIDTH = 0.25;
 export const BODY_HEIGHT = 1.9;
-/** 玩家挤压箱（物理挤压判定用）：在身体碰撞箱四周外扩一圈（半宽 +0.1、高度 +0.1）。
- *  与生物的挤压箱约定一致：挤压箱 = 碰撞箱外扩，挤压伤害严格按挤压箱结算。 */
-export const PLAYER_SQUEEZE_HALF_WIDTH = BODY_HALF_WIDTH + 0.1;
-export const PLAYER_SQUEEZE_HEIGHT = BODY_HEIGHT + 0.1;
+/** 玩家挤压箱（物理挤压判定用）：比身体碰撞箱小一圈（半宽 -0.1、高度 -0.1，中心不变）。
+ *  与生物的挤压箱约定一致：挤压箱 = 碰撞箱缩小一圈，挤压伤害严格按挤压箱结算。 */
+export const PLAYER_SQUEEZE_HALF_WIDTH = BODY_HALF_WIDTH - 0.1;
+export const PLAYER_SQUEEZE_HEIGHT = BODY_HEIGHT - 0.1;
 const MAX_JUMPS = 2;
 const DOUBLE_SPACE_WINDOW = 0.35;
 

@@ -1,7 +1,7 @@
 // 生物「物理挤压」拆成两部分，与碰撞箱完全分开：
 //   1) 挤压箱（几何）：public/squeeze/*.json，结构与碰撞箱一致（halfWidth/height/centerX/centerY、
 //      boxes、left/right），决定「挤压重叠检测」用的盒体与阈值参考尺寸；缺省回退到
-//      「碰撞箱外扩一圈」（SQUEEZE_INFLATE_*），绝不直接用碰撞箱几何。
+//      「碰撞箱缩小一圈」（SQUEEZE_SHRINK_*），绝不直接用碰撞箱几何。
 //   2) 挤压参数（伤害/时长）：run/config/squeeze.json，全局一份，对任意生物（含玩家）生效。
 // 数值字段都可省略，省略时回退到内置默认值。
 import {hitboxCategoryOf, normalizeHitbox, type HitboxConfig, type NormalizedHitbox} from "./hitboxes";
@@ -33,11 +33,14 @@ export const SQUEEZE_DEFAULTS = {
 } as const;
 
 /** 未配置挤压箱时的回退（public/squeeze 下没有该 kind/分类文件时）：
- *  以该生物碰撞箱各方向外扩的量（方块）。约定与 public/squeeze 默认文件一致：
- *  挤压箱 = 碰撞箱 半宽 +0.1、高度 +0.1（中心不变）。挤压伤害严格按挤压箱结算，
- *  不会退化成按碰撞箱结算。 */
-export const SQUEEZE_INFLATE_HALF_WIDTH = 0.1;
-export const SQUEEZE_INFLATE_HEIGHT = 0.1;
+ *  以该生物碰撞箱各方向缩小的量（方块）。约定与 public/squeeze 默认文件一致：
+ *  挤压箱 = 碰撞箱 半宽 -0.1、高度 -0.1（中心不变，太小则夹取最小值）。挤压伤害严格
+ *  按挤压箱结算，不会退化成按碰撞箱结算。 */
+export const SQUEEZE_SHRINK_HALF_WIDTH = 0.1;
+export const SQUEEZE_SHRINK_HEIGHT = 0.1;
+/** 缩小挤压箱时矩形的最小半宽/高度（防止小生物缩成 0 或负数）。 */
+export const SQUEEZE_MIN_HALF_WIDTH = 0.05;
+export const SQUEEZE_MIN_HEIGHT = 0.1;
 
 /** 解析后的全局挤压参数：数值字段全部到位。 */
 export interface ResolvedSqueeze {

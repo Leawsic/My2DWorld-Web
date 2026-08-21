@@ -2231,8 +2231,9 @@ class GameSession {
                 drawBox(toScreenX(box.left), toScreenY(box.top), (box.right - box.left) * bs, (box.top - box.bottom) * bs, hitColor);
             }
         }
-        // 玩家挤压箱（= 身体外扩一圈，与生物挤压箱约定一致；虚线绘于其上以便同时可见）
-        drawBox(toScreenX(this.player.x - PLAYER_SQUEEZE_HALF_WIDTH), toScreenY(this.player.y + PLAYER_SQUEEZE_HEIGHT), PLAYER_SQUEEZE_HALF_WIDTH * 2 * bs, PLAYER_SQUEEZE_HEIGHT * bs, squeezeColor, true);
+        // 玩家挤压箱（= 身体碰撞箱小一圈，与生物挤压箱约定一致；虚线绘于其上以便同时可见）
+        const sqInsetY = (this.player.height - PLAYER_SQUEEZE_HEIGHT) / 2;
+        drawBox(toScreenX(this.player.x - PLAYER_SQUEEZE_HALF_WIDTH), toScreenY(this.player.y + this.player.height - sqInsetY), PLAYER_SQUEEZE_HALF_WIDTH * 2 * bs, PLAYER_SQUEEZE_HEIGHT * bs, squeezeColor, true);
         // 生物挤压箱（独立于碰撞箱，多矩形逐个绘制，虚线）
         for (const mob of this.mobs.mobsNear(this.player, MOB_RENDER_RADIUS)) {
             for (const box of mob.squeezeBoxes) {
