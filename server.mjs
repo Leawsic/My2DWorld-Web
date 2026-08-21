@@ -213,19 +213,24 @@ const api = async (req, res) => {
                     if (!file.endsWith(".json")) continue;
                     const kind = file.slice(0, -5);
                     const data = readJson(join(hitboxesDir, file), null);
-                    const halfWidth = Number(data?.halfWidth);
-                    const height = Number(data?.height);
-                    if (Number.isFinite(halfWidth) && halfWidth > 0 && Number.isFinite(height) && height > 0) {
-                        hitboxes[kind] = {
-                            halfWidth,
-                            height,
-                            centerX: Number.isFinite(Number(data?.centerX)) ? Number(data.centerX) : 0,
-                            centerY: Number.isFinite(Number(data?.centerY)) ? Number(data.centerY) : 0,
-                        };
-                    }
+                    // 透传整份配置（含多矩形 boxes 与左右朝向 left/right），由客户端自行归一化校验。
+                    if (data && typeof data === "object") hitboxes[kind] = data;
                 }
             }
             return send(res, 200, {hitboxes});
+        }
+        if (url.pathname === "/api/squeeze" && req.method === "GET") {
+            const squeeze = {};
+            const squeezeDir = join(root, "public", "squeeze");
+            if (existsSync(squeezeDir)) {
+                for (const file of readdirSync(squeezeDir)) {
+                    if (!file.endsWith(".json")) continue;
+                    const kind = file.slice(0, -5);
+                    const data = readJson(join(squeezeDir, file), null);
+                    if (data && typeof data === "object") squeeze[kind] = data;
+                }
+            }
+            return send(res, 200, {squeeze});
         }
         if (url.pathname === "/api/structures" && req.method === "GET") {
             const name = safeStructureName(url.searchParams.get("name"));

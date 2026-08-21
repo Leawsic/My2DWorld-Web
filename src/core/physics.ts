@@ -154,6 +154,9 @@ export function canShiftY(body: PhysicsBody, dy: number, world: World): boolean 
  * massA/massB 为等效质量（越大越难被推动；用极大值表示「不可推动」）。
  * 返回是否发生了位置分离。
  */
+/** 实体互推时允许分离的轴向：auto=最小穿透轴，x/y=仅沿该轴分离（仍需两轴都重叠）。 */
+export type CollisionAxis = "auto" | "x" | "y";
+
 export function resolveEntityCollision(
     a: PhysicsBody,
     b: PhysicsBody,
@@ -161,6 +164,7 @@ export function resolveEntityCollision(
     massB: number,
     world: World,
     restitution: number,
+    axis: CollisionAxis = "auto",
 ): boolean {
     const ax = a.x + (a.centerOffsetX ?? 0), ay = a.y + (a.centerOffsetY ?? 0);
     const bx = b.x + (b.centerOffsetX ?? 0), by = b.y + (b.centerOffsetY ?? 0);
@@ -229,6 +233,8 @@ export function resolveEntityCollision(
         return true;
     };
 
+    if (axis === "x") return resolve("x");
+    if (axis === "y") return resolve("y");
     if (resolve(penX <= penY ? "x" : "y")) return true;
     return resolve(penX <= penY ? "y" : "x");
 }

@@ -200,6 +200,12 @@ run/worlds/<用户名>_<世界ID>.chunk.<区块X>.<区块Y>.dat   被修改区�
 2. 想不改代码覆盖：在 `public/hitboxes/<分类>.json` 写入 `{ "halfWidth": 0.3, "height": 0.8, "centerX": 0, "centerY": 0.2 }`，分类为 `cow`/`cow_baby`/`pig`/`pig_baby`/`zombie`/`zombie_baby`（大/小 × 牛/猪/僵尸），游戏内用 `/reload hitboxes` 生效；写 `<kind>.json` 可只覆盖单个 kind（精确 kind 优先于分类）。
 3. 插件运行时用 `api.registerHitbox(kind, config)` 或 `api.setHitboxes({...})` 覆盖，优先级高于文件配置；`/reload plugins` 会清空插件覆盖。
 
+物理挤压伤害已与碰撞箱**分开配置**（碰撞箱只管几何，挤压伤害独立在 `public/squeeze/`）：
+
+4. 全局默认在 `public/squeeze/default.json`，可写 `public/squeeze/<分类>.json`（或 `<kind>.json`）覆盖单个分类/生物；参数含 `baseDamage`、`thresholdRatio`、`iframe`、`maxDamage`、`difficulty`、`playerDamageScale`，以及可选 `bodyWidth`/`bodyHeight`（缺省回退到碰撞箱尺寸）。游戏内 `/reload squeeze` 生效。
+
+碰撞箱还支持**多矩形并集**与**左右朝向**：JSON 里可用 `boxes`（多矩形数组）拼出多边形体积，用 `left`/`right` 分别为面朝左/右配置矩形；未写 `left` 时面朝左自动水平镜像。详细字段与示例见 [`docs/zh_cn/entity_config_zh.md`](./docs/zh_cn/entity_config_zh.md)。
+
 注册插件动画时（覆盖某个动物家族所有 kind 的动画）：
 
 ```ts

@@ -7,6 +7,7 @@ import {clampSpectateOffset} from "./core/spectate";
 import {ParticleSystem} from "./core/particles";
 import {characterParticleTexture, preloadCharacterAnimations, reloadCharacterAnimations, reloadCharacterImages, renderCharacter} from "./core/skeleton";
 import {loadHitboxes} from "./core/hitboxes";
+import {loadSqueeze} from "./core/squeeze";
 import {
     DEFAULT_SETTINGS,
     type GameModeName,
@@ -42,7 +43,7 @@ const CHAT_ARG_SUGGESTIONS: Record<string, string[]> = {
     locate: LOCATABLE_BIOMES,
     summon: Object.keys(MOB_KINDS),
     structure: ["export", "load", "list", "delete"],
-    reload: ["images", "animations", "hitboxes", "plugins", "all"],
+    reload: ["images", "animations", "hitboxes", "squeeze", "plugins", "all"],
     spawnpoint: ["@p", "@a", "@r", "left", "right"],
 };
 
@@ -278,6 +279,8 @@ class GameSession {
     mode: GameMode;
     modeName: GameModeName;
     blockSize = 32;
+    /** 设备像素比：画布按该比例用物理像素渲染，避免高分屏下浏览器二次放大产生的锯齿。 */
+    private dpr = 1;
     paused = false;
     debug = settings.debugDefault;
     showHitboxes = false;
@@ -387,6 +390,8 @@ class GameSession {
         this.bindInput();
         this.resize();
         window.addEventListener("resize", this.resize);
+        // 窗口移到不同缩放比例的显示器上时 devicePixelRatio 会变化：重设画布像素。
+        window.matchMedia?.(`(resolution: ${Math.round((window.devicePixelRatio || 1) * 100) / 100}dppx)`)?.addEventListener?.("change", this.resize);
         window.addEventListener("beforeunload", () => this.stop("browser-unload"));
         plugins.setMessageTarget({chat: this.sendPluginChat, title: this.sendPluginTitle});
         plugins.notifyGameStart(this.pluginContext());
@@ -395,6 +400,7 @@ class GameSession {
         // 碰撞箱是异步加载的：加载完成后刷新所有已生成的生物，
         // 否则先出生（或已在第一帧生成）的生物会用内置默认碰撞箱显示/碰撞（reload 前错误）。
         void loadHitboxes().then(() => this.mobs.refreshHitboxes());
+        void loadSqueeze();
         requestAnimationFrame(this.tick);
     }
 
@@ -411,8 +417,12 @@ class GameSession {
     }
 
     private resize = (): void => {
-        this.canvas.width = window.innerWidth;
-        this.canvas.height = window.innerHeight;
+        this.dpr = Math.max(1, window.devicePixelRatio || 1);
+        this.canvas.width = Math.round(window.innerWidth * this.dpr);
+        this.canvas.height = Math.round(window.innerHeight * this.dpr);
+        // 让 CSS 尺寸恰好等于窗口尺寸：物理像素与 CSS 像素一一对应，浏览器不再拉伸画布。
+        this.canvas.style.width = `${window.innerWidth}px`;
+        this.canvas.style.height = `${window.innerHeight}px`;
         this.ctx.imageSmoothingEnabled = false;
         if (this.chatOpen) this.positionChatInput();
     };
@@ -506,8 +516,8 @@ class GameSession {
                 event.preventDefault();
                 if (document.fullscreenElement) void document.exitFullscreen(); else void document.documentElement.requestFullscreen();
             }
-            if (event.key === "=" || event.key === "+") this.blockSize = Math.min(72, this.blockSize * 1.15);
-            if (event.key === "-") this.blockSize = Math.max(16, this.blockSize / 1.15);
+            if (event.key === "=" || event.key === "+") this.blockSize = this.snapBlockSize(this.blockSize * 1.15);
+            if (event.key === "-") this.blockSize = this.snapBlockSize(this.blockSize / 1.15);
             if (/^Digit[1-9]$/.test(event.code)) this.selected = Math.min(this.hotbar.length - 1, Number(event.code.at(-1)) - 1);
             if (action === "chat") this.openChat();
             if (event.key === "/") this.openChat("/");
@@ -526,7 +536,15 @@ class GameSession {
         });
         this.canvas.addEventListener("mousedown", (event) => {
             if (this.chatOpen || this.inventoryOpen) {
-                if (this.chatOpen && event.button === 0) this.handleSuggestionClick(event.clientX, event.clientY);
+                if (this.chatOpen && event.button === 0) {
+                    if (!this.handleSuggestionClick(event.clientX, event.clientY)) {
+                        const bar = this.chatScrollbarRect;
+                        if (bar && event.clientX >= bar.x && event.clientX <= bar.x + bar.width && event.clientY >= bar.y && event.clientY <= bar.y + bar.height) {
+                            this.chatScrollbarDragging = true;
+                            this.setChatScrollFromPointer(event.clientY);
+                        }
+                    }
+                }
                 if (this.inventoryOpen && event.button === 0) this.handleInventoryClick(event.clientX, event.clientY);
                 event.preventDefault();
                 return;
@@ -555,6 +573,10 @@ class GameSession {
             const rect = this.canvas.getBoundingClientRect();
             this.lastMouseX = event.clientX - rect.left;
             this.lastMouseY = event.clientY - rect.top;
+            if (this.chatScrollbarDragging) {
+                this.setChatScrollFromPointer(event.clientY);
+                return;
+            }
             if (this.dragging) {
                 const dx = -(event.clientX - this.dragStartX) / this.blockSize;
                 const dy = (event.clientY - this.dragStartY) / this.blockSize;
@@ -569,6 +591,7 @@ class GameSession {
         window.addEventListener("mouseup", () => {
             this.mouseDown = false;
             this.dragging = false;
+            this.chatScrollbarDragging = false;
         });
         this.canvas.addEventListener("contextmenu", (event) => event.preventDefault());
         this.canvas.addEventListener("wheel", (event) => {
@@ -681,6 +704,9 @@ class GameSession {
     private chatScroll = 0;
     private suggestionIndex = 0;
     private suggestions: string[] = [];
+    /** 聊天滚动条几何（仅聊天开启且可滚动时非空），供渲染与鼠标命中共用。 */
+    private chatScrollbarRect: {x: number; y: number; width: number; height: number; thumbY: number; thumbH: number} | null = null;
+    private chatScrollbarDragging = false;
     /** DOM 聊天框：透明文字的 textarea 覆盖在语法高亮层上，支持原生选中/复制/粘贴/输入法。 */
     private chatBox: HTMLDivElement | null = null;
     private chatSyntax: HTMLDivElement | null = null;
@@ -843,15 +869,26 @@ class GameSession {
         this.syncChatInput();
     }
 
-    /** 鼠标点击命令提示块时补全命令。 */
-    private handleSuggestionClick(clientX: number, clientY: number): void {
+    /** 鼠标点击命令提示块时补全命令；返回是否命中某个建议块。 */
+    private handleSuggestionClick(clientX: number, clientY: number): boolean {
         for (const area of this.suggestionHitAreas) {
             if (clientX >= area.x && clientX <= area.x + area.w && clientY >= area.y && clientY <= area.y + area.h) {
                 this.suggestionIndex = 0;
                 this.applySuggestion(area.suggestion);
-                return;
+                return true;
             }
         }
+        return false;
+    }
+
+    /** 根据指针竖直位置更新聊天滚动（点击/拖动滚动条轨道）。 */
+    private setChatScrollFromPointer(clientY: number): void {
+        const rect = this.chatScrollbarRect;
+        const maxScroll = Math.max(0, this.chatLineCount() - 9);
+        if (!rect || maxScroll <= 0) return;
+        const t = Math.max(0, Math.min(1, (clientY - rect.y) / rect.height));
+        // 滑块顶部=最早消息（chatScroll 最大），向下拖动滑向最新消息。
+        this.chatScroll = Math.round((1 - t) * maxScroll);
     }
 
     private openChat(initial = ""): void {
@@ -1073,8 +1110,8 @@ class GameSession {
      */
     private async handleReloadCommand(parts: string[]): Promise<void> {
         const part = (parts[1] ?? "all").toLowerCase();
-        if (!["images", "animations", "hitboxes", "plugins", "all"].includes(part)) {
-            this.addChat(`${text("未知的重载目标", "Unknown reload target")}. ${text("目标", "Targets")}: images, animations, hitboxes, plugins, all`);
+        if (!["images", "animations", "hitboxes", "squeeze", "plugins", "all"].includes(part)) {
+            this.addChat(`${text("未知的重载目标", "Unknown reload target")}. ${text("目标", "Targets")}: images, animations, hitboxes, squeeze, plugins, all`);
             return;
         }
         const reloaded: string[] = [];
@@ -1102,6 +1139,10 @@ class GameSession {
             await loadHitboxes();
             this.mobs.refreshHitboxes();
             reloaded.push("hitboxes");
+        }
+        if (part === "squeeze" || part === "all") {
+            await loadSqueeze();
+            reloaded.push("squeeze");
         }
         if (part === "plugins" || part === "all") {
             await this.reloadPlugins();
@@ -1439,7 +1480,9 @@ class GameSession {
     }
 
     private snapBlockSize(size: number): number {
-        return Math.max(16, Math.min(72, Math.round(size)));
+        // 方块贴图为 8×8 像素，缩放到 8 的整数倍时才不会因最近邻采样产生锯齿。
+        const snapped = Math.max(16, Math.min(72, Math.round(size / 8) * 8));
+        return snapped;
     }
 
     private hotbarSlotAt(clientX: number, clientY: number): number {
@@ -1935,6 +1978,8 @@ class GameSession {
         const cameraX = this.player.x + this.cameraOffsetX;
         const cameraY = this.player.y + this.cameraOffsetY;
         const ctx = this.ctx;
+        // 所有绘制坐标保持 CSS 像素，此处统一放大到物理像素（画布后备存储已是 dpr 倍）。
+        ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
         ctx.fillStyle = "#82c9d7";
         ctx.fillRect(0, 0, width, height);
         const left = Math.floor(cameraX - width / this.blockSize / 2 - 1);
@@ -2122,9 +2167,11 @@ class GameSession {
         drawBox(toScreenX(centerX - reachX), toScreenY(centerY + reachY), reachX * 2 * bs, reachY * 2 * bs, "#39e75f", true);
         // 玩家碰撞箱
         drawBox(toScreenX(this.player.x - this.player.halfWidth), toScreenY(this.player.y + this.player.height), this.player.halfWidth * 2 * bs, this.player.height * bs, "#ffe94d");
-        // 生物碰撞箱
+        // 生物碰撞箱（多矩形并集逐个绘制，朝向不同时矩形可能镜像）
         for (const mob of this.mobs.mobsNear(this.player, MOB_RENDER_RADIUS)) {
-            drawBox(toScreenX(mob.hitboxLeft), toScreenY(mob.hitboxTop), (mob.hitboxRight - mob.hitboxLeft) * bs, (mob.hitboxTop - mob.hitboxBottom) * bs, "#ff4d4d");
+            for (const box of mob.boxes) {
+                drawBox(toScreenX(box.left), toScreenY(box.top), (box.right - box.left) * bs, (box.top - box.bottom) * bs, "#ff4d4d");
+            }
         }
     }
 
@@ -2307,6 +2354,25 @@ class GameSession {
             ctx.strokeStyle = "#d8e4df";
             ctx.strokeRect(14, inputTop, width - 28, this.chatInputHeight);
             // 输入文本（语法高亮）与光标由叠加的 DOM 层渲染（支持选中/复制/粘贴/输入法）。
+
+            // 聊天滚动条：内容超过 9 行时在右侧绘制轨道与滑块，可点击/拖动
+            const visibleLines = 9;
+            const maxScroll = Math.max(0, total - visibleLines);
+            if (maxScroll > 0) {
+                const trackW = 5;
+                const trackH = visibleLines * chatLineH;
+                const trackX = 14 + boxWidth - trackW - 2;
+                const trackY = chatBottom - 4 - trackH;
+                const thumbH = Math.max(24, trackH * (visibleLines / total));
+                const thumbY = trackY + (trackH - thumbH) * (1 - this.chatScroll / maxScroll);
+                this.chatScrollbarRect = {x: trackX, y: trackY, width: trackW, height: trackH, thumbY, thumbH};
+                ctx.fillStyle = "rgba(255,255,255,.16)";
+                ctx.fillRect(trackX, trackY, trackW, trackH);
+                ctx.fillStyle = "#c9d2cd";
+                ctx.fillRect(trackX, thumbY, trackW, thumbH);
+            } else {
+                this.chatScrollbarRect = null;
+            }
         }
         if (this.noticeTimer > 0) {
             ctx.font = "600 16px Manrope";
@@ -2343,7 +2409,7 @@ class GameSession {
     private renderInventory(ctx: CanvasRenderingContext2D): void {
         const layout = this.inventoryLayout();
         ctx.fillStyle = "rgba(0, 0, 0, .58)";
-        ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+        ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
         const background = this.inventoryBackground;
         if (background.complete && background.naturalWidth) {
             ctx.drawImage(background, layout.panelX, layout.panelY, 512 * (Math.min(window.innerWidth, window.innerHeight) / 512), 512 * (Math.min(window.innerWidth, window.innerHeight) / 512));
@@ -2394,8 +2460,8 @@ class GameSession {
                 const boxH = 13 + padY * 2;
                 let tx = this.lastMouseX + 16;
                 let ty = this.lastMouseY + 16;
-                if (tx + boxW > ctx.canvas.width) tx = this.lastMouseX - boxW - 8;
-                if (ty + boxH > ctx.canvas.height) ty = this.lastMouseY - boxH - 8;
+                if (tx + boxW > window.innerWidth) tx = this.lastMouseX - boxW - 8;
+                if (ty + boxH > window.innerHeight) ty = this.lastMouseY - boxH - 8;
                 ctx.fillStyle = "rgba(9,17,24,.94)";
                 ctx.fillRect(tx, ty, boxW, boxH);
                 ctx.strokeStyle = "#e2bc68";

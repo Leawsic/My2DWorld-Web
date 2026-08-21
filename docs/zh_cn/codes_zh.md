@@ -69,7 +69,8 @@
 - `src/core/skeleton.ts`：玩家角色骨骼动画（Steve 模型）
 - `src/core/animations.ts`：角色动画加载与播放
 - `src/core/particles.ts`：粒子系统（破坏、血迹等）
-- `src/core/hitboxes.ts`：碰撞箱数据（F5 显示用）
+- `src/core/hitboxes.ts`：碰撞箱配置加载与归一化（多矩形并集 `boxes` + 左右朝向 `left`/`right`，供 F5 显示）
+- `src/core/squeeze.ts`：物理挤压伤害独立配置（`public/squeeze/*.json`，与碰撞箱分开）
 
 ### 模式与交互
 - `src/modes/base.ts`：游戏模式基类
@@ -102,6 +103,8 @@ npm run build
 - 聊天栏滚轮方向与移动方向一致
 - 默认飞行速度改为 7
 - 挤压伤害改为真正碰撞箱重叠才扣血
+- 碰撞箱与物理挤压伤害分开配置（新增 `public/squeeze/`，碰撞箱只管几何，见 `docs/zh_cn/entity_config_zh.md`）
+- 聊天栏滑动条方向修复（顶部=最早消息，向下拖动看最新）
 - 文档已生成
 
 **文件列表已全部覆盖**（共约 30 个主要源文件）。如需某具体文件更详细说明或修改，请随时告知。

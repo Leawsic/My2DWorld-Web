@@ -56,8 +56,8 @@ export class ParticleSystem {
     }
 
     render(ctx: CanvasRenderingContext2D, cameraX: number, cameraY: number, size: number): void {
-        const cx = ctx.canvas.width / 2;
-        const cy = ctx.canvas.height / 2;
+        const cx = window.innerWidth / 2;
+        const cy = window.innerHeight / 2;
         for (const particle of this.particles) {
             ctx.globalAlpha = particle.life / particle.maxLife;
             const spriteSize = Math.max(4, Math.round((size / 5) * (particle.size ?? 1)));

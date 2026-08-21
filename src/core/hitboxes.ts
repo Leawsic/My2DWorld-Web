@@ -1,32 +1,116 @@
 // 生物碰撞箱配置：从 /api/hitboxes（public/hitboxes 下的 JSON 文件）加载，
 // 按「大/小 × 牛/猪/僵尸」分类覆盖内置的 MOB_KINDS 默认碰撞箱（如 cow.json
 // 覆盖全部成年牛/哞菇，pig_baby.json 覆盖全部小猪）。加载失败时回退到内置默认值。
+//
 // 碰撞箱中心相对 mob 位置 (x, y) 的偏移为 centerX/centerY（方块为单位）。
 // 物理碰撞、点击/占用判定与 F5 可视化共用同一碰撞箱；centerY 默认 height/2
 // （即脚底锚定：箱底在 y）。
+//
+// 碰撞箱支持由多个矩形合并（boxes 并集）组成：物理/挤压用并集包围盒，点击、
+// 占用、F5 与精确重叠判定用每个矩形。支持按左右朝向分别配置：
+//   - `left` / `right`：面朝左（facing=-1）/ 面朝右（facing=1）的矩形列表（显式配置优先）；
+//   - 未提供 `left` 时，对基础矩形按 x 轴做水平镜像（centerX 取反）。
 
-export interface HitboxConfig {
+export interface HitboxRect {
     halfWidth: number;
     height: number;
-    /** 碰撞箱中心相对 mob.x 的水平偏移（方块），默认 0。 */
+    /** 矩形中心相对 mob.x 的水平偏移（方块），默认 0。 */
     centerX?: number;
-    /** 碰撞箱中心相对 mob.y 的竖直偏移（方块），默认 height/2（脚底锚定）。 */
+    /** 矩形中心相对 mob.y 的竖直偏移（方块），默认 height/2（脚底锚定）。 */
     centerY?: number;
 }
 
+export interface HitboxConfig {
+    // —— 传统单矩形字段（向后兼容）——
+    halfWidth?: number;
+    height?: number;
+    centerX?: number;
+    centerY?: number;
+    // —— 多矩形并集：提供时优先于单矩形字段 ——
+    boxes?: HitboxRect[];
+    /** 面朝左（facing=-1）时的矩形列表；缺省时对基础矩形水平镜像。 */
+    left?: HitboxRect[];
+    /** 面朝右（facing=1）时的矩形列表；缺省时使用基础矩形。 */
+    right?: HitboxRect[];
+}
+
+/** 归一化后的碰撞箱：boxes 为基础矩形，left/right 为朝向指定矩形（可选）。 */
+export interface NormalizedHitbox {
+    boxes: HitboxRect[];
+    left?: HitboxRect[];
+    right?: HitboxRect[];
+}
+
 /** 服务端文件（public/hitboxes/*.json）加载的覆盖配置。 */
-const overrides = new Map<string, HitboxConfig>();
+const overrides = new Map<string, NormalizedHitbox>();
 /** 扩展（插件）运行时注册的覆盖配置，优先级高于文件配置。 */
-const pluginOverrides = new Map<string, HitboxConfig>();
+const pluginOverrides = new Map<string, NormalizedHitbox>();
 
 let loaded = false;
+
+function normalizeCenterY(centerY: number | undefined, height: number): number {
+    return Number.isFinite(centerY) ? centerY as number : height / 2;
+}
+
+/** 把单个矩形归一化（校验 halfWidth/height，补默认 centerX/centerY）。 */
+function normalizeRect(rect: HitboxRect): HitboxRect | null {
+    if (!rect || !Number.isFinite(rect.halfWidth) || !Number.isFinite(rect.height)) return null;
+    return {
+        halfWidth: rect.halfWidth as number,
+        height: rect.height as number,
+        centerX: Number.isFinite(rect.centerX) ? rect.centerX as number : 0,
+        centerY: normalizeCenterY(rect.centerY, rect.height as number),
+    };
+}
+
+/** 归一化矩形列表；空/非法返回 undefined。 */
+function normalizeRects(list: HitboxRect[] | undefined): HitboxRect[] | undefined {
+    if (!Array.isArray(list) || !list.length) return undefined;
+    const out: HitboxRect[] = [];
+    for (const rect of list) {
+        const normalized = normalizeRect(rect);
+        if (normalized) out.push(normalized);
+    }
+    return out.length ? out : undefined;
+}
+
+/** 把配置归一化为标准矩形结构；无法解析（缺 halfWidth/height 且无 boxes）返回 null。 */
+export function normalizeHitbox(config: HitboxConfig | null | undefined): NormalizedHitbox | null {
+    if (!config) return null;
+    const boxes = normalizeRects(config.boxes);
+    if (boxes) {
+        return {boxes, left: normalizeRects(config.left), right: normalizeRects(config.right)};
+    }
+    if (Number.isFinite(config.halfWidth) && Number.isFinite(config.height)) {
+        const rect = normalizeRect({
+            halfWidth: config.halfWidth as number,
+            height: config.height as number,
+            centerX: config.centerX,
+            centerY: config.centerY,
+        } as HitboxRect)!;
+        return {boxes: [rect], left: normalizeRects(config.left), right: normalizeRects(config.right)};
+    }
+    return null;
+}
+
+/** 归一并镜像的矩形列表。 */
+function mirrorRects(rects: HitboxRect[]): HitboxRect[] {
+    return rects.map((rect) => ({...rect, centerX: -(rect.centerX ?? 0)}));
+}
+
+/** 按朝向（facing < 0 面左）取归一化后的矩形列表；显式 left/right 优先，否则镜像基础矩形。 */
+export function rectsForFacing(hitbox: NormalizedHitbox, facing: number): HitboxRect[] {
+    const side = facing < 0 ? hitbox.left : hitbox.right;
+    if (side?.length) return side;
+    return facing < 0 ? mirrorRects(hitbox.boxes) : hitbox.boxes;
+}
 
 /** 碰撞箱配置是否已从服务端加载完成（加载失败也算完成，回退默认值）。 */
 export function isHitboxesLoaded(): boolean {
     return loaded;
 }
 
-/** 从服务端加载 public/hitboxes 目录下的碰撞箱配置（分类或 kind → {halfWidth, height, centerX, centerY}）。 */
+/** 从服务端加载 public/hitboxes 目录下的碰撞箱配置。 */
 export async function loadHitboxes(): Promise<void> {
     loaded = false;
     try {
@@ -35,14 +119,8 @@ export async function loadHitboxes(): Promise<void> {
             const data = (await res.json()) as {hitboxes?: Record<string, HitboxConfig>};
             overrides.clear();
             for (const [kind, config] of Object.entries(data.hitboxes ?? {})) {
-                if (config && Number.isFinite(config.halfWidth) && Number.isFinite(config.height)) {
-                    overrides.set(kind, {
-                        halfWidth: config.halfWidth,
-                        height: config.height,
-                        centerX: Number.isFinite(config.centerX) ? config.centerX : 0,
-                        centerY: Number.isFinite(config.centerY) ? config.centerY : undefined,
-                    });
-                }
+                const normalized = normalizeHitbox(config);
+                if (normalized) overrides.set(kind, normalized);
             }
         }
     } catch {
@@ -66,9 +144,9 @@ export function hitboxCategoryOf(kind: string): string {
     return baby ? `${family}_baby` : family;
 }
 
-/** 指定 kind 的碰撞箱覆盖配置；没有配置时为 null（使用内置默认值）。
+/** 指定 kind 的碰撞箱（归一化）覆盖配置；没有配置时为 null（使用内置默认值）。
  * 查找顺序：精确 kind → 所属分类（大/小×牛/猪/僵尸），插件注册优先于文件配置。 */
-export function hitboxFor(kind: string): HitboxConfig | null {
+export function hitboxFor(kind: string): NormalizedHitbox | null {
     const category = hitboxCategoryOf(kind);
     return pluginOverrides.get(kind) ?? pluginOverrides.get(category)
         ?? overrides.get(kind) ?? overrides.get(category) ?? null;
@@ -77,13 +155,9 @@ export function hitboxFor(kind: string): HitboxConfig | null {
 /** 扩展（插件）运行时注册一个碰撞箱覆盖：kind 可为具体 kind 或分类名
  * （`cow`/`cow_baby`/`pig`/`pig_baby`/`zombie`/`zombie_baby`，覆盖整个分类）。 */
 export function registerHitbox(kind: string, config: HitboxConfig): void {
-    if (!config || !Number.isFinite(config.halfWidth) || !Number.isFinite(config.height)) return;
-    pluginOverrides.set(kind, {
-        halfWidth: config.halfWidth,
-        height: config.height,
-        centerX: Number.isFinite(config.centerX) ? config.centerX : 0,
-        centerY: Number.isFinite(config.centerY) ? config.centerY : undefined,
-    });
+    const normalized = normalizeHitbox(config);
+    if (!normalized) return;
+    pluginOverrides.set(kind, normalized);
 }
 
 /** 扩展（插件）运行时批量注册碰撞箱覆盖。 */

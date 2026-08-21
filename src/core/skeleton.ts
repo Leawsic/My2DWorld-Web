@@ -317,8 +317,8 @@ function unitScaleFor(animation: Animation): number {
  * 渲染比例统一为源图 1 像素 = 1/4 方块。 */
 function renderCharacterFromAnimation(ctx: CanvasRenderingContext2D, animation: Animation, opt: CharacterRenderOptions): void {
     const scale = unitScaleFor(animation);
-    const screenX = (opt.x - opt.cameraX) * opt.blockSize + ctx.canvas.width / 2;
-    const screenY = (opt.cameraY - opt.y) * opt.blockSize + ctx.canvas.height / 2;
+    const screenX = (opt.x - opt.cameraX) * opt.blockSize + window.innerWidth / 2;
+    const screenY = (opt.cameraY - opt.y) * opt.blockSize + window.innerHeight / 2;
     ctx.save();
     ctx.imageSmoothingEnabled = false;
     ctx.translate(screenX, screenY);
@@ -390,8 +390,8 @@ function renderCharacterBlend(
     opt: CharacterRenderOptions,
 ): void {
     const scale = unitScaleFor(to);
-    const screenX = (opt.x - opt.cameraX) * opt.blockSize + ctx.canvas.width / 2;
-    const screenY = (opt.cameraY - opt.y) * opt.blockSize + ctx.canvas.height / 2;
+    const screenX = (opt.x - opt.cameraX) * opt.blockSize + window.innerWidth / 2;
+    const screenY = (opt.cameraY - opt.y) * opt.blockSize + window.innerHeight / 2;
     const fromTx = from.transformsAt(fromTime);
     const toTx = to.transformsAt(toTime);
     const drawOptions: AnimDrawOptions = {
@@ -420,8 +420,8 @@ function renderFallbackSkeleton(ctx: CanvasRenderingContext2D, opt: CharacterRen
     const config = opt.kind === "player" ? undefined : MOB_KINDS[opt.kind];
     const asset = assetFor(opt.kind);
     const brightness = Math.max(0, opt.brightness ?? 1);
-    const screenX = (opt.x - opt.cameraX) * opt.blockSize + ctx.canvas.width / 2;
-    const screenY = (opt.cameraY - opt.y) * opt.blockSize + ctx.canvas.height / 2;
+    const screenX = (opt.x - opt.cameraX) * opt.blockSize + window.innerWidth / 2;
+    const screenY = (opt.cameraY - opt.y) * opt.blockSize + window.innerHeight / 2;
     ctx.save();
     ctx.imageSmoothingEnabled = false;
     ctx.globalAlpha = Math.max(0, Math.min(1, opt.alpha ?? 1));

@@ -1,9 +1,10 @@
 import {biomeAt, CHUNK_SIZE, WORLD_MIN_Y, type World} from "./world";
 import type {Player} from "./player";
-import {canShiftX, canShiftY, moveBody, resolveEntityCollision, type PhysicsBody} from "./physics";
+import {moveBody, resolveEntityCollision, type PhysicsBody} from "./physics";
 import {mulberry32} from "./noise";
 import {structuresNear} from "./structures";
-import {hitboxFor} from "./hitboxes";
+import {hitboxFor, rectsForFacing, type HitboxRect} from "./hitboxes";
+import {squeezeFor, SQUEEZE_DEFAULTS, type ResolvedSqueeze} from "./squeeze";
 
 export type MobKind =
     | "zombie" | "zombie_baby" | "husk" | "husk_baby" | "drowned" | "drowned_baby"
@@ -14,6 +15,14 @@ export type MobState = "idle" | "walk" | "attack";
 export type MobShape = "humanoid" | "pig" | "cow";
 /** 生物死亡原因，用于聊天栏死因播报。 */
 export type MobDeathCause = "player" | "entity_squeeze" | "suffocation" | "void" | "unknown";
+
+/** 世界坐标下的矩形四边（供精确重叠 / 点击 / F5 渲染）。 */
+export interface MobBox {
+    left: number;
+    right: number;
+    bottom: number;
+    top: number;
+}
 
 export interface MobKindConfig {
     readonly id: MobKind;
@@ -87,17 +96,8 @@ const MOB_MIN_MASS = 0.1;
 /** 生物被玩家顶住时短暂弹开的速度与时长（AI 结束后恢复寻路）。 */
 const MOB_ELASTIC_BOUNCE = 1.5;
 const MOB_ELASTIC_BOUNCE_TIME = 0.1;
-/** MC 式实体挤压伤害参数。 */
-const SQUEEZE_RADIUS = 10;              // 检测半径：仅检查玩家附近实体（性能）
-const SQUEEZE_BASE_DAMAGE = 2;          // 基础伤害
-const SQUEEZE_THRESHOLD_RATIO = 0.4;    // 水平重叠深度超过实体宽度 40% 才判定为挤压
-const SQUEEZE_CONTACT = 0.05;           // 墙角挤压所需的最小接触深度
-const SQUEEZE_IFRAME = 1;               // 挤压无敌帧（秒），期间不再受挤压伤害（击退仍生效）
-const SQUEEZE_MAX_DAMAGE = 10;          // 单次结算上限：多实体挤压线性叠加但不超此值
-const SQUEEZE_DIFFICULTY = 1;           // 难度系数（普通=1，困难=1.5）
-const SQUEEZE_CORNER_MULTIPLIER = 2;    // 被实体+实心方块夹击（墙角窒息）时伤害翻倍
-const SQUEEZE_CORNER_FLOOR = 0.5;       // 墙角挤压的深度下限比例（接触即可生效）
-const PLAYER_SQUEEZE_DAMAGE_RATIO = 0.5; // 玩家挤压怪物时伤害减半（主要效果是推开）
+/** MC 式实体挤压伤害检测半径：仅检查玩家附近实体（性能，非伤害参数）。 */
+const SQUEEZE_RADIUS = 10;
 /** 亡灵生物（挤压附带缓慢效果，时长/减速比例在 main/player 侧）。 */
 const UNDEAD_KINDS: readonly MobKind[] = ["zombie", "zombie_baby", "husk", "husk_baby", "drowned", "drowned_baby"];
 
@@ -121,8 +121,6 @@ export class Mob implements PhysicsBody {
     velocityX = 0;
     velocityY = 0;
     onGround = false;
-    halfWidth: number;
-    height: number;
     facing = 1;
     state: MobState = "idle";
     stateTime = 0;
@@ -133,8 +131,10 @@ export class Mob implements PhysicsBody {
     /** 最近一次致死原因（alive 变为 false 时写入，供聊天播报）。 */
     deathCause: MobDeathCause = "unknown";
     animationTime = 0;
-    hitboxCenterX: number;
-    hitboxCenterY: number;
+    /** 面朝右（facing=1）时相对锚点的碰撞矩形列表。 */
+    private boxesRight: HitboxRect[] = [];
+    /** 面朝左（facing=-1）时相对锚点的碰撞矩形列表。 */
+    private boxesLeft: HitboxRect[] = [];
     private knockbackTimer = 0;
     private knockbackX = 0;
     private squeezeTimer = 0;
@@ -145,40 +145,68 @@ export class Mob implements PhysicsBody {
         this.x = x;
         this.y = y;
         this.hp = MOB_KINDS[kind].hp;
-        this.halfWidth = 0;
-        this.height = 0;
-        this.hitboxCenterX = 0;
-        this.hitboxCenterY = 0;
         this.applyHitbox();
     }
 
-    /** 按当前配置重新计算碰撞箱（重载碰撞箱/扩展后调用以刷新已有实体）。 */
+    /** 按当前配置重新计算碰撞箱（重载碰撞箱/扩展后调用以刷新已有实体）。
+     *  配置可含多个矩形（并集），并按左右朝向分别解析。 */
     applyHitbox(): void {
         const config = MOB_KINDS[this.kind];
         const hitbox = hitboxFor(this.kind);
-        this.halfWidth = hitbox?.halfWidth ?? config.halfWidth;
-        this.height = hitbox?.height ?? config.height;
-        this.hitboxCenterX = hitbox?.centerX ?? 0;
-        this.hitboxCenterY = hitbox?.centerY ?? this.height / 2;
+        if (hitbox) {
+            this.boxesRight = rectsForFacing(hitbox, 1);
+            this.boxesLeft = rectsForFacing(hitbox, -1);
+        } else {
+            const def: HitboxRect = {halfWidth: config.halfWidth, height: config.height, centerX: 0, centerY: config.height / 2};
+            this.boxesRight = [def];
+            this.boxesLeft = [def];
+        }
     }
 
-    /** 碰撞箱中心世界坐标。 */
-    get centerX(): number {
-        return this.x + this.hitboxCenterX;
-    }
-    get centerY(): number {
-        return this.y + this.hitboxCenterY;
+    /** 当前朝向的矩形列表（相对锚点 x,y）。 */
+    private facingBoxes(): HitboxRect[] {
+        return this.facing < 0 ? this.boxesLeft : this.boxesRight;
     }
 
-    /** 物理碰撞用：碰撞箱中心相对锚点的偏移（与渲染/点击共用同一碰撞箱）。 */
+    /** 当前朝向所有矩形的并集包围盒（偏移空间，物理用）。 */
+    private facingUnion(): HitboxRect {
+        let minL = Infinity, maxR = -Infinity, minB = Infinity, maxT = -Infinity;
+        for (const r of this.facingBoxes()) {
+            const l = (r.centerX ?? 0) - r.halfWidth;
+            const rr = (r.centerX ?? 0) + r.halfWidth;
+            const b = (r.centerY ?? 0) - r.height / 2;
+            const t = (r.centerY ?? 0) + r.height / 2;
+            minL = Math.min(minL, l);
+            maxR = Math.max(maxR, rr);
+            minB = Math.min(minB, b);
+            maxT = Math.max(maxT, t);
+        }
+        return {halfWidth: (maxR - minL) / 2, height: maxT - minB, centerX: (minL + maxR) / 2, centerY: (minB + maxT) / 2};
+    }
+
+    get halfWidth(): number {
+        return this.facingUnion().halfWidth;
+    }
+    get height(): number {
+        return this.facingUnion().height;
+    }
+    /** 物理碰撞用：并集包围盒中心相对锚点的水平偏移。 */
     get centerOffsetX(): number {
-        return this.hitboxCenterX;
+        return this.facingUnion().centerX ?? 0;
     }
     get centerOffsetY(): number {
-        return this.hitboxCenterY;
+        return this.facingUnion().centerY ?? 0;
     }
 
-    /** 碰撞箱四边（中心 + centerX/centerY，半宽 halfWidth、半高 height/2）。 */
+    /** 碰撞箱（并集包围盒）中心世界坐标。 */
+    get centerX(): number {
+        return this.x + this.centerOffsetX;
+    }
+    get centerY(): number {
+        return this.y + this.centerOffsetY;
+    }
+
+    /** 并集包围盒四边。 */
     get hitboxLeft(): number {
         return this.centerX - this.halfWidth;
     }
@@ -190,6 +218,21 @@ export class Mob implements PhysicsBody {
     }
     get hitboxTop(): number {
         return this.centerY + this.height / 2;
+    }
+
+    /** 当前朝向每个矩形的世界坐标四边（精确重叠 / 点击 / F5 展示用）。 */
+    get boxes(): MobBox[] {
+        const cx = this.x, cy = this.y;
+        return this.facingBoxes().map((r) => {
+            const rx = cx + (r.centerX ?? 0);
+            const ry = cy + (r.centerY ?? 0);
+            return {
+                left: rx - r.halfWidth,
+                right: rx + r.halfWidth,
+                bottom: ry - r.height / 2,
+                top: ry + r.height / 2,
+            };
+        });
     }
 
     update(dt: number, world: World, player: Player, onPlayerDamage: (amount: number) => void, aggroRange = DEFAULT_AGGRO_RANGE): void {
@@ -278,10 +321,10 @@ export class Mob implements PhysicsBody {
         this.knockbackX = dirX * MOB_ELASTIC_BOUNCE;
     }
 
-    /** 实体挤压伤害：进入 1s 挤压无敌帧并扣血。返回是否死亡。 */
-    takeSqueezeDamage(amount: number): boolean {
+    /** 实体挤压伤害：进入配置的挤压无敌帧并扣血。返回是否死亡。 */
+    takeSqueezeDamage(amount: number, iframe: number): boolean {
         if (!this.alive || this.squeezeIframe > 0) return false;
-        this.squeezeIframe = SQUEEZE_IFRAME;
+        this.squeezeIframe = iframe;
         this.hp -= amount;
         this.hurtTimer = 0.35;
         if (this.hp <= 0) {
@@ -413,7 +456,7 @@ export class MobManager {
         }
 
         // 实体挤压伤害需在分离（separateBodies）之前结算：此刻帧内重叠深度是最新值
-        this.squeezeEntities(world, player, onPlayerSqueezed);
+        this.squeezeEntities(player, onPlayerSqueezed);
         this.separateBodies(world, player, collideWithPlayer);
 
         for (const chunkX of world.chunks.keys()) {
@@ -456,85 +499,119 @@ export class MobManager {
 
     /**
      * MC 式实体挤压伤害（每帧在分离之前结算，此时帧内重叠深度是最新值）：
-     * - 同时检查水平（X 轴）与竖直（Y 轴）重叠，取较大伤害。
-     * - 重叠深度超过实体对应方向尺寸 40% 才触发；伤害 = 基础 × (重叠深度/尺寸) × 难度。
-     * - 同一实体被多个实体挤压时线性叠加，但单次结算不超过上限。
-     * - 受击方获得 1s 挤压无敌帧（击退不受影响）。
-     * - 被实体 + 实心方块夹击（墙角窒息）时伤害翻倍。
-     * - 玩家挤压怪物伤害减半并推开；亡灵生物挤压玩家附带 5s 缓慢。
+     * - 只有两个物体的碰撞箱存在真实重叠（任意矩形对相交）才结算伤害；
+     *   仅仅靠在一起、有相对运动趋势但不重叠时不触发。
+     * - 取水平（X）与竖直（Y）重叠中深度比例较大者；重叠超过该生物对应方向尺寸的
+     *   阈值比例才触发（阈值与伤害参数来自 /api/squeeze 配置，与碰撞箱几何分开）。
+     * - 伤害 = 基础 × (重叠深度/尺寸) × 难度；多实体挤压线性叠加，单次结算不超过上限。
+     * - 受击方获得各自配置的无敌帧（击退不受影响）。
+     * - 玩家挤压怪物按默认配置的 playerDamageScale 缩放并推开；亡灵生物挤压玩家附带 5s 缓慢。
      */
-    private squeezeEntities(world: World, player: Player, onPlayerSqueezed: (damage: number, undead: boolean) => void): void {
+    private squeezeEntities(player: Player, onPlayerSqueezed: (damage: number, undead: boolean) => void): void {
         const mobs = [...this.mobs.values(), ...this.summoned].filter(
             (mob) => mob.alive && Math.hypot(player.x - mob.x, player.y + player.height / 2 - mob.centerY) <= SQUEEZE_RADIUS,
         );
         const mobDamage = new Map<Mob, number>();
+        const mobIframe = new Map<Mob, number>();
         const mobShove = new Map<Mob, number>();
         let playerDamage = 0;
         let playerUndead = false;
+        // 玩家作为受害方时使用全局（default）挤压配置；playerDamageScale 也从这里读取。
+        const playerSqueeze = squeezeFor("default");
 
-        /** 沿单一轴的挤压伤害；返回 0 表示未达阈值。canEscape=false 表示逃逸方向被实心方块挡住（墙角窒息）。 */
-        const axisDamage = (penAxis: number, size: number, canEscape: boolean, dmgScale: number): number => {
-            const ratio = penAxis / size;
-            const corner = penAxis > SQUEEZE_CONTACT && !canEscape;
-            if (!corner && ratio < SQUEEZE_THRESHOLD_RATIO) return 0;
-            const depth = Math.min(1, corner ? Math.max(SQUEEZE_CORNER_FLOOR, ratio) : ratio);
-            return SQUEEZE_BASE_DAMAGE * depth * SQUEEZE_DIFFICULTY * (corner ? SQUEEZE_CORNER_MULTIPLIER : 1) * dmgScale;
+        /** 单个轴的重叠深度 / 实体对应尺寸比例换算伤害；未达阈值返回 0。 */
+        const axisDamage = (cfg: ResolvedSqueeze, pen: number, size: number, dmgScale: number): number => {
+            if (size <= 0) return 0;
+            const ratio = pen / size;
+            if (ratio < cfg.thresholdRatio) return 0;
+            return cfg.baseDamage * Math.min(1, ratio) * cfg.difficulty * dmgScale;
         };
 
-        /** 计算受害方被挤压者沿水平+竖直两轴的挤压伤害，取较大者。返回 0 表示未达阈值。 */
-        const squeezedBy = (victim: PhysicsBody, pusher: PhysicsBody, penX: number, penY: number, dmgScale: number): number => {
-            const vcx = victim.x + (victim.centerOffsetX ?? 0);
-            const pcx = pusher.x + (pusher.centerOffsetX ?? 0);
-            const vcy = victim.y + (victim.centerOffsetY ?? 0);
-            const pcy = pusher.y + (pusher.centerOffsetY ?? 0);
-            // 逃逸方向 = 远离挤压者的一侧；该方向被实心方块挡住即为「墙角窒息」
-            const xDmg = axisDamage(penX, victim.halfWidth * 2, canShiftX(victim, vcx >= pcx ? 0.2 : -0.2, world), dmgScale);
-            const yDmg = axisDamage(penY, victim.height, canShiftY(victim, vcy >= pcy ? 0.2 : -0.2, world), dmgScale);
+        /** 由矩形并集的重叠深度求沿水平+竖直两轴的挤压伤害，取较大者；返回 0 表示未达阈值。
+         *  bodyWidth/bodyHeight 缺省时回退到受害方碰撞箱尺寸。 */
+        const squeezedBy = (victim: {halfWidth: number; height: number}, cfg: ResolvedSqueeze, penX: number, penY: number, dmgScale: number): number => {
+            const xDmg = axisDamage(cfg, penX, cfg.bodyWidth ?? victim.halfWidth * 2, dmgScale);
+            const yDmg = axisDamage(cfg, penY, cfg.bodyHeight ?? victim.height, dmgScale);
             return Math.max(xDmg, yDmg);
+        };
+
+        /** 玩家碰撞箱（单矩形）。 */
+        const playerBox: MobBox = {
+            left: player.x - player.halfWidth,
+            right: player.x + player.halfWidth,
+            bottom: player.y,
+            top: player.y + player.height,
+        };
+
+        /** 两组矩形的最大轴重叠深度；无任何矩形对重叠时返回 null。 */
+        const rectsPenetration = (a: MobBox[], b: MobBox[]): {penX: number; penY: number} | null => {
+            let penX = 0, penY = 0, hit = false;
+            for (const ra of a) {
+                for (const rb of b) {
+                    const px = Math.min(ra.right, rb.right) - Math.max(ra.left, rb.left);
+                    const py = Math.min(ra.top, rb.top) - Math.max(ra.bottom, rb.bottom);
+                    if (px > 0 && py > 0) {
+                        hit = true;
+                        penX = Math.max(penX, px);
+                        penY = Math.max(penY, py);
+                    }
+                }
+            }
+            return hit ? {penX, penY} : null;
         };
 
         // 玩家 × 生物
         for (const mob of mobs) {
-            const penX = player.halfWidth + mob.halfWidth - Math.abs(player.x - mob.centerX);
-            const penY = (player.height + mob.height) / 2 - Math.abs(player.y + player.height / 2 - mob.centerY);
-            if (penX <= 0 || penY <= 0) continue;
-            const onMobDmg = squeezedBy(mob, player, penX, penY, PLAYER_SQUEEZE_DAMAGE_RATIO);
+            const overlap = rectsPenetration([playerBox], mob.boxes);
+            if (!overlap) continue;
+            const cfg = squeezeFor(mob.kind);
+            // 玩家主动挤压怪物：伤害按全局 playerDamageScale 缩放（主要效果是推开）
+            const onMobDmg = squeezedBy(mob, cfg, overlap.penX, overlap.penY, playerSqueeze.playerDamageScale);
             if (onMobDmg > 0) {
-                mobDamage.set(mob, Math.min(SQUEEZE_MAX_DAMAGE, (mobDamage.get(mob) ?? 0) + onMobDmg));
+                mobDamage.set(mob, Math.min(cfg.maxDamage, (mobDamage.get(mob) ?? 0) + onMobDmg));
+                mobIframe.set(mob, cfg.iframe);
                 mobShove.set(mob, mob.x >= player.x ? 1 : -1);
             }
-            const onPlayerDmg = squeezedBy(player, mob, penX, penY, 1);
+            // 怪物挤压玩家：玩家用全局 default 配置
+            const onPlayerDmg = squeezedBy(player, playerSqueeze, overlap.penX, overlap.penY, 1);
             if (onPlayerDmg > 0) {
-                playerDamage = Math.min(SQUEEZE_MAX_DAMAGE, playerDamage + onPlayerDmg);
+                playerDamage = Math.min(playerSqueeze.maxDamage, playerDamage + onPlayerDmg);
                 if (UNDEAD_KINDS.includes(mob.kind)) playerUndead = true;
             }
         }
-        // 生物 × 生物（互相挤压）
+        // 生物 × 生物（互相挤压，各自使用自己的配置）
         for (let i = 0; i < mobs.length; i += 1) {
             for (let j = i + 1; j < mobs.length; j += 1) {
                 const a = mobs[i], b = mobs[j];
-                const penX = a.halfWidth + b.halfWidth - Math.abs(a.centerX - b.centerX);
-                const penY = (a.height + b.height) / 2 - Math.abs(a.centerY - b.centerY);
-                if (penX <= 0 || penY <= 0) continue;
-                const dA = squeezedBy(a, b, penX, penY, 1);
-                if (dA > 0) mobDamage.set(a, Math.min(SQUEEZE_MAX_DAMAGE, (mobDamage.get(a) ?? 0) + dA));
-                const dB = squeezedBy(b, a, penX, penY, 1);
-                if (dB > 0) mobDamage.set(b, Math.min(SQUEEZE_MAX_DAMAGE, (mobDamage.get(b) ?? 0) + dB));
+                const overlap = rectsPenetration(a.boxes, b.boxes);
+                if (!overlap) continue;
+                const cfgA = squeezeFor(a.kind);
+                const dA = squeezedBy(a, cfgA, overlap.penX, overlap.penY, 1);
+                if (dA > 0) {
+                    mobDamage.set(a, Math.min(cfgA.maxDamage, (mobDamage.get(a) ?? 0) + dA));
+                    mobIframe.set(a, cfgA.iframe);
+                }
+                const cfgB = squeezeFor(b.kind);
+                const dB = squeezedBy(b, cfgB, overlap.penX, overlap.penY, 1);
+                if (dB > 0) {
+                    mobDamage.set(b, Math.min(cfgB.maxDamage, (mobDamage.get(b) ?? 0) + dB));
+                    mobIframe.set(b, cfgB.iframe);
+                }
             }
         }
 
-        // 结算：生物扣血（各自 1s 无敌帧）；被玩家挤压的额外推开
+        // 结算：生物扣血（各自配置的无敌帧）；被玩家挤压的额外推开
         for (const [mob, dmg] of mobDamage) {
-            if (mob.takeSqueezeDamage(dmg)) continue;
+            if (mob.takeSqueezeDamage(dmg, mobIframe.get(mob) ?? SQUEEZE_DEFAULTS.iframe)) continue;
             const shove = mobShove.get(mob);
             if (shove) mob.elasticBounce(shove);
         }
         if (playerDamage > 0) onPlayerSqueezed(playerDamage, playerUndead);
     }
 
-    /** 生物 × 生物：质量加权推开 + 弹性反弹。 */
+    /** 生物 × 生物：质量加权水平推开 + 弹性反弹（只沿横向分离，不检测纵向）。 */
     private resolveMobMob(a: Mob, b: Mob, world: World): boolean {
-        return resolveEntityCollision(a, b, MobManager.mobMass(a), MobManager.mobMass(b), world, ENTITY_RESTITUTION);
+        return resolveEntityCollision(a, b, MobManager.mobMass(a), MobManager.mobMass(b), world, ENTITY_RESTITUTION, "x");
     }
 
     /** 生物 × 玩家：玩家主动推怪时用正常质量（可被轻微顶回），否则视为不可推动的墙。
@@ -571,7 +648,9 @@ export class MobManager {
         const [wx, wy] = point;
         if (Math.abs(wx - player.x) > 2.5 || Math.abs(wy - (player.y + player.height / 2)) > 3) return null;
         for (const mob of [...this.mobs.values(), ...this.summoned]) {
-            if (wx >= mob.hitboxLeft && wx <= mob.hitboxRight && wy >= mob.hitboxBottom && wy <= mob.hitboxTop) return mob;
+            for (const box of mob.boxes) {
+                if (wx >= box.left && wx <= box.right && wy >= box.bottom && wy <= box.top) return mob;
+            }
         }
         return null;
     }
@@ -580,7 +659,9 @@ export class MobManager {
     occupies(cellX: number, cellY: number): boolean {
         for (const mob of [...this.mobs.values(), ...this.summoned]) {
             if (!mob.alive) continue;
-            if (mob.hitboxLeft < cellX + 1 && mob.hitboxRight > cellX && mob.hitboxBottom < cellY && mob.hitboxTop > cellY - 1) return true;
+            for (const box of mob.boxes) {
+                if (box.left < cellX + 1 && box.right > cellX && box.bottom < cellY && box.top > cellY - 1) return true;
+            }
         }
         return false;
     }

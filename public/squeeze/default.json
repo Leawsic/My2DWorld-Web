@@ -1,0 +1,8 @@
+{
+  "baseDamage": 2,
+  "thresholdRatio": 0.4,
+  "iframe": 1,
+  "maxDamage": 10,
+  "difficulty": 1,
+  "playerDamageScale": 0.5
+}
