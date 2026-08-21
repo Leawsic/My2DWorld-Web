@@ -203,7 +203,7 @@ run/worlds/<用户名>_<世界ID>.chunk.<区块X>.<区块Y>.dat   被修改区�
 物理挤压已与碰撞箱**彻底分离**（三份独立配置：碰撞箱几何 / 挤压箱几何 / 挤压参数）：
 
 4. 碰撞箱：`public/hitboxes/<分类>.json`（或 `<kind>.json`），审定体积/重叠/推开。
-5. 挤压箱几何：`public/squeeze/<分类>.json`（或 `<kind>.json`），**结构与碰撞箱一致**（`halfWidth`/`height`/`centerX`/`centerY`/`boxes`/`left`/`right`），决定挤压重叠检测的盒体与阈值参考尺寸；未配置时回退到碰撞箱。游戏内 `/reload squeeze` 生效。
+5. 挤压箱几何：`public/squeeze/<分类>.json`（或 `<kind>.json`），**结构与碰撞箱一致**（`halfWidth`/`height`/`centerX`/`centerY`/`boxes`/`left`/`right`），决定挤压重叠检测的盒体与阈值参考尺寸；内置默认文件是「碰撞箱外扩一圈」（半宽/高度各 `+0.1`、中心不变），未配置时同样自动外扩回退——**挤压伤害只按挤压箱结算，绝不退化成按碰撞箱结算**（玩家侧的挤压箱也是身体外扩一圈）。游戏内 `/reload squeeze` 生效。
 6. 挤压参数：`run/config/squeeze.json`（全局一份，对任意生物生效），含 `baseDamage`、`thresholdRatio`、`iframe`、`maxDamage`、`difficulty`、`playerDamageScale`。首次启动服务器会自动写入默认值；游戏内 `/reload squeeze` 生效。
 
 碰撞箱与挤压箱都支持**多矩形并集**与**左右朝向**：JSON 里可用 `boxes`（多矩形数组）拼出多边形体积，用 `left`/`right` 分别为面朝左/右配置矩形；未写 `left` 时面朝左自动水平镜像。详细字段与示例见 [`docs/zh_cn/entity_config_zh.md`](./docs/zh_cn/entity_config_zh.md)。

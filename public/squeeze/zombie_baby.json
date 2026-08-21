@@ -1,6 +1,6 @@
 {
   "boxes": [
-    { "halfWidth": 0.2, "height": 0.4, "centerX": 0, "centerY": 0.375 },
-    { "halfWidth": 0.05, "height": 0.5, "centerX": 0, "centerY": -0.1 }
+    { "halfWidth": 0.1, "height": 0.2, "centerX": 0, "centerY": 0.375 },
+    { "halfWidth": 0.02, "height": 0.3, "centerX": 0, "centerY": -0.1 }
   ]
 }

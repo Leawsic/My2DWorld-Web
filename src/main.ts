@@ -1,5 +1,5 @@
 import "./style.css";
-import {type KeyState, Player} from "./core/player";
+import {PLAYER_SQUEEZE_HALF_WIDTH, PLAYER_SQUEEZE_HEIGHT, type KeyState, Player} from "./core/player";
 import {MobManager, MOB_KINDS, MOB_RENDER_RADIUS, type Mob, type MobBox, type MobDeathCause, type MobKind} from "./core/entity";
 import {storage, type PluginPackage} from "./core/storage";
 import {biomeAt, DEFAULT_BIOME, hashSeed, spawnX, World, WORLD_MIN_Y, WORLD_MAX_Y, type Biome} from "./core/world";
@@ -206,17 +206,8 @@ function nextAutosave(seconds: number): number {
 const ALPHA_PRESETS = [0.3, 0.5, 0.7, 1];
 const BRIGHTNESS_PRESETS = [0.5, 0.75, 1];
 const CHAT_FONT_PRESETS = [12, 13, 14, 16, 18, 20, 24];
-/** F5 碰撞箱颜色预设（默认黄色）。 */
-const HITBOX_COLOR_PRESETS = ["#ffe94d", "#ff4d4d", "#39e75f", "#4da6ff", "#ff8ae2", "#ffffff"];
-/** F5 挤压箱颜色预设（默认绿色）。 */
-const SQUEEZE_COLOR_PRESETS = ["#39e75f", "#4da6ff", "#ff8ae2", "#ffffff", "#ff4d4d", "#ffe94d"];
 
 function nextPreset(value: number, presets: number[]): number {
-    const index = presets.indexOf(value);
-    return presets[(index < 0 ? 0 : index + 1) % presets.length];
-}
-
-function nextColor(value: string, presets: string[]): string {
     const index = presets.indexOf(value);
     return presets[(index < 0 ? 0 : index + 1) % presets.length];
 }
@@ -327,6 +318,10 @@ class GameSession {
     private notice = "";
     private noticeTimer = 0;
     private menu: "pause" | "settings" | "bindings" | "display" | "plugins" | null = null;
+    /** 显示样式菜单：正在用 RGB 三通道滑块编辑的颜色（null 表示显示颜色列表）。 */
+    private colorEditing: "hitbox" | "squeeze" | null = null;
+    /** 正在拖动的 RGB 滑块（目标颜色 + 通道）。 */
+    private colorDrag: {target: "hitbox" | "squeeze"; channel: "r" | "g" | "b"} | null = null;
     private inventoryOpen = false;
     private heldInventoryItem: string | null = null;
     private bindingCapture: keyof KeyBindings | null = null;
@@ -464,6 +459,8 @@ class GameSession {
             const action = actionFor(event.code);
             if (event.key === "Escape") {
                 this.menu = this.menu ? null : "pause";
+                this.colorEditing = null;
+                this.colorDrag = null;
                 this.paused = Boolean(this.menu);
                 if (this.paused) {
                     plugins.notifyGamePause(this.pluginContext());
@@ -582,6 +579,10 @@ class GameSession {
             const rect = this.canvas.getBoundingClientRect();
             this.lastMouseX = event.clientX - rect.left;
             this.lastMouseY = event.clientY - rect.top;
+            if (this.colorDrag) {
+                this.setColorFromPointer(event.clientX);
+                return;
+            }
             if (this.chatScrollbarDragging) {
                 this.setChatScrollFromPointer(event.clientY);
                 return;
@@ -601,6 +602,7 @@ class GameSession {
             this.mouseDown = false;
             this.dragging = false;
             this.chatScrollbarDragging = false;
+            this.colorDrag = null;
         });
         this.canvas.addEventListener("contextmenu", (event) => event.preventDefault());
         this.canvas.addEventListener("wheel", (event) => {
@@ -1889,7 +1891,7 @@ class GameSession {
     private handleMenuClick(clientX: number, clientY: number): void {
         const boxW = Math.min(460, window.innerWidth - 40);
         const x = (window.innerWidth - boxW) / 2;
-        const menuHeight = this.menu === "bindings" ? 680 : this.menu === "settings" ? 540 : this.menu === "plugins" ? Math.min(620, window.innerHeight - 40) : this.menu === "pause" ? 476 : this.menu === "display" ? 612 : 410;
+        const menuHeight = this.menu === "bindings" ? 680 : this.menu === "settings" ? 540 : this.menu === "plugins" ? Math.min(620, window.innerHeight - 40) : this.menu === "pause" ? 476 : this.menu === "display" ? (this.colorEditing ? 440 : 612) : 410;
         const y = (window.innerHeight - menuHeight) / 2;
         if (clientX < x + 52 || clientX > x + boxW - 52) return;
         if (this.menu === "plugins") {
@@ -1897,7 +1899,7 @@ class GameSession {
             return;
         }
         const index = Math.floor((clientY - (y + (this.menu === "bindings" ? 82 : 92))) / (this.menu === "bindings" ? 55 : 66));
-        if (index < 0 || index > (this.menu === "bindings" ? 9 : this.menu === "settings" ? 6 : this.menu === "display" ? 7 : this.menu === "pause" ? 3 : 2)) return;
+        if (index < 0 || index > (this.menu === "bindings" ? 9 : this.menu === "settings" ? 6 : this.menu === "display" ? (this.colorEditing ? 4 : 7) : this.menu === "pause" ? 3 : 2)) return;
         const rowY = y + (this.menu === "bindings" ? 82 : 92) + index * (this.menu === "bindings" ? 55 : 66);
         const rowH = this.menu === "bindings" ? 42 : 44;
         if (clientY < rowY || clientY > rowY + rowH) return;
@@ -1940,6 +1942,14 @@ class GameSession {
             return;
         }
         if (this.menu === "display") {
+            if (this.colorEditing) {
+                // RGB 三通道滑块编辑器：行 1-3 为红/绿/蓝，行 4 返回列表
+                if (index === 1) this.startColorDrag(this.colorEditing, "r", clientX);
+                else if (index === 2) this.startColorDrag(this.colorEditing, "g", clientX);
+                else if (index === 3) this.startColorDrag(this.colorEditing, "b", clientX);
+                else if (index === 4) this.colorEditing = null;
+                return;
+            }
             if (index === 0) {
                 settings.placementAlpha = nextPreset(settings.placementAlpha, ALPHA_PRESETS);
                 storage.saveSettings(settings);
@@ -1960,14 +1970,8 @@ class GameSession {
                 settings.chatFontSize = nextPreset(settings.chatFontSize, CHAT_FONT_PRESETS);
                 storage.saveSettings(settings);
             }
-            if (index === 5) {
-                settings.hitboxColor = nextColor(settings.hitboxColor, HITBOX_COLOR_PRESETS);
-                storage.saveSettings(settings);
-            }
-            if (index === 6) {
-                settings.squeezeColor = nextColor(settings.squeezeColor, SQUEEZE_COLOR_PRESETS);
-                storage.saveSettings(settings);
-            }
+            if (index === 5) this.colorEditing = "hitbox";
+            if (index === 6) this.colorEditing = "squeeze";
             if (index === 7) this.menu = "settings";
             return;
         }
@@ -1977,6 +1981,33 @@ class GameSession {
         }
         const key = Object.keys(settings.keyBindings)[index] as keyof KeyBindings;
         if (key) this.bindingCapture = key;
+    }
+
+    /** 开始拖动某个颜色的某个 RGB 通道滑块，并立即按点击位置取值。 */
+    private startColorDrag(target: "hitbox" | "squeeze", channel: "r" | "g" | "b", clientX: number): void {
+        this.colorDrag = {target, channel};
+        this.setColorFromPointer(clientX);
+    }
+
+    /** 按指针水平位置设置正在拖动的通道值（0-255），并即时保存设置。 */
+    private setColorFromPointer(clientX: number): void {
+        const drag = this.colorDrag;
+        if (!drag) return;
+        const width = window.innerWidth;
+        const boxW = Math.min(460, width - 40);
+        const x = (width - boxW) / 2;
+        const trackX = x + 126;
+        const trackW = boxW - 230;
+        if (trackW <= 0) return;
+        const value = Math.max(0, Math.min(255, Math.round(((clientX - trackX) / trackW) * 255)));
+        const current = drag.target === "hitbox" ? settings.hitboxColor : settings.squeezeColor;
+        const hex = /^#[0-9a-fA-F]{6}$/.test(current) ? current : "#000000";
+        const parts = [0, 2, 4].map((start) => Number.parseInt(hex.slice(1 + start, 3 + start), 16) || 0);
+        parts[drag.channel === "r" ? 0 : drag.channel === "g" ? 1 : 2] = value;
+        const next = `#${parts.map((v) => v.toString(16).padStart(2, "0")).join("")}`;
+        if (drag.target === "hitbox") settings.hitboxColor = next;
+        else settings.squeezeColor = next;
+        storage.saveSettings(settings);
     }
 
     private save = (): void => {
@@ -2200,8 +2231,8 @@ class GameSession {
                 drawBox(toScreenX(box.left), toScreenY(box.top), (box.right - box.left) * bs, (box.top - box.bottom) * bs, hitColor);
             }
         }
-        // 玩家挤压箱（物理挤压判定与碰撞箱相同，虚线绘于其上以便同时可见）
-        drawBox(toScreenX(this.player.x - this.player.halfWidth), toScreenY(this.player.y + this.player.height), this.player.halfWidth * 2 * bs, this.player.height * bs, squeezeColor, true);
+        // 玩家挤压箱（= 身体外扩一圈，与生物挤压箱约定一致；虚线绘于其上以便同时可见）
+        drawBox(toScreenX(this.player.x - PLAYER_SQUEEZE_HALF_WIDTH), toScreenY(this.player.y + PLAYER_SQUEEZE_HEIGHT), PLAYER_SQUEEZE_HALF_WIDTH * 2 * bs, PLAYER_SQUEEZE_HEIGHT * bs, squeezeColor, true);
         // 生物挤压箱（独立于碰撞箱，多矩形逐个绘制，虚线）
         for (const mob of this.mobs.mobsNear(this.player, MOB_RENDER_RADIUS)) {
             for (const box of mob.squeezeBoxes) {
@@ -2526,7 +2557,7 @@ class GameSession {
         ctx.fillRect(0, 0, width, height);
         const bindingMode = this.menu === "bindings";
         const boxW = Math.min(460, width - 40);
-        const boxH = bindingMode ? 680 : this.menu === "settings" ? 540 : this.menu === "plugins" ? Math.min(620, height - 40) : this.menu === "pause" ? 476 : this.menu === "display" ? 612 : 410;
+        const boxH = bindingMode ? 680 : this.menu === "settings" ? 540 : this.menu === "plugins" ? Math.min(620, height - 40) : this.menu === "pause" ? 476 : this.menu === "display" ? (this.colorEditing ? 440 : 612) : 410;
         const x = (width - boxW) / 2;
         const y = (height - boxH) / 2;
         ctx.fillStyle = "#13252d";
@@ -2536,7 +2567,7 @@ class GameSession {
         ctx.fillStyle = "#f8f4e7";
         ctx.textAlign = "center";
         ctx.font = "700 30px 'LXGW WenKai', Manrope";
-        const title = bindingMode ? t(language, "settings_keybindings") : this.menu === "settings" ? t(language, "settings_title") : this.menu === "display" ? t(language, "settings_display") : this.menu === "plugins" ? t(language, "plugins_title") : t(language, "pause_title");
+        const title = bindingMode ? t(language, "settings_keybindings") : this.menu === "settings" ? t(language, "settings_title") : this.menu === "display" ? (this.colorEditing ? (this.colorEditing === "hitbox" ? t(language, "display_hitbox_color") : t(language, "display_squeeze_color")) : t(language, "settings_display")) : this.menu === "plugins" ? t(language, "plugins_title") : t(language, "pause_title");
         ctx.fillText(title, width / 2, y + 54);
         ctx.font = "14px 'LXGW WenKai', Manrope";
         if (bindingMode) {
@@ -2599,6 +2630,72 @@ class GameSession {
             ctx.textAlign = "center";
             ctx.fillStyle = "#e7eee5";
             ctx.fillText(t(language, "settings_back"), width / 2, by + 28);
+        } else if (this.menu === "display" && this.colorEditing) {
+            // RGB 三通道滑块编辑器：行 0 为当前颜色预览条，行 1-3 为红/绿/蓝滑块，行 4 返回列表。
+            const color = this.colorEditing === "hitbox" ? settings.hitboxColor : settings.squeezeColor;
+            const hex = /^#[0-9a-fA-F]{6}$/.test(color) ? color : "#000000";
+            const channels = [
+                {key: "r", label: text("红", "R")},
+                {key: "g", label: text("绿", "G")},
+                {key: "b", label: text("蓝", "B")},
+            ] as const;
+            // 当前颜色预览条
+            const previewY = y + 92;
+            ctx.fillStyle = hex;
+            ctx.fillRect(x + 52, previewY, boxW - 104, 44);
+            ctx.strokeStyle = "rgba(255,255,255,.35)";
+            ctx.lineWidth = 1;
+            ctx.strokeRect(x + 52.5, previewY + 0.5, boxW - 105, 43);
+            ctx.fillStyle = "rgba(255,255,255,.92)";
+            ctx.textAlign = "center";
+            ctx.fillText(hex.toUpperCase(), width / 2, previewY + 28);
+            // 三通道滑块
+            channels.forEach((channel, i) => {
+                const by = y + 92 + (i + 1) * 66;
+                const trackX = x + 126;
+                const trackY = by + 18;
+                const trackW = boxW - 230;
+                const value = Number.parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16) || 0;
+                const pure = channel.key === "r" ? "#ff0000" : channel.key === "g" ? "#00ff00" : "#0000ff";
+                // 轨道 + 黑→通道纯色渐变
+                ctx.fillStyle = "#0c1a21";
+                ctx.fillRect(trackX, trackY, trackW, 8);
+                const grad = ctx.createLinearGradient(trackX, 0, trackX + trackW, 0);
+                grad.addColorStop(0, "#000000");
+                grad.addColorStop(1, pure);
+                ctx.fillStyle = grad;
+                ctx.fillRect(trackX, trackY, trackW, 8);
+                // 未填充部分压暗
+                if (value < 255) {
+                    ctx.fillStyle = "rgba(5,10,12,.62)";
+                    ctx.fillRect(trackX + (value / 255) * trackW, trackY, trackW * (1 - value / 255), 8);
+                }
+                ctx.strokeStyle = "rgba(255,255,255,.25)";
+                ctx.lineWidth = 1;
+                ctx.strokeRect(trackX + 0.5, trackY + 0.5, trackW - 1, 7);
+                // 标签与数值
+                ctx.fillStyle = "#e7eee5";
+                ctx.textAlign = "left";
+                ctx.fillText(channel.label, x + 68, by + 28);
+                ctx.textAlign = "right";
+                ctx.fillText(String(value), x + boxW - 72, by + 28);
+                // 滑块圆点
+                const thumbX = trackX + (value / 255) * trackW;
+                ctx.fillStyle = "#ffffff";
+                ctx.beginPath();
+                ctx.arc(thumbX, trackY + 4, 7, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.strokeStyle = "rgba(0,0,0,.7)";
+                ctx.lineWidth = 1;
+                ctx.stroke();
+            });
+            // 返回列表
+            const backY = y + 92 + 4 * 66;
+            ctx.fillStyle = "#28434a";
+            ctx.fillRect(x + 52, backY, boxW - 104, 44);
+            ctx.fillStyle = "#e7eee5";
+            ctx.textAlign = "center";
+            ctx.fillText(t(language, "settings_back"), width / 2, backY + 28);
         } else {
             const labels = this.menu === "settings"
                 ? [
@@ -2629,7 +2726,7 @@ class GameSession {
                 ctx.fillStyle = "#e7eee5";
                 ctx.textAlign = "center";
                 if (this.menu === "display" && (index === 5 || index === 6)) {
-                    // 颜色行：文字右侧绘制当前颜色色块，点击循环切换
+                    // 颜色行：文字右侧绘制当前颜色色块，点击进入 RGB 滑块编辑
                     const color = index === 5 ? settings.hitboxColor : settings.squeezeColor;
                     const textW = ctx.measureText(label).width;
                     const sw = 18;
