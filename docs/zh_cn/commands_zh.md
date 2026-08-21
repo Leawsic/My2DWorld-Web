@@ -213,7 +213,7 @@
 就地刷新资源与配置，无需刷新页面。
 
 ```
-/reload [images|animations|hitboxes|plugins|all]
+/reload [images|animations|hitboxes|squeeze|plugins|all]
 ```
 
 | 目标 | 刷新内容 |
@@ -221,10 +221,11 @@
 | `images` | 方块/生物群系/GUI/角色贴图缓存 |
 | `animations` | 角色动画（`.myanim`）清单与变体缓存 |
 | `hitboxes` | 生物碰撞箱配置（`public/hitboxes/*.json`），并应用到已存在的生物 |
+| `squeeze` | 挤压箱几何（`public/squeeze/*.json`）与挤压参数（`run/config/squeeze.json`），并应用到已存在的生物 |
 | `plugins` | 卸载并重装全部插件，同时刷新插件注册的碰撞箱到现有生物 |
 | `all` | 以上全部（缺省值） |
 
-示例：`/reload hitboxes`
+示例：`/reload hitboxes` 或 `/reload squeeze`
 
 ---
 

@@ -400,7 +400,7 @@ class GameSession {
         // 碰撞箱是异步加载的：加载完成后刷新所有已生成的生物，
         // 否则先出生（或已在第一帧生成）的生物会用内置默认碰撞箱显示/碰撞（reload 前错误）。
         void loadHitboxes().then(() => this.mobs.refreshHitboxes());
-        void loadSqueeze();
+        void loadSqueeze().then(() => this.mobs.refreshHitboxes());
         requestAnimationFrame(this.tick);
     }
 
@@ -516,8 +516,8 @@ class GameSession {
                 event.preventDefault();
                 if (document.fullscreenElement) void document.exitFullscreen(); else void document.documentElement.requestFullscreen();
             }
-            if (event.key === "=" || event.key === "+") this.blockSize = this.snapBlockSize(this.blockSize * 1.15);
-            if (event.key === "-") this.blockSize = this.snapBlockSize(this.blockSize / 1.15);
+            if (event.key === "=" || event.key === "+") this.blockSize = this.snapBlockSize(this.blockSize * 1.15, 1);
+            if (event.key === "-") this.blockSize = this.snapBlockSize(this.blockSize / 1.15, -1);
             if (/^Digit[1-9]$/.test(event.code)) this.selected = Math.min(this.hotbar.length - 1, Number(event.code.at(-1)) - 1);
             if (action === "chat") this.openChat();
             if (event.key === "/") this.openChat("/");
@@ -603,7 +603,7 @@ class GameSession {
                 // 滚轮向上时快捷栏向上切换（与移动方向一致）
                 this.selected = (this.selected - Math.sign(event.deltaY) + this.hotbar.length) % this.hotbar.length;
             } else if (!this.inventoryOpen) {
-                this.blockSize = this.snapBlockSize(this.blockSize * (event.deltaY < 0 ? 1.15 : 1 / 1.15));
+                this.blockSize = this.snapBlockSize(this.blockSize * (event.deltaY < 0 ? 1.15 : 1 / 1.15), event.deltaY < 0 ? 1 : -1);
             }
         }, {passive: false});
     }
@@ -1142,6 +1142,7 @@ class GameSession {
         }
         if (part === "squeeze" || part === "all") {
             await loadSqueeze();
+            this.mobs.refreshHitboxes();
             reloaded.push("squeeze");
         }
         if (part === "plugins" || part === "all") {
@@ -1479,9 +1480,13 @@ class GameSession {
         return panelTop;
     }
 
-    private snapBlockSize(size: number): number {
+    private snapBlockSize(size: number, direction: 0 | 1 | -1 = 0): number {
         // 方块贴图为 8×8 像素，缩放到 8 的整数倍时才不会因最近邻采样产生锯齿。
-        const snapped = Math.max(16, Math.min(72, Math.round(size / 8) * 8));
+        // 最小 8px（一个方块按原始贴图尺寸 1:1 显示），最大 72px。
+        const snapped = Math.max(8, Math.min(72, Math.round(size / 8) * 8));
+        // 1.15 的缩放步长在低档位（8/16/24）吸附后可能原地不动；方向明确时强制至少移动一档。
+        if (direction > 0 && snapped <= this.blockSize) return Math.min(72, snapped + 8);
+        if (direction < 0 && snapped >= this.blockSize) return Math.max(8, snapped - 8);
         return snapped;
     }
 

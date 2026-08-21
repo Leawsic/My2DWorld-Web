@@ -1,14 +1,12 @@
-// 生物「物理挤压伤害」配置：从 /api/squeeze（public/squeeze 下的 JSON 文件）加载。
-// 与碰撞箱（public/hitboxes）完全分开配置——碰撞箱只决定几何（能否重叠、推开偏移），
-// 挤压伤害只由这里的参数决定（基础伤害、阈值比例、无敌帧、单次上限、难度等）。
-//
-// 文件按「分类」命名，与碰撞箱共用同一套分类（cow/pig/zombie 及 _baby），另有
-// default.json 作为全局回退（玩家作为受害方时也使用 default）。
-// 每个字段都可省略，省略的字段回退到默认值；bodyWidth/bodyHeight 省略时回退到该生物
-// 当前碰撞箱尺寸（保持「挤压是否触发」与碰撞箱几何自动匹配）。
-import {hitboxCategoryOf} from "./hitboxes";
+// 生物「物理挤压」拆成两部分，与碰撞箱完全分开：
+//   1) 挤压箱（几何）：public/squeeze/*.json，结构与碰撞箱一致（halfWidth/height/centerX/centerY、
+//      boxes、left/right），决定「挤压重叠检测」用的盒体与阈值参考尺寸；缺省回退到该生物碰撞箱。
+//   2) 挤压参数（伤害/时长）：run/config/squeeze.json，全局一份，对任意生物（含玩家）生效。
+// 数值字段都可省略，省略时回退到内置默认值。
+import {hitboxCategoryOf, normalizeHitbox, type HitboxConfig, type NormalizedHitbox} from "./hitboxes";
 
-export interface SqueezeConfig {
+/** 挤压伤害/时长参数（全局，对任意生物生效）。 */
+export interface SqueezeParams {
     /** 基础伤害：重叠达到阈值后按重叠比例放大。默认 2。 */
     baseDamage?: number;
     /** 阈值比例：重叠深度超过该生物对应方向尺寸的该比例才结算伤害。默认 0.4。 */
@@ -21,13 +19,9 @@ export interface SqueezeConfig {
     difficulty?: number;
     /** 玩家挤压怪物时的伤害缩放（主要效果是推开）。默认 0.5。 */
     playerDamageScale?: number;
-    /** 阈值参考的「身体宽度」；缺省用碰撞箱宽度（halfWidth×2）。 */
-    bodyWidth?: number;
-    /** 阈值参考的「身体高度」；缺省用碰撞箱高度。 */
-    bodyHeight?: number;
 }
 
-/** 全局默认值（未配置时的回退）。 */
+/** 全局默认值（run/config/squeeze.json 缺失或字段省略时的回退）。 */
 export const SQUEEZE_DEFAULTS = {
     baseDamage: 2,
     thresholdRatio: 0.4,
@@ -37,7 +31,7 @@ export const SQUEEZE_DEFAULTS = {
     playerDamageScale: 0.5,
 } as const;
 
-/** 解析后的完整配置：数值字段全部到位；bodyWidth/bodyHeight 缺省表示回退到碰撞箱尺寸。 */
+/** 解析后的全局挤压参数：数值字段全部到位。 */
 export interface ResolvedSqueeze {
     baseDamage: number;
     thresholdRatio: number;
@@ -45,12 +39,13 @@ export interface ResolvedSqueeze {
     maxDamage: number;
     difficulty: number;
     playerDamageScale: number;
-    bodyWidth?: number;
-    bodyHeight?: number;
 }
 
-/** 服务端文件（public/squeeze/*.json）加载的覆盖配置。 */
-const overrides = new Map<string, SqueezeConfig>();
+/** public/squeeze 下按分类/具体 kind 的挤压箱覆盖（结构与碰撞箱一致）。 */
+const boxOverrides = new Map<string, NormalizedHitbox>();
+
+/** 全局挤压参数（run/config/squeeze.json）。 */
+let params: SqueezeParams = {};
 
 let loaded = false;
 
@@ -60,30 +55,23 @@ function num(value: unknown, fallback: number): number {
     return Number.isFinite(n) && n >= 0 ? n : fallback;
 }
 
-function optionalNum(value: unknown): number | undefined {
-    if (value === undefined || value === null) return undefined;
-    const n = Number(value);
-    return Number.isFinite(n) && n >= 0 ? n : undefined;
+/** 解析后的全局挤压参数（缺失字段回退默认值）。 */
+export function squeezeParams(): ResolvedSqueeze {
+    return {
+        baseDamage: num(params.baseDamage, SQUEEZE_DEFAULTS.baseDamage),
+        thresholdRatio: num(params.thresholdRatio, SQUEEZE_DEFAULTS.thresholdRatio),
+        iframe: num(params.iframe, SQUEEZE_DEFAULTS.iframe),
+        maxDamage: num(params.maxDamage, SQUEEZE_DEFAULTS.maxDamage),
+        difficulty: num(params.difficulty, SQUEEZE_DEFAULTS.difficulty),
+        playerDamageScale: num(params.playerDamageScale, SQUEEZE_DEFAULTS.playerDamageScale),
+    };
 }
 
-/** 合并 default → 分类 → 具体 kind，并解析为完整数值配置。 */
-export function squeezeFor(kind: string): ResolvedSqueeze {
+/** 该 kind 的挤压箱（结构与碰撞箱一致）；无配置时返回 null（回退到碰撞箱几何）。
+ *  查找顺序：精确 kind → 所属分类（大/小×牛/猪/僵尸，复用碰撞箱的分类规则）。 */
+export function squeezeBoxFor(kind: string): NormalizedHitbox | null {
     const category = hitboxCategoryOf(kind);
-    const merged: SqueezeConfig = {
-        ...overrides.get("default"),
-        ...overrides.get(category),
-        ...overrides.get(kind),
-    };
-    return {
-        baseDamage: num(merged.baseDamage, SQUEEZE_DEFAULTS.baseDamage),
-        thresholdRatio: num(merged.thresholdRatio, SQUEEZE_DEFAULTS.thresholdRatio),
-        iframe: num(merged.iframe, SQUEEZE_DEFAULTS.iframe),
-        maxDamage: num(merged.maxDamage, SQUEEZE_DEFAULTS.maxDamage),
-        difficulty: num(merged.difficulty, SQUEEZE_DEFAULTS.difficulty),
-        playerDamageScale: num(merged.playerDamageScale, SQUEEZE_DEFAULTS.playerDamageScale),
-        bodyWidth: optionalNum(merged.bodyWidth),
-        bodyHeight: optionalNum(merged.bodyHeight),
-    };
+    return boxOverrides.get(kind) ?? boxOverrides.get(category) ?? null;
 }
 
 /** 挤压配置是否已从服务端加载完成（加载失败也算完成，回退默认值）。 */
@@ -91,18 +79,21 @@ export function isSqueezeLoaded(): boolean {
     return loaded;
 }
 
-/** 从服务端加载 public/squeeze 目录下的挤压配置。 */
+/** 加载挤压箱几何（public/squeeze）与挤压参数（run/config/squeeze.json）。 */
 export async function loadSqueeze(): Promise<void> {
     loaded = false;
     try {
-        const res = await fetch("/api/squeeze");
-        if (res.ok) {
-            const data = (await res.json()) as {squeeze?: Record<string, SqueezeConfig>};
-            overrides.clear();
-            for (const [kind, config] of Object.entries(data.squeeze ?? {})) {
-                if (config && typeof config === "object") overrides.set(kind, config);
-            }
+        const [geometry, config] = await Promise.all([
+            fetch("/api/squeeze").then((res) => (res.ok ? res.json() : null)).catch(() => null),
+            fetch("/api/squeeze-config").then((res) => (res.ok ? res.json() : null)).catch(() => null),
+        ]);
+        boxOverrides.clear();
+        const files = (geometry as {squeeze?: Record<string, HitboxConfig>} | null)?.squeeze;
+        for (const [kind, hitbox] of Object.entries(files ?? {})) {
+            const normalized = normalizeHitbox(hitbox);
+            if (normalized) boxOverrides.set(kind, normalized);
         }
+        params = config && typeof config === "object" ? (config as SqueezeParams) : {};
     } catch {
         // 配置加载失败：继续使用内置默认值
     } finally {

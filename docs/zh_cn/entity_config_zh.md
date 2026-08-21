@@ -1,18 +1,25 @@
-# 生物碰撞箱与挤压伤害配置指南（中文版）
+# 生物碰撞箱与物理挤压配置指南（中文版）
 
 > 适用项目：`D:\Project\My2DWorld-Web`
-> 本文说明如何通过 JSON 文件给生物**碰撞箱**（几何/碰撞体积）与**物理挤压伤害**（挤压扣血）**分开配置**。
+> 本文说明如何通过 JSON 文件给生物**碰撞箱**（几何/碰撞体积）与**物理挤压**（挤压箱几何 + 挤压伤害参数）**分开配置**。
 
 ---
 
-## 1. 核心概念：碰撞箱与挤压伤害是两套独立配置
+## 1. 核心概念：三份互相独立的配置
 
-| 配置 | 决定什么 | 文件位置（源） | 构建后位置 |
-| --- | --- | --- | --- |
-| 碰撞箱 | 生物的体积、能否与方块/其他实体重叠、被推开的方向、点击/占用判定、F5 可视化 | `public/hitboxes/*.json` | `dist/hitboxes/*.json` |
-| 挤压伤害 | 实体真实重叠后扣多少血、多深才触发、无敌帧、单次上限、难度、玩家挤压缩放 | `public/squeeze/*.json` | `dist/squeeze/*.json` |
+| 配置 | 决定什么 | 文件位置（源） |
+| --- | --- | --- |
+| 碰撞箱 | 生物的体积、能否与方块/其他实体重叠、被推开方向、点击/占用判定、F5 可视化 | `public/hitboxes/*.json` |
+| 挤压箱（几何） | 挤压伤害的「重叠检测」用什么盒子、以及「重叠多深才算挤压」的参考尺寸 | `public/squeeze/*.json` |
+| 挤压参数（伤害/时长） | 抠多少血、多深触发、无敌帧、单次上限、难度、玩家挤压缩放 | `run/config/squeeze.json` |
 
-两者**互不干扰**：改碰撞箱大小不会改挤压伤害数值；改挤压伤害不会影响碰撞体积。唯一自动关联是：挤压配置里若**省略** `bodyWidth`/`bodyHeight`，会回退到该生物当前碰撞箱尺寸（用于计算「重叠多深才算挤压」的阈值），这是为了默认行为自然匹配，但只要你显式写了 `bodyWidth`/`bodyHeight`，就完全与碰撞箱解耦。
+三者**互不干扰**：
+
+- 改碰撞箱不会改挤压伤害数值，也不会改挤压检测的盒子。
+- 改挤压箱不会影响物理碰撞体积。
+- 挤压参数是**全局一份**，对任意生物（含玩家被挤压）生效。
+
+唯一自动关联：挤压箱若**未配置**该生物，会回退到该生物当前碰撞箱几何（默认行为自然匹配）；一旦你在 `public/squeeze/` 写了该生物的文件，就与碰撞箱完全解耦。
 
 ---
 
@@ -66,7 +73,7 @@
 }
 ```
 
-物理碰撞/推开使用这些矩形的**并集包围盒**；点击、占用判定、F5 可视化与挤压的真实重叠判定逐矩形精确计算。
+物理碰撞/推开使用这些矩形的**并集包围盒**；点击、占用判定、F5 可视化逐矩形精确计算。
 
 **③ 左右朝向（`left` / `right`）**
 
@@ -92,18 +99,47 @@
 
 ---
 
-## 3. 挤压伤害配置（`public/squeeze/`）
+## 3. 挤压箱配置（`public/squeeze/`）
 
 ### 3.1 文件位置与命名
 
-服务器通过 `/api/squeeze` 读取 `public/squeeze/` 目录下的 `.json`。命名规则与碰撞箱一致（分类 key + `default`）。修改后执行 `/reload squeeze`（或 `/reload all`、`/reload`）生效。
+服务器通过 `/api/squeeze` 读取 `public/squeeze/` 目录下的 `.json`，**文件结构与碰撞箱完全一致**（`halfWidth`/`height`/`centerX`/`centerY` + `boxes` + `left`/`right`）。命名规则与碰撞箱一致（分类 key + 可选 `<kind>.json`）。
 
-- `default.json`：全局默认，也作为**玩家被挤压**时的参数。
-- 分类文件（`cow.json`、`zombie_baby.json` 等）：只覆盖该分类生物的挤压参数。
-- 具体 `<kind>.json`：只覆盖单个 kind。
-- 合并优先级：`default` → 分类 → 具体 kind。
+- 分类文件（`cow.json`、`zombie_baby.json` 等）覆盖该分类所有生物的挤压箱。
+- `<kind>.json` 只覆盖单个 kind（精确 kind 优先于分类）。
+- 某生物**没有**挤压箱文件时，回退到它的碰撞箱几何。
 
-### 3.2 字段（全部可省略，省略则用默认值）
+### 3.2 字段
+
+与碰撞箱完全相同，见第 2.2 节。例如让僵尸用一个「头 + 身体」两块拼成的挤压箱：
+
+```json
+// public/squeeze/zombie.json
+{
+  "boxes": [
+    { "halfWidth": 0.2, "height": 0.4, "centerX": 0, "centerY": 0.375 },
+    { "halfWidth": 0.05, "height": 0.5, "centerX": 0, "centerY": -0.1 }
+  ]
+}
+```
+
+挤压箱的**并集包围盒尺寸**就是「重叠多深才算挤压」的参考尺寸（等效于旧版的 `bodyWidth`/`bodyHeight`，但现在直接用盒子结构表达，并支持多矩形/左右朝向）。
+
+### 3.3 生效
+
+游戏内输入 `/reload squeeze`（或 `/reload all`）。已存在的生物会立即刷新挤压箱。
+
+---
+
+## 4. 挤压参数配置（`run/config/squeeze.json`）
+
+### 4.1 位置与生效
+
+服务器通过 `/api/squeeze-config` 读取 `run/config/squeeze.json`。首次启动服务器时会自动写入默认值（见下）。**这是一份全局配置，对任意生物（含玩家被挤压）生效**，不再按分类/kind 区分。
+
+修改后执行 `/reload squeeze`（或 `/reload all`、`/reload`）生效，无需重启服务器。
+
+### 4.2 字段（全部可省略，省略则用默认值）
 
 ```json
 {
@@ -112,47 +148,44 @@
   "iframe": 1,
   "maxDamage": 10,
   "difficulty": 1,
-  "playerDamageScale": 0.5,
-  "bodyWidth": 0.8,
-  "bodyHeight": 1.85
+  "playerDamageScale": 0.5
 }
 ```
 
 | 字段 | 默认 | 含义 |
 | --- | --- | --- |
 | `baseDamage` | 2 | 基础伤害，按重叠比例放大 |
-| `thresholdRatio` | 0.4 | 重叠深度超过该生物对应方向尺寸的这一比例才判定为挤压（0.4 = 40%） |
+| `thresholdRatio` | 0.4 | 重叠深度超过该生物挤压箱对应方向尺寸的这一比例才判定为挤压（0.4 = 40%） |
 | `iframe` | 1 | 挤压无敌帧（秒），期间不再受挤压伤害（击退仍生效） |
 | `maxDamage` | 10 | 单次结算上限：多实体挤压线性叠加但不超此值 |
 | `difficulty` | 1 | 难度系数 |
-| `playerDamageScale` | 0.5 | 玩家挤压怪物时的伤害缩放（主要效果是推开）；读取自 `default` 配置 |
-| `bodyWidth` | （碰撞箱宽） | 阈值参考的「身体宽度」，缺省用碰撞箱 `halfWidth×2` |
-| `bodyHeight` | （碰撞箱高） | 阈值参考的「身体高度」，缺省用碰撞箱高度 |
+| `playerDamageScale` | 0.5 | 玩家挤压怪物时的伤害缩放（主要效果是推开） |
 
-> 伤害公式：`伤害 = baseDamage × min(1, 重叠深度/身体尺寸) × difficulty × 缩放`，取水平/竖直两轴中更大者结算；**只有两个物体碰撞箱真实重叠**（任意矩形对相交）才会触发，仅靠在一起、有相对运动趋势但不重叠时不触发。
+> 伤害公式：`伤害 = baseDamage × min(1, 重叠深度/挤压箱尺寸) × difficulty × 缩放`，取水平/竖直两轴中更大者结算；**只有两个物体的挤压箱真实重叠**（任意矩形对相交）才会触发，仅靠在一起、有相对运动趋势但不重叠时不触发。
 
-### 3.3 示例
+### 4.3 示例
 
-加大僵尸挤压伤害、缩短无敌帧、并把「身体参考尺寸」固定下来（彻底与碰撞箱大小解耦）：
+加大挤压伤害、缩短无敌帧：
 
 ```json
-// public/squeeze/zombie.json
+// run/config/squeeze.json
 {
   "baseDamage": 4,
   "thresholdRatio": 0.3,
   "iframe": 0.5,
   "maxDamage": 18,
-  "bodyWidth": 0.8,
-  "bodyHeight": 1.85
+  "difficulty": 1,
+  "playerDamageScale": 0.5
 }
 ```
 
-想完全禁用某种生物的挤压伤害，把 `baseDamage` 设为 `0` 即可。
+想完全禁用挤压伤害，把 `baseDamage` 设为 `0` 即可。
 
 ---
 
-## 4. 关于 `dist/hitboxes` 与 `dist/squeeze`
+## 5. 关于 `dist/` 与 `run/config`
 
-- **源文件**（服务器实际通过 `/api/hitboxes`、`/api/squeeze` 读取）：`public/hitboxes/`、`public/squeeze/`。
+- **碰撞箱/挤压箱源文件**（服务器通过 `/api/hitboxes`、`/api/squeeze` 读取）：`public/hitboxes/`、`public/squeeze/`。
+- **挤压参数**（服务器通过 `/api/squeeze-config` 读取）：`run/config/squeeze.json`，不在 `public/` 下，不会被打包进 `dist/`。
 - 执行 `npm run build` 后，`public/` 下的文件会被**复制**到 `dist/`，因此 `dist/hitboxes/*.json`、`dist/squeeze/*.json` 与源文件内容一致。若你看到/部署的是 `dist/` 目录，请**以 `public/` 为修改源**，改完重新构建；直接改 `dist/` 会在下次构建时被覆盖。
-- 无需重启服务器：改完源文件后，游戏内 `/reload hitboxes` 或 `/reload squeeze` 立即生效。
+- 无需重启服务器：改完源/参数文件后，游戏内 `/reload hitboxes` 或 `/reload squeeze` 立即生效。

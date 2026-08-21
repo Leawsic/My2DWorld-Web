@@ -58,6 +58,19 @@ if (!existsSync(accountPath("steve"))) {
     }, null, 2));
     log("info", "Account initialized", {user: "steve"});
 }
+// 全局物理挤压参数（对任意生物生效）：缺失时写入默认值，用户可直接编辑。
+const squeezeConfigPath = join(dirs.config, "squeeze.json");
+if (!existsSync(squeezeConfigPath)) {
+    writeFileSync(squeezeConfigPath, JSON.stringify({
+        baseDamage: 2,
+        thresholdRatio: 0.4,
+        iframe: 1,
+        maxDamage: 10,
+        difficulty: 1,
+        playerDamageScale: 0.5
+    }, null, 2));
+    log("info", "Squeeze config initialized");
+}
 const send = (res, status, payload) => {
     res.writeHead(status, {"Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store"});
     res.end(JSON.stringify(payload));
@@ -220,6 +233,8 @@ const api = async (req, res) => {
             return send(res, 200, {hitboxes});
         }
         if (url.pathname === "/api/squeeze" && req.method === "GET") {
+            // 挤压箱几何：public/squeeze/*.json，结构与碰撞箱一致（halfWidth/height/centerX/centerY、
+            // boxes、left/right）。整份透传，由客户端归一化校验。
             const squeeze = {};
             const squeezeDir = join(root, "public", "squeeze");
             if (existsSync(squeezeDir)) {
@@ -231,6 +246,10 @@ const api = async (req, res) => {
                 }
             }
             return send(res, 200, {squeeze});
+        }
+        if (url.pathname === "/api/squeeze-config" && req.method === "GET") {
+            // 挤压参数（伤害/时长）：run/config/squeeze.json，全局一份，对任意生物生效。
+            return send(res, 200, readJson(join(dirs.config, "squeeze.json"), {}));
         }
         if (url.pathname === "/api/structures" && req.method === "GET") {
             const name = safeStructureName(url.searchParams.get("name"));

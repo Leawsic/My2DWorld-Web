@@ -4,7 +4,7 @@ import {moveBody, resolveEntityCollision, type PhysicsBody} from "./physics";
 import {mulberry32} from "./noise";
 import {structuresNear} from "./structures";
 import {hitboxFor, rectsForFacing, type HitboxRect} from "./hitboxes";
-import {squeezeFor, SQUEEZE_DEFAULTS, type ResolvedSqueeze} from "./squeeze";
+import {squeezeBoxFor, squeezeParams, SQUEEZE_DEFAULTS, type ResolvedSqueeze} from "./squeeze";
 
 export type MobKind =
     | "zombie" | "zombie_baby" | "husk" | "husk_baby" | "drowned" | "drowned_baby"
@@ -135,6 +135,10 @@ export class Mob implements PhysicsBody {
     private boxesRight: HitboxRect[] = [];
     /** 面朝左（facing=-1）时相对锚点的碰撞矩形列表。 */
     private boxesLeft: HitboxRect[] = [];
+    /** 面朝右时相对锚点的挤压箱矩形列表（结构与碰撞箱一致，独立于碰撞箱）。 */
+    private squeezeBoxesRight: HitboxRect[] = [];
+    /** 面朝左时相对锚点的挤压箱矩形列表。 */
+    private squeezeBoxesLeft: HitboxRect[] = [];
     private knockbackTimer = 0;
     private knockbackX = 0;
     private squeezeTimer = 0;
@@ -160,6 +164,15 @@ export class Mob implements PhysicsBody {
             const def: HitboxRect = {halfWidth: config.halfWidth, height: config.height, centerX: 0, centerY: config.height / 2};
             this.boxesRight = [def];
             this.boxesLeft = [def];
+        }
+        // 挤压箱几何独立配置（public/squeeze，结构与碰撞箱一致）；未配置时回退到碰撞箱。
+        const squeeze = squeezeBoxFor(this.kind);
+        if (squeeze) {
+            this.squeezeBoxesRight = rectsForFacing(squeeze, 1);
+            this.squeezeBoxesLeft = rectsForFacing(squeeze, -1);
+        } else {
+            this.squeezeBoxesRight = this.boxesRight;
+            this.squeezeBoxesLeft = this.boxesLeft;
         }
     }
 
@@ -233,6 +246,45 @@ export class Mob implements PhysicsBody {
                 top: ry + r.height / 2,
             };
         });
+    }
+
+    /** 当前朝向所有挤压矩形的并集包围盒（偏移空间）。 */
+    private squeezeFacingUnion(): HitboxRect {
+        let minL = Infinity, maxR = -Infinity, minB = Infinity, maxT = -Infinity;
+        const rects = this.facing < 0 ? this.squeezeBoxesLeft : this.squeezeBoxesRight;
+        for (const r of rects) {
+            const l = (r.centerX ?? 0) - r.halfWidth;
+            const rr = (r.centerX ?? 0) + r.halfWidth;
+            const b = (r.centerY ?? 0) - r.height / 2;
+            const t = (r.centerY ?? 0) + r.height / 2;
+            minL = Math.min(minL, l);
+            maxR = Math.max(maxR, rr);
+            minB = Math.min(minB, b);
+            maxT = Math.max(maxT, t);
+        }
+        return {halfWidth: (maxR - minL) / 2, height: maxT - minB, centerX: (minL + maxR) / 2, centerY: (minB + maxT) / 2};
+    }
+
+    /** 当前朝向每个挤压矩形的世界坐标四边（挤压伤害重叠检测用）。 */
+    get squeezeBoxes(): MobBox[] {
+        const cx = this.x, cy = this.y;
+        const rects = this.facing < 0 ? this.squeezeBoxesLeft : this.squeezeBoxesRight;
+        return rects.map((r) => {
+            const rx = cx + (r.centerX ?? 0);
+            const ry = cy + (r.centerY ?? 0);
+            return {
+                left: rx - r.halfWidth,
+                right: rx + r.halfWidth,
+                bottom: ry - r.height / 2,
+                top: ry + r.height / 2,
+            };
+        });
+    }
+
+    /** 挤压箱并集包围盒尺寸（方块），作为「重叠多深才算挤压」的阈值参考尺寸。 */
+    get squeezeSize(): {width: number; height: number} {
+        const union = this.squeezeFacingUnion();
+        return {width: union.halfWidth * 2, height: union.height};
     }
 
     update(dt: number, world: World, player: Player, onPlayerDamage: (amount: number) => void, aggroRange = DEFAULT_AGGRO_RANGE): void {
@@ -499,13 +551,15 @@ export class MobManager {
 
     /**
      * MC 式实体挤压伤害（每帧在分离之前结算，此时帧内重叠深度是最新值）：
-     * - 只有两个物体的碰撞箱存在真实重叠（任意矩形对相交）才结算伤害；
+     * - 只有两个物体的「挤压箱」存在真实重叠（任意矩形对相交）才结算伤害；
      *   仅仅靠在一起、有相对运动趋势但不重叠时不触发。
-     * - 取水平（X）与竖直（Y）重叠中深度比例较大者；重叠超过该生物对应方向尺寸的
-     *   阈值比例才触发（阈值与伤害参数来自 /api/squeeze 配置，与碰撞箱几何分开）。
+     * - 取水平（X）与竖直（Y）重叠中深度比例较大者；重叠超过该生物挤压箱对应方向尺寸的
+     *   阈值比例才触发。
      * - 伤害 = 基础 × (重叠深度/尺寸) × 难度；多实体挤压线性叠加，单次结算不超过上限。
-     * - 受击方获得各自配置的无敌帧（击退不受影响）。
-     * - 玩家挤压怪物按默认配置的 playerDamageScale 缩放并推开；亡灵生物挤压玩家附带 5s 缓慢。
+     * - 受击方获得配置的无敌帧（击退不受影响）。
+     * - 挤压参数（baseDamage/thresholdRatio/iframe/maxDamage/difficulty/playerDamageScale）
+     *   为全局一份（run/config/squeeze.json），对任意生物生效。
+     * - 玩家挤压怪物按 playerDamageScale 缩放并推开；亡灵生物挤压玩家附带 5s 缓慢。
      */
     private squeezeEntities(player: Player, onPlayerSqueezed: (damage: number, undead: boolean) => void): void {
         const mobs = [...this.mobs.values(), ...this.summoned].filter(
@@ -516,32 +570,31 @@ export class MobManager {
         const mobShove = new Map<Mob, number>();
         let playerDamage = 0;
         let playerUndead = false;
-        // 玩家作为受害方时使用全局（default）挤压配置；playerDamageScale 也从这里读取。
-        const playerSqueeze = squeezeFor("default");
+        // 挤压参数全局一份，对任意生物（含玩家）生效。
+        const cfg: ResolvedSqueeze = squeezeParams();
 
         /** 单个轴的重叠深度 / 实体对应尺寸比例换算伤害；未达阈值返回 0。 */
-        const axisDamage = (cfg: ResolvedSqueeze, pen: number, size: number, dmgScale: number): number => {
+        const axisDamage = (pen: number, size: number, dmgScale: number): number => {
             if (size <= 0) return 0;
             const ratio = pen / size;
             if (ratio < cfg.thresholdRatio) return 0;
             return cfg.baseDamage * Math.min(1, ratio) * cfg.difficulty * dmgScale;
         };
 
-        /** 由矩形并集的重叠深度求沿水平+竖直两轴的挤压伤害，取较大者；返回 0 表示未达阈值。
-         *  bodyWidth/bodyHeight 缺省时回退到受害方碰撞箱尺寸。 */
-        const squeezedBy = (victim: {halfWidth: number; height: number}, cfg: ResolvedSqueeze, penX: number, penY: number, dmgScale: number): number => {
-            const xDmg = axisDamage(cfg, penX, cfg.bodyWidth ?? victim.halfWidth * 2, dmgScale);
-            const yDmg = axisDamage(cfg, penY, cfg.bodyHeight ?? victim.height, dmgScale);
-            return Math.max(xDmg, yDmg);
+        /** 由两组矩形的重叠深度求沿水平+竖直两轴的挤压伤害，取较大者；返回 0 表示未达阈值。
+         *  size 为受害方挤压箱并集包围盒尺寸。 */
+        const squeezedBy = (size: {width: number; height: number}, penX: number, penY: number, dmgScale: number): number => {
+            return Math.max(axisDamage(penX, size.width, dmgScale), axisDamage(penY, size.height, dmgScale));
         };
 
-        /** 玩家碰撞箱（单矩形）。 */
+        /** 玩家碰撞箱（单矩形，玩家没有独立挤压箱）。 */
         const playerBox: MobBox = {
             left: player.x - player.halfWidth,
             right: player.x + player.halfWidth,
             bottom: player.y,
             top: player.y + player.height,
         };
+        const playerSize = {width: player.halfWidth * 2, height: player.height};
 
         /** 两组矩形的最大轴重叠深度；无任何矩形对重叠时返回 null。 */
         const rectsPenetration = (a: MobBox[], b: MobBox[]): {penX: number; penY: number} | null => {
@@ -560,47 +613,44 @@ export class MobManager {
             return hit ? {penX, penY} : null;
         };
 
-        // 玩家 × 生物
+        // 玩家 × 生物（用各自的挤压箱判定重叠）
         for (const mob of mobs) {
-            const overlap = rectsPenetration([playerBox], mob.boxes);
+            const overlap = rectsPenetration([playerBox], mob.squeezeBoxes);
             if (!overlap) continue;
-            const cfg = squeezeFor(mob.kind);
             // 玩家主动挤压怪物：伤害按全局 playerDamageScale 缩放（主要效果是推开）
-            const onMobDmg = squeezedBy(mob, cfg, overlap.penX, overlap.penY, playerSqueeze.playerDamageScale);
+            const onMobDmg = squeezedBy(mob.squeezeSize, overlap.penX, overlap.penY, cfg.playerDamageScale);
             if (onMobDmg > 0) {
                 mobDamage.set(mob, Math.min(cfg.maxDamage, (mobDamage.get(mob) ?? 0) + onMobDmg));
                 mobIframe.set(mob, cfg.iframe);
                 mobShove.set(mob, mob.x >= player.x ? 1 : -1);
             }
-            // 怪物挤压玩家：玩家用全局 default 配置
-            const onPlayerDmg = squeezedBy(player, playerSqueeze, overlap.penX, overlap.penY, 1);
+            // 怪物挤压玩家
+            const onPlayerDmg = squeezedBy(playerSize, overlap.penX, overlap.penY, 1);
             if (onPlayerDmg > 0) {
-                playerDamage = Math.min(playerSqueeze.maxDamage, playerDamage + onPlayerDmg);
+                playerDamage = Math.min(cfg.maxDamage, playerDamage + onPlayerDmg);
                 if (UNDEAD_KINDS.includes(mob.kind)) playerUndead = true;
             }
         }
-        // 生物 × 生物（互相挤压，各自使用自己的配置）
+        // 生物 × 生物（用各自的挤压箱判定重叠）
         for (let i = 0; i < mobs.length; i += 1) {
             for (let j = i + 1; j < mobs.length; j += 1) {
                 const a = mobs[i], b = mobs[j];
-                const overlap = rectsPenetration(a.boxes, b.boxes);
+                const overlap = rectsPenetration(a.squeezeBoxes, b.squeezeBoxes);
                 if (!overlap) continue;
-                const cfgA = squeezeFor(a.kind);
-                const dA = squeezedBy(a, cfgA, overlap.penX, overlap.penY, 1);
+                const dA = squeezedBy(a.squeezeSize, overlap.penX, overlap.penY, 1);
                 if (dA > 0) {
-                    mobDamage.set(a, Math.min(cfgA.maxDamage, (mobDamage.get(a) ?? 0) + dA));
-                    mobIframe.set(a, cfgA.iframe);
+                    mobDamage.set(a, Math.min(cfg.maxDamage, (mobDamage.get(a) ?? 0) + dA));
+                    mobIframe.set(a, cfg.iframe);
                 }
-                const cfgB = squeezeFor(b.kind);
-                const dB = squeezedBy(b, cfgB, overlap.penX, overlap.penY, 1);
+                const dB = squeezedBy(b.squeezeSize, overlap.penX, overlap.penY, 1);
                 if (dB > 0) {
-                    mobDamage.set(b, Math.min(cfgB.maxDamage, (mobDamage.get(b) ?? 0) + dB));
-                    mobIframe.set(b, cfgB.iframe);
+                    mobDamage.set(b, Math.min(cfg.maxDamage, (mobDamage.get(b) ?? 0) + dB));
+                    mobIframe.set(b, cfg.iframe);
                 }
             }
         }
 
-        // 结算：生物扣血（各自配置的无敌帧）；被玩家挤压的额外推开
+        // 结算：生物扣血（全局配置的无敌帧）；被玩家挤压的额外推开
         for (const [mob, dmg] of mobDamage) {
             if (mob.takeSqueezeDamage(dmg, mobIframe.get(mob) ?? SQUEEZE_DEFAULTS.iframe)) continue;
             const shove = mobShove.get(mob);
