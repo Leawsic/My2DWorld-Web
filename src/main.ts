@@ -1,6 +1,6 @@
 import "./style.css";
 import {type KeyState, Player} from "./core/player";
-import {MobManager, MOB_KINDS, MOB_RENDER_RADIUS, type Mob, type MobDeathCause, type MobKind} from "./core/entity";
+import {MobManager, MOB_KINDS, MOB_RENDER_RADIUS, type Mob, type MobBox, type MobDeathCause, type MobKind} from "./core/entity";
 import {storage, type PluginPackage} from "./core/storage";
 import {biomeAt, DEFAULT_BIOME, hashSeed, spawnX, World, WORLD_MIN_Y, WORLD_MAX_Y, type Biome} from "./core/world";
 import {clampSpectateOffset} from "./core/spectate";
@@ -206,8 +206,17 @@ function nextAutosave(seconds: number): number {
 const ALPHA_PRESETS = [0.3, 0.5, 0.7, 1];
 const BRIGHTNESS_PRESETS = [0.5, 0.75, 1];
 const CHAT_FONT_PRESETS = [12, 13, 14, 16, 18, 20, 24];
+/** F5 碰撞箱颜色预设（默认黄色）。 */
+const HITBOX_COLOR_PRESETS = ["#ffe94d", "#ff4d4d", "#39e75f", "#4da6ff", "#ff8ae2", "#ffffff"];
+/** F5 挤压箱颜色预设（默认绿色）。 */
+const SQUEEZE_COLOR_PRESETS = ["#39e75f", "#4da6ff", "#ff8ae2", "#ffffff", "#ff4d4d", "#ffe94d"];
 
 function nextPreset(value: number, presets: number[]): number {
+    const index = presets.indexOf(value);
+    return presets[(index < 0 ? 0 : index + 1) % presets.length];
+}
+
+function nextColor(value: string, presets: string[]): string {
     const index = presets.indexOf(value);
     return presets[(index < 0 ? 0 : index + 1) % presets.length];
 }
@@ -1482,10 +1491,10 @@ class GameSession {
 
     private snapBlockSize(size: number, direction: 0 | 1 | -1 = 0): number {
         // 方块贴图为 8×8 像素，缩放到 8 的整数倍时才不会因最近邻采样产生锯齿。
-        // 最小 8px（一个方块按原始贴图尺寸 1:1 显示），最大 72px。
-        const snapped = Math.max(8, Math.min(72, Math.round(size / 8) * 8));
+        // 最小 8px（一个方块按原始贴图尺寸 1:1 显示），最大 576px（默认 32px 的 1800%）。
+        const snapped = Math.max(8, Math.min(576, Math.round(size / 8) * 8));
         // 1.15 的缩放步长在低档位（8/16/24）吸附后可能原地不动；方向明确时强制至少移动一档。
-        if (direction > 0 && snapped <= this.blockSize) return Math.min(72, snapped + 8);
+        if (direction > 0 && snapped <= this.blockSize) return Math.min(576, snapped + 8);
         if (direction < 0 && snapped >= this.blockSize) return Math.max(8, snapped - 8);
         return snapped;
     }
@@ -1880,7 +1889,7 @@ class GameSession {
     private handleMenuClick(clientX: number, clientY: number): void {
         const boxW = Math.min(460, window.innerWidth - 40);
         const x = (window.innerWidth - boxW) / 2;
-        const menuHeight = this.menu === "bindings" ? 680 : this.menu === "settings" ? 540 : this.menu === "plugins" ? Math.min(620, window.innerHeight - 40) : this.menu === "pause" ? 476 : this.menu === "display" ? 480 : 410;
+        const menuHeight = this.menu === "bindings" ? 680 : this.menu === "settings" ? 540 : this.menu === "plugins" ? Math.min(620, window.innerHeight - 40) : this.menu === "pause" ? 476 : this.menu === "display" ? 612 : 410;
         const y = (window.innerHeight - menuHeight) / 2;
         if (clientX < x + 52 || clientX > x + boxW - 52) return;
         if (this.menu === "plugins") {
@@ -1888,7 +1897,7 @@ class GameSession {
             return;
         }
         const index = Math.floor((clientY - (y + (this.menu === "bindings" ? 82 : 92))) / (this.menu === "bindings" ? 55 : 66));
-        if (index < 0 || index > (this.menu === "bindings" ? 9 : this.menu === "settings" ? 6 : this.menu === "display" ? 5 : this.menu === "pause" ? 3 : 2)) return;
+        if (index < 0 || index > (this.menu === "bindings" ? 9 : this.menu === "settings" ? 6 : this.menu === "display" ? 7 : this.menu === "pause" ? 3 : 2)) return;
         const rowY = y + (this.menu === "bindings" ? 82 : 92) + index * (this.menu === "bindings" ? 55 : 66);
         const rowH = this.menu === "bindings" ? 42 : 44;
         if (clientY < rowY || clientY > rowY + rowH) return;
@@ -1951,7 +1960,15 @@ class GameSession {
                 settings.chatFontSize = nextPreset(settings.chatFontSize, CHAT_FONT_PRESETS);
                 storage.saveSettings(settings);
             }
-            if (index === 5) this.menu = "settings";
+            if (index === 5) {
+                settings.hitboxColor = nextColor(settings.hitboxColor, HITBOX_COLOR_PRESETS);
+                storage.saveSettings(settings);
+            }
+            if (index === 6) {
+                settings.squeezeColor = nextColor(settings.squeezeColor, SQUEEZE_COLOR_PRESETS);
+                storage.saveSettings(settings);
+            }
+            if (index === 7) this.menu = "settings";
             return;
         }
         if (index === 9) {
@@ -2118,14 +2135,16 @@ class GameSession {
         });
         drawables.sort((a, b) => b.depth - a.depth);
         drawables.forEach((entry) => entry.draw());
-        // 悬停的生物绘制在方块与其它生物之上，并显示红色高亮框
+        // 悬停的生物绘制在方块与其它生物之上，并显示红色高亮框：
+        // 与点击/攻击判定一致，框住鼠标当前触碰到的那个单个碰撞矩形。
         if (!this.paused && !this.chatOpen && !this.inventoryOpen) {
-            const hoveredMob = this.hoveredMob();
-            if (hoveredMob) {
-                const sx = (hoveredMob.hitboxLeft - cameraX) * this.blockSize + width / 2;
-                const sy = (cameraY - hoveredMob.hitboxTop) * this.blockSize + height / 2;
-                const sw = (hoveredMob.hitboxRight - hoveredMob.hitboxLeft) * this.blockSize;
-                const sh = (hoveredMob.hitboxTop - hoveredMob.hitboxBottom) * this.blockSize;
+            const touched = this.touchedMobBox();
+            if (touched) {
+                const box = touched.box;
+                const sx = (box.left - cameraX) * this.blockSize + width / 2;
+                const sy = (cameraY - box.top) * this.blockSize + height / 2;
+                const sw = (box.right - box.left) * this.blockSize;
+                const sh = (box.top - box.bottom) * this.blockSize;
                 ctx.strokeStyle = "rgba(255,90,70,.95)";
                 ctx.lineWidth = 2;
                 ctx.strokeRect(sx - 1.5, sy - 1.5, sw + 3, sh + 3);
@@ -2152,7 +2171,8 @@ class GameSession {
         this.renderCursor();
     }
 
-    /** F5 调试：绘制玩家放置/破坏范围与所有实体的碰撞箱。 */
+    /** F5 调试：绘制玩家放置/破坏范围，以及玩家与所有实体的碰撞箱（黄）与挤压箱（绿）。
+     *  颜色在 设置 → 显示样式 中可配置（settings.hitboxColor / settings.squeezeColor）。 */
     private renderHitboxes(ctx: CanvasRenderingContext2D, cameraX: number, cameraY: number, width: number, height: number): void {
         const bs = this.blockSize;
         const toScreenX = (wx: number) => (wx - cameraX) * bs + width / 2;
@@ -2165,17 +2185,27 @@ class GameSession {
             ctx.strokeRect(sx, sy, w, h);
             ctx.restore();
         };
+        const hitColor = settings.hitboxColor;
+        const squeezeColor = settings.squeezeColor;
         // 玩家放置/破坏范围（inReach 判定区域）
         const reachX = 2.5, reachY = 3;
         const centerX = this.player.x;
         const centerY = this.player.y + 0.95;
         drawBox(toScreenX(centerX - reachX), toScreenY(centerY + reachY), reachX * 2 * bs, reachY * 2 * bs, "#39e75f", true);
-        // 玩家碰撞箱
-        drawBox(toScreenX(this.player.x - this.player.halfWidth), toScreenY(this.player.y + this.player.height), this.player.halfWidth * 2 * bs, this.player.height * bs, "#ffe94d");
+        // 玩家碰撞箱（与生物统一颜色）
+        drawBox(toScreenX(this.player.x - this.player.halfWidth), toScreenY(this.player.y + this.player.height), this.player.halfWidth * 2 * bs, this.player.height * bs, hitColor);
         // 生物碰撞箱（多矩形并集逐个绘制，朝向不同时矩形可能镜像）
         for (const mob of this.mobs.mobsNear(this.player, MOB_RENDER_RADIUS)) {
             for (const box of mob.boxes) {
-                drawBox(toScreenX(box.left), toScreenY(box.top), (box.right - box.left) * bs, (box.top - box.bottom) * bs, "#ff4d4d");
+                drawBox(toScreenX(box.left), toScreenY(box.top), (box.right - box.left) * bs, (box.top - box.bottom) * bs, hitColor);
+            }
+        }
+        // 玩家挤压箱（物理挤压判定与碰撞箱相同，虚线绘于其上以便同时可见）
+        drawBox(toScreenX(this.player.x - this.player.halfWidth), toScreenY(this.player.y + this.player.height), this.player.halfWidth * 2 * bs, this.player.height * bs, squeezeColor, true);
+        // 生物挤压箱（独立于碰撞箱，多矩形逐个绘制，虚线）
+        for (const mob of this.mobs.mobsNear(this.player, MOB_RENDER_RADIUS)) {
+            for (const box of mob.squeezeBoxes) {
+                drawBox(toScreenX(box.left), toScreenY(box.top), (box.right - box.left) * bs, (box.top - box.bottom) * bs, squeezeColor, true);
             }
         }
     }
@@ -2203,6 +2233,17 @@ class GameSession {
     /** 鼠标指向的生物（在玩家攻击范围内），用于攻击光标与悬停高亮。 */
     private hoveredMob(): Mob | null {
         return this.mobs.hitMob(this.worldAtMouse(), this.player);
+    }
+
+    /** 鼠标当前触碰到的单个碰撞矩形（与 hoveredMob 的点击/攻击判定一致）。 */
+    private touchedMobBox(): {mob: Mob; box: MobBox} | null {
+        const mob = this.hoveredMob();
+        if (!mob) return null;
+        const [wx, wy] = this.worldAtMouse();
+        for (const box of mob.boxes) {
+            if (wx >= box.left && wx <= box.right && wy >= box.bottom && wy <= box.top) return {mob, box};
+        }
+        return null;
     }
 
     private renderCursor(): void {
@@ -2485,7 +2526,7 @@ class GameSession {
         ctx.fillRect(0, 0, width, height);
         const bindingMode = this.menu === "bindings";
         const boxW = Math.min(460, width - 40);
-        const boxH = bindingMode ? 680 : this.menu === "settings" ? 540 : this.menu === "plugins" ? Math.min(620, height - 40) : this.menu === "pause" ? 476 : this.menu === "display" ? 480 : 410;
+        const boxH = bindingMode ? 680 : this.menu === "settings" ? 540 : this.menu === "plugins" ? Math.min(620, height - 40) : this.menu === "pause" ? 476 : this.menu === "display" ? 612 : 410;
         const x = (width - boxW) / 2;
         const y = (height - boxH) / 2;
         ctx.fillStyle = "#13252d";
@@ -2576,6 +2617,8 @@ class GameSession {
                         `${t(language, "display_spectate_alpha")}: ${Math.round(settings.spectateAlpha * 100)}%`,
                         `${t(language, "display_spectate_brightness")}: ${Math.round(settings.spectateBrightness * 100)}%`,
                         `${t(language, "display_chat_font")}: ${settings.chatFontSize}px`,
+                        t(language, "display_hitbox_color"),
+                        t(language, "display_squeeze_color"),
                         t(language, "settings_back"),
                     ]
                     : [t(language, "pause_resume"), t(language, "settings_title"), t(language, "pause_plugins"), t(language, "pause_homepage")];
@@ -2585,7 +2628,21 @@ class GameSession {
                 ctx.fillRect(x + 52, by, boxW - 104, 44);
                 ctx.fillStyle = "#e7eee5";
                 ctx.textAlign = "center";
-                ctx.fillText(label, width / 2, by + 28);
+                if (this.menu === "display" && (index === 5 || index === 6)) {
+                    // 颜色行：文字右侧绘制当前颜色色块，点击循环切换
+                    const color = index === 5 ? settings.hitboxColor : settings.squeezeColor;
+                    const textW = ctx.measureText(label).width;
+                    const sw = 18;
+                    const sx = width / 2 + textW / 2 + 14;
+                    ctx.fillText(label, width / 2, by + 28);
+                    ctx.fillStyle = color;
+                    ctx.fillRect(sx, by + 12, sw, sw);
+                    ctx.strokeStyle = "rgba(255,255,255,.65)";
+                    ctx.lineWidth = 1;
+                    ctx.strokeRect(sx + 0.5, by + 12.5, sw - 1, sw - 1);
+                } else {
+                    ctx.fillText(label, width / 2, by + 28);
+                }
             });
         }
         ctx.textAlign = "left";

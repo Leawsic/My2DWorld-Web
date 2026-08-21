@@ -2,6 +2,11 @@ import {DEFAULT_SETTINGS, type PlayerSettings, type WorldMeta, type WorldSave} f
 
 let activeUser = "steve";
 
+/** 校验设置中的颜色值是否为 "#rrggbb" 形式。 */
+function isHexColor(value: string | undefined): value is string {
+    return typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value);
+}
+
 export interface PluginPackage {
     id: string;
     name: string;
@@ -56,6 +61,8 @@ export const storage = {
             spectateBrightness: typeof saved.spectateBrightness === "number" && saved.spectateBrightness >= 0 && saved.spectateBrightness <= 1 ? saved.spectateBrightness : DEFAULT_SETTINGS.spectateBrightness,
             aggroRange: typeof saved.aggroRange === "number" && saved.aggroRange >= 1 && saved.aggroRange <= 128 ? saved.aggroRange : DEFAULT_SETTINGS.aggroRange,
             chatFontSize: typeof saved.chatFontSize === "number" && saved.chatFontSize >= 10 && saved.chatFontSize <= 28 ? saved.chatFontSize : DEFAULT_SETTINGS.chatFontSize,
+            hitboxColor: isHexColor(saved.hitboxColor) ? saved.hitboxColor : DEFAULT_SETTINGS.hitboxColor,
+            squeezeColor: isHexColor(saved.squeezeColor) ? saved.squeezeColor : DEFAULT_SETTINGS.squeezeColor,
         };
     },
     async saveSettings(settings: PlayerSettings): Promise<boolean> {

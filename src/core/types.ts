@@ -51,6 +51,10 @@ export interface PlayerSettings {
     aggroRange: number;
     /** 聊天与命令的字体大小（px）。 */
     chatFontSize: number;
+    /** F5 调试：玩家与生物的碰撞箱颜色（可配置）。 */
+    hitboxColor: string;
+    /** F5 调试：玩家与生物的物理挤压（挤压箱）颜色（可配置）。 */
+    squeezeColor: string;
 }
 
 export interface KeyBindings {
@@ -98,4 +102,6 @@ export const DEFAULT_SETTINGS: PlayerSettings = {
     spectateBrightness: 0.75,
     aggroRange: 24,
     chatFontSize: 13,
+    hitboxColor: "#ffe94d",
+    squeezeColor: "#39e75f",
 };

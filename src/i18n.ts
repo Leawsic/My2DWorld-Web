@@ -83,6 +83,8 @@ const entries: Record<string, Translation> = {
     biome_ocean: {zh: "海洋", en: "Ocean"},
     biome_river: {zh: "河流", en: "River"},
     display_chat_font: {zh: "聊天/命令字体", en: "Chat font size"},
+    display_hitbox_color: {zh: "碰撞箱颜色", en: "Hitbox color"},
+    display_squeeze_color: {zh: "挤压箱颜色", en: "Squeeze color"},
     grass_block: {zh: "草方块", en: "Grass Block"},
     oak_log: {zh: "橡木原木", en: "Oak Log"},
     oak_leaves: {zh: "橡树树叶", en: "Oak Leaves"},
