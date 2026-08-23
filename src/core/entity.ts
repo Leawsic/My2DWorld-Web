@@ -574,6 +574,20 @@ export class MobManager {
      *   为全局一份（run/config/squeeze.json），对任意生物生效。
      * - 玩家挤压怪物按 playerDamageScale 缩放并推开；亡灵生物挤压玩家附带 5s 缓慢。
      */
+    /** 玩家是否正主动朝该生物方向移动（推着它）。与 resolvePlayerMob 的 pushing 判定一致：
+     *  按穿透较深的那一轴取方向，玩家该轴速度非零且朝该生物移动即为「推」。 */
+    private playerIsPushing(mob: Mob, player: Player): boolean {
+        const dx = mob.centerX - player.x;
+        const dy = mob.centerY - (player.y + player.height / 2);
+        const penX = player.halfWidth + mob.halfWidth - Math.abs(dx);
+        const penY = (player.height + mob.height) / 2 - Math.abs(dy);
+        if (penX <= 0 || penY <= 0) return false;
+        const axis = penX <= penY ? "x" : "y";
+        const dir = (axis === "x" ? dx : dy) >= 0 ? 1 : -1;
+        const v = axis === "x" ? player.velocityX : player.velocityY;
+        return v !== 0 && Math.sign(v) === Math.sign(dir);
+    }
+
     private squeezeEntities(player: Player, onPlayerSqueezed: (damage: number, undead: boolean) => void): void {
         const mobs = [...this.mobs.values(), ...this.summoned].filter(
             (mob) => mob.alive && Math.hypot(player.x - mob.x, player.y + player.height / 2 - mob.centerY) <= SQUEEZE_RADIUS,
@@ -631,6 +645,10 @@ export class MobManager {
 
         // 玩家 × 生物（用各自的挤压箱判定重叠）
         for (const mob of mobs) {
+            // 玩家正朝该生物方向移动（推着它跑）时，这是「推」而不是「挤」：
+            // 保持接触并交给 separateBodies 推开，但双方都不结算挤压伤害，
+            // 否则推僵尸等窄挤压箱生物时会被误伤（即使挤压箱看起来没重叠也会扣血）。
+            if (this.playerIsPushing(mob, player)) continue;
             const overlap = rectsPenetration([playerBox], mob.squeezeBoxes);
             if (!overlap) continue;
             // 玩家主动挤压怪物：伤害按全局 playerDamageScale 缩放（主要效果是推开）

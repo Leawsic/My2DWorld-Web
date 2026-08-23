@@ -155,7 +155,8 @@ const api = async (req, res) => {
                 ...(data.spawnFacing === 1 || data.spawnFacing === -1 ? {spawnFacing: data.spawnFacing} : {}),
                 idTable: Array.isArray(data.idTable) ? data.idTable : [],
                 inventorySlots: Array.isArray(data.inventorySlots) ? data.inventorySlots : [],
-                hotbar: Array.isArray(data.hotbar) ? data.hotbar : []
+                hotbar: Array.isArray(data.hotbar) ? data.hotbar : [],
+                nbt: data.nbt && typeof data.nbt === "object" ? data.nbt : {}
             }, null, 2));
             if (data.chunks && typeof data.chunks === "object") {
                 for (const [cell, encoded] of Object.entries(data.chunks)) {

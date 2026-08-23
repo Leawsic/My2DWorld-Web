@@ -4,7 +4,7 @@
 //      「碰撞箱缩小一圈」（SQUEEZE_SHRINK_*），绝不直接用碰撞箱几何。
 //   2) 挤压参数（伤害/时长）：run/config/squeeze.json，全局一份，对任意生物（含玩家）生效。
 // 数值字段都可省略，省略时回退到内置默认值。
-import {hitboxCategoryOf, normalizeHitbox, type HitboxConfig, type NormalizedHitbox} from "./hitboxes";
+import {HITBOX_FILE_UNIT, hitboxCategoryOf, normalizeHitbox, scaleHitboxConfig, type HitboxConfig, type NormalizedHitbox} from "./hitboxes";
 
 /** 挤压伤害/时长参数（全局，对任意生物生效）。 */
 export interface SqueezeParams {
@@ -101,7 +101,8 @@ export async function loadSqueeze(): Promise<void> {
         boxOverrides.clear();
         const files = (geometry as {squeeze?: Record<string, HitboxConfig>} | null)?.squeeze;
         for (const [kind, hitbox] of Object.entries(files ?? {})) {
-            const normalized = normalizeHitbox(hitbox);
+            // 文件以 32 倍整数长度单位书写：先换算回块，再归一化。
+            const normalized = normalizeHitbox(scaleHitboxConfig(hitbox, 1 / HITBOX_FILE_UNIT));
             if (normalized) boxOverrides.set(kind, normalized);
         }
         params = config && typeof config === "object" ? (config as SqueezeParams) : {};

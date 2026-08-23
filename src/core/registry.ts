@@ -1,5 +1,5 @@
 import type {BlockType, GameModeName} from "./types";
-import type {BlockDefinition} from "./block";
+import type {BlockDefinition, BlockNbt} from "./block";
 
 export interface RegistryObject {
     readonly id: string;
@@ -163,12 +163,15 @@ const builtinBlocks: Array<[BlockType, string, string, string]> = [
     ["iron_chain", "#777c7c", "铁链", "Iron Chain"],
 ];
 
-/** Non-default collision / rendering flags for blocks that need them. */
-const BLOCK_FLAGS: Record<string, {solid?: boolean; transparent?: boolean}> = {
-    oak_leaves: {solid: true, transparent: true},
-    short_grass: {solid: false, transparent: true},
-    poppy: {solid: false, transparent: true},
-    dandelion: {solid: false, transparent: true},
+/** Non-default collision / rendering flags, default NBT and feature tags for blocks that need them. */
+const BLOCK_FLAGS: Record<string, {solid?: boolean; transparent?: boolean; nbt?: BlockNbt; feature?: boolean}> = {
+    // 三层系统：树叶在第 2 层（中间）、木头在第 3 层（下面），二者不挡路（见 World.isSolid）。
+    oak_log: {nbt: {layer: 3}},
+    oak_leaves: {solid: true, transparent: true, nbt: {layer: 2}},
+    short_grass: {solid: false, transparent: true, feature: true},
+    poppy: {solid: false, transparent: true, feature: true},
+    dandelion: {solid: false, transparent: true, feature: true},
+    cactus: {feature: true},
 };
 
 builtinBlocks.forEach(([id, color, zh, en]) => blockRegistry.register({id, color, label: {zh, en}, ...BLOCK_FLAGS[id]}));

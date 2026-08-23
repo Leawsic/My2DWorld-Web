@@ -1,5 +1,5 @@
 {
   "boxes": [
-    { "halfWidth": 0.65, "height": 1.2, "centerX": 0.17, "centerY": -0.17 }
+    { "halfWidth": 21, "height": 38, "centerX": 5, "centerY": -5 }
   ]
 }

@@ -33,6 +33,8 @@ export interface WorldSave {
     hotbar?: (string | null)[];
     idTable: string[];
     chunks: Record<string, string>;
+    /** 每格方块的覆盖 NBT（cell "x,y" -> JSON 字符串）。 */
+    nbt?: Record<string, string>;
 }
 
 export interface PlayerSettings {

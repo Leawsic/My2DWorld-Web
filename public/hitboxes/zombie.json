@@ -1,6 +1,6 @@
 {
-  "halfWidth": 0.25,
-  "height": 2,
+  "halfWidth": 8,
+  "height": 64,
   "centerX": 0,
-  "centerY": -0.1
+  "centerY": -3
 }

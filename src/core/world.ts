@@ -1,6 +1,7 @@
 import type {BlockType} from "./types";
 import {Blocks} from "./registry";
 import {Block} from "./block";
+import type {BlockNbt} from "./block";
 import {blockRegistry} from "./registry";
 import {fbm2D} from "./noise";
 import {applyFeatures} from "./features";
@@ -350,6 +351,8 @@ function generatedBlock(x: number, y: number, surface: number, seed = 0): BlockT
 export interface WorldChunkDelta {
     idTable: string[];
     chunks: Record<string, string>;
+    /** 每格方块的覆盖 NBT（cell "x,y" -> JSON 字符串），仅保存非默认的 NBT。 */
+    nbt: Record<string, string>;
 }
 
 export class World {
@@ -358,6 +361,8 @@ export class World {
     readonly dirty = new Set<string>();
     /** Latest block data for chunks that differ from generated terrain. */
     private readonly editedChunks = new Map<string, Uint16Array>();
+    /** 覆盖 NBT（仅在不同于方块定义默认值时记录），key 为 cell "x,y"。 */
+    private readonly blockNbt = new Map<string, BlockNbt>();
     private readonly typeToNum = new Map<BlockType, number>();
     private readonly numToType = new Map<number, BlockType>();
     private centerChunk = 0;
@@ -410,7 +415,7 @@ export class World {
         const id = this.getBlockId(x, y);
         if (!id) return null;
         const definition = blockRegistry.get(id);
-        return definition ? new Block(definition, x, y) : null;
+        return definition ? new Block(definition, x, y, this.nbtAt(x, y)) : null;
     }
 
     getBlockId(x: number, y: number): BlockType | null {
@@ -420,11 +425,34 @@ export class World {
         return num ? this.typeFor(num) : null;
     }
 
-    /** True when a solid block occupies the cell (non-solid plants are passable). */
+    /** 该格方块的有效 NBT：方块定义默认值 + 覆盖值。 */
+    nbtAt(x: number, y: number): BlockNbt {
+        const id = this.getBlockId(x, y);
+        const definition = id ? blockRegistry.get(id) : undefined;
+        return {...(definition?.nbt ?? {}), ...(this.blockNbt.get(World.cell(x, y)) ?? {})};
+    }
+
+    /** 该格方块的有效层级（1/2/3），缺省为 1。 */
+    layerAt(x: number, y: number): number {
+        return this.nbtAt(x, y).layer ?? 1;
+    }
+
+    /**
+     * True when a solid block that blocks the path occupies the cell.
+     * 三层系统：只有第 1 层（最上面）会挡路；第 2 层（树叶）与第 3 层（木头）不挡路。
+     */
     isSolid(x: number, y: number): boolean {
         const id = this.getBlockId(x, y);
         if (!id) return false;
-        return blockRegistry.get(id)?.solid ?? true;
+        const definition = blockRegistry.get(id);
+        if (!definition) return false;
+        if (this.layerAt(x, y) !== 1) return false;
+        return definition.solid ?? true;
+    }
+
+    /** 玩家放置的方块是否在下方有实心支撑（用于花/草等地物不能悬空）。 */
+    hasSupport(x: number, y: number): boolean {
+        return this.isSolid(x, y - 1);
     }
 
     breakBlock(x: number, y: number): Block | null {
@@ -433,13 +461,21 @@ export class World {
         const chunk = this.chunks.get(Math.floor(x / CHUNK_SIZE));
         if (!chunk) return null;
         chunk.setBlock(x - chunk.start, y, 0);
+        this.blockNbt.delete(World.cell(x, y));
         this.markEdited(Math.floor(x / CHUNK_SIZE));
         return block;
     }
 
     placeBlock(x: number, y: number, type: BlockType | Block): boolean {
         if (y < WORLD_MIN_Y || y > WORLD_MAX_Y || this.getBlock(x, y)) return false;
-        return this.setBlock(x, y, type);
+        const id = typeof type === "string" ? type : type.id;
+        const definition = blockRegistry.get(id);
+        if (!definition) return false;
+        // 地物（花/草等）不能在空中放置：必须有实心支撑块在正下方。
+        if (definition.feature && !this.hasSupport(x, y)) return false;
+        // 玩家只能把方块放在第 1 层：强制覆盖层级为 1（树叶/木头定义默认在 2/3 层）。
+        const block = typeof type === "string" ? new Block(definition, 0, 0, {layer: 1}) : new Block(type.definition, type.x, type.y, {...type.nbt, layer: 1});
+        return this.setBlock(x, y, block);
     }
 
     /** Places or replaces a block in any loaded chunk (used by structure loading). */
@@ -451,8 +487,24 @@ export class World {
         const chunk = this.chunks.get(Math.floor(x / CHUNK_SIZE));
         if (!chunk) return false;
         chunk.setBlock(x - chunk.start, y, num);
+        this.applyNbt(x, y, id, typeof type === "string" ? undefined : type.nbt);
         this.markEdited(Math.floor(x / CHUNK_SIZE));
         return true;
+    }
+
+    /** 保留与方块定义默认值不同的覆盖 NBT（默认值不落盘，保持存档轻量）。 */
+    private applyNbt(x: number, y: number, id: BlockType, nbt?: BlockNbt): void {
+        const definition = blockRegistry.get(id);
+        const defaults = definition?.nbt ?? {};
+        let override: BlockNbt = {};
+        const merged = {...defaults, ...(nbt ?? {})};
+        for (const [key, value] of Object.entries(merged)) {
+            // layer 缺省为 1；与缺省一致的层级无需落盘。
+            const effectiveDefault = key === "layer" ? (defaults[key] ?? 1) : defaults[key];
+            if (effectiveDefault !== value) override[key] = value;
+        }
+        if (Object.keys(override).length) this.blockNbt.set(World.cell(x, y), override);
+        else this.blockNbt.delete(World.cell(x, y));
     }
 
     getSurfaceHeight(x: number): number {
@@ -467,14 +519,16 @@ export class World {
             const chunk = this.chunks.get(cx);
             if (chunk) chunks[cell] = chunk.encode();
         }
-        return {idTable: blockRegistry.list().map((definition) => definition.id), chunks};
+        const nbt: Record<string, string> = {};
+        for (const [cell, data] of this.blockNbt) nbt[cell] = JSON.stringify(data);
+        return {idTable: blockRegistry.list().map((definition) => definition.id), chunks, nbt};
     }
 
     clearDirty(): void {
         this.dirty.clear();
     }
 
-    restore(save: { idTable?: string[]; chunks?: Record<string, string> } | null): void {
+    restore(save: { idTable?: string[]; chunks?: Record<string, string>; nbt?: Record<string, string> } | null): void {
         if (!save || !save.chunks) return;
         const savedTable = Array.isArray(save.idTable) ? save.idTable : [];
         for (const [cell, encoded] of Object.entries(save.chunks)) {
@@ -492,6 +546,15 @@ export class World {
             const [cx] = World.parseCell(cell);
             const chunk = this.chunks.get(cx);
             if (chunk) chunk.blocks.set(data);
+        }
+        if (save.nbt) {
+            for (const [cell, encoded] of Object.entries(save.nbt)) {
+                try {
+                    this.blockNbt.set(cell, JSON.parse(encoded) as BlockNbt);
+                } catch {
+                    // 忽略损坏的 NBT 条目
+                }
+            }
         }
     }
 

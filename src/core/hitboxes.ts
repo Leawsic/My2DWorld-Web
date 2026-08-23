@@ -41,6 +41,33 @@ export interface NormalizedHitbox {
     right?: HitboxRect[];
 }
 
+/**
+ * public/hitboxes 与 public/squeeze 文件使用的长度单位：1 块 = 32 个文件单位，
+ * 且文件内数值要求为整数（作者友好，避免小数）。游戏内部仍以「块」为单位，
+ * 因此在加载时会把文件单位除以 32 换算回块。
+ */
+export const HITBOX_FILE_UNIT = 32;
+
+/** 把文件中的 32 倍整数长度单位换算回块（乘以 factor）。 */
+export function scaleHitboxConfig(config: HitboxConfig, factor: number): HitboxConfig {
+    const scaleRect = (rect: HitboxRect): HitboxRect => ({
+        halfWidth: rect.halfWidth * factor,
+        height: rect.height * factor,
+        centerX: Number.isFinite(rect.centerX) ? (rect.centerX as number) * factor : undefined,
+        centerY: Number.isFinite(rect.centerY) ? (rect.centerY as number) * factor : undefined,
+    });
+    const scaleRects = (rects: HitboxRect[] | undefined): HitboxRect[] | undefined => rects?.map(scaleRect);
+    return {
+        halfWidth: Number.isFinite(config.halfWidth) ? (config.halfWidth as number) * factor : undefined,
+        height: Number.isFinite(config.height) ? (config.height as number) * factor : undefined,
+        centerX: Number.isFinite(config.centerX) ? (config.centerX as number) * factor : undefined,
+        centerY: Number.isFinite(config.centerY) ? (config.centerY as number) * factor : undefined,
+        boxes: scaleRects(config.boxes),
+        left: scaleRects(config.left),
+        right: scaleRects(config.right),
+    };
+}
+
 /** 服务端文件（public/hitboxes/*.json）加载的覆盖配置。 */
 const overrides = new Map<string, NormalizedHitbox>();
 /** 扩展（插件）运行时注册的覆盖配置，优先级高于文件配置。 */
@@ -119,7 +146,8 @@ export async function loadHitboxes(): Promise<void> {
             const data = (await res.json()) as {hitboxes?: Record<string, HitboxConfig>};
             overrides.clear();
             for (const [kind, config] of Object.entries(data.hitboxes ?? {})) {
-                const normalized = normalizeHitbox(config);
+                // 文件以 32 倍整数长度单位书写：先换算回块，再归一化。
+                const normalized = normalizeHitbox(scaleHitboxConfig(config, 1 / HITBOX_FILE_UNIT));
                 if (normalized) overrides.set(kind, normalized);
             }
         }

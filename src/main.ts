@@ -695,6 +695,8 @@ class GameSession {
         }
         if (target[1] < WORLD_MIN_Y || target[1] > WORLD_MAX_Y) return null;
         if (this.world.isSolid(target[0], target[1])) return null;
+        const placing = this.hotbar[this.selected];
+        if (placing && blockRegistry.get(placing)?.feature && !this.world.hasSupport(target[0], target[1])) return null;
         if (this.mobs.occupies(target[0], target[1])) return null;
         if (!this.inReach(target[0] + 0.5, target[1] - 0.5)) return null;
         const left = this.player.x - 0.25;
@@ -2021,6 +2023,7 @@ class GameSession {
             hotbar: this.hotbar,
             idTable: changes.idTable,
             chunks: changes.chunks,
+            nbt: changes.nbt,
         });
         this.world.clearDirty();
     };
