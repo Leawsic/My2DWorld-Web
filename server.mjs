@@ -1,5 +1,6 @@
 import {createServer} from "node:http";
 import {createHash, randomBytes} from "node:crypto";
+import {spawn} from "node:child_process";
 import {
     existsSync,
     mkdirSync,
@@ -362,4 +363,23 @@ const server = createServer(async (req, res) => {
     if (!handled && !res.writableEnded && !pluginFile(req, res)) vite.middlewares(req, res);
 });
 const port = Number(process.env.PORT || 5173);
-server.listen(port, "127.0.0.1", () => log("info", "Server started", {url: `http://127.0.0.1:${port}`, log: logPath}));
+/** 启动成功后用系统默认浏览器打开游戏页面；设 OPEN_BROWSER=0 可关闭自动打开。 */
+const openBrowser = (url) => {
+    if (process.env.OPEN_BROWSER === "0") return;
+    try {
+        const command = process.platform === "win32"
+            ? ["cmd", ["/c", "start", "", url]]
+            : process.platform === "darwin"
+                ? ["open", [url]]
+                : ["xdg-open", [url]];
+        spawn(command[0], command[1], {stdio: "ignore", detached: true}).unref();
+        log("info", "Opening browser", {url});
+    } catch (error) {
+        log("warn", "Open browser failed", {error: String(error)});
+    }
+};
+server.listen(port, "127.0.0.1", () => {
+    const url = `http://127.0.0.1:${port}`;
+    log("info", "Server started", {url, log: logPath});
+    openBrowser(url);
+});

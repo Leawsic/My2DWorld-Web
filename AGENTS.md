@@ -52,7 +52,6 @@ npm run build          # tsc --noEmit && vite build（生产构建验证）
 - `public/hitboxes/*.json` 与 `public/squeeze/*.json` 里的长度（`halfWidth`/`height`/`centerX`/`centerY`/`boxes`/`left`/`right`）是 **32×整数**（即「块单位 × 32 后四舍五入」）。
 - 加载时 `scaleHitboxConfig(config, 1/ HITBOX_FILE_UNIT)`（`HITBOX_FILE_UNIT = 32`）还原为块单位，游戏内数值不变。
 - 改这些 JSON 必须保持 32×整数；插件 `api.registerHitbox()` 仍用块单位。相关常量见 `src/core/hitboxes.ts`。
-- **碰撞/挤压箱锚点**：默认 `centerY = height/2`（脚底锚定：箱底在锚点 y）。角色骨骼/`.myanim` 均以脚底为锚点（见 `skeleton.ts`）。若某个 `*.json` 的 `centerY` 为负值，会让箱体相对精灵**下移**（箱底埋在脚下方），导致「物理碰撞箱与实际箱不符」的错位——调这些 JSON 时保持脚底锚定，不要用负 `centerY`。
 
 ### 3.4 旁观 / 幽灵（`player.ghost`）
 - 每帧 `this.player.ghost = this.spectate || this.modeName === "spectator"`（`F7` 灵魂出窍、`F4` 旁观模式）。

@@ -2269,11 +2269,13 @@ class GameSession {
         };
         const hitColor = settings.hitboxColor;
         const squeezeColor = settings.squeezeColor;
-        // 玩家放置/破坏范围（inReach 判定区域）
-        const reachX = 2.5, reachY = 3;
-        const centerX = this.player.x;
-        const centerY = this.player.y + 0.95;
-        drawBox(toScreenX(centerX - reachX), toScreenY(centerY + reachY), reachX * 2 * bs, reachY * 2 * bs, "#39e75f", true);
+        // 玩家放置/破坏范围（inReach 判定区域）；旁观模式下不能放置/破坏，不显示该范围。
+        if (this.modeName !== "spectator") {
+            const reachX = 2.5, reachY = 3;
+            const centerX = this.player.x;
+            const centerY = this.player.y + 0.95;
+            drawBox(toScreenX(centerX - reachX), toScreenY(centerY + reachY), reachX * 2 * bs, reachY * 2 * bs, "#39e75f", true);
+        }
         // 玩家碰撞箱（与生物统一颜色；旁观/幽灵时无物理碰撞箱，不绘制）
         if (!this.player.ghost) drawBox(toScreenX(this.player.x - this.player.halfWidth), toScreenY(this.player.y + this.player.height), this.player.halfWidth * 2 * bs, this.player.height * bs, hitColor);
         // 生物碰撞箱（多矩形并集逐个绘制，朝向不同时矩形可能镜像）
