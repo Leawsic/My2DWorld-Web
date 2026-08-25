@@ -328,6 +328,8 @@ class GameSession {
     private readonly blockImages = new Map<string, HTMLImageElement | HTMLCanvasElement>();
     private readonly biomeImages = new Map<string, HTMLCanvasElement>();
     private readonly guiImages = new Map<string, HTMLImageElement>();
+    private fps = 60;
+    private readonly biomeAtCache = new Map<number, Biome>();
     private readonly mobs: MobManager;
     private readonly fx = new ParticleSystem();
     private readonly inventoryBackground = this.loadImage("/assets/gui/creative_inventory/tab_inventory.png");
@@ -338,8 +340,6 @@ class GameSession {
     private dragging = false;
     private dragStartX = 0;
     private dragStartY = 0;
-    private dragOriginX = 0;
-    private dragOriginY = 0;
     private dragOriginPlayerX = 0;
     private dragOriginPlayerY = 0;
     private spectate = false;
@@ -568,8 +568,6 @@ class GameSession {
                     this.dragging = true;
                     this.dragStartX = event.clientX;
                     this.dragStartY = event.clientY;
-                    this.dragOriginX = this.cameraOffsetX;
-                    this.dragOriginY = this.cameraOffsetY;
                     this.dragOriginPlayerX = this.player.x;
                     this.dragOriginPlayerY = this.player.y;
                 } else this.place(event.clientX, event.clientY);
@@ -594,7 +592,10 @@ class GameSession {
                     this.player.x = this.dragOriginPlayerX + dx;
                     this.player.y = this.dragOriginPlayerY + dy;
                 } else if (this.spectate) {
-                    [this.cameraOffsetX, this.cameraOffsetY] = clampSpectateOffset(this.dragOriginX + dx, this.dragOriginY + dy);
+                    // 灵魂出窍：身体跟随视角移动，不再留在原地（否则持续吸引仇恨/受伤）。
+                    const [ox, oy] = clampSpectateOffset(dx, dy);
+                    this.player.x = this.dragOriginPlayerX + ox;
+                    this.player.y = this.dragOriginPlayerY + oy;
                 }
             }
         });
@@ -1540,9 +1541,11 @@ class GameSession {
 
     private tick = (now: number): void => {
         if (!this.active) return;
-        const dt = Math.min(0.05, (now - this.last) / 1000);
+        const rawDt = (now - this.last) / 1000;
+        const dt = Math.min(0.05, rawDt);
         this.last = now;
         this.frame += 1;
+        this.fps = this.fps * 0.9 + (1 / Math.max(rawDt, 0.0001)) * 0.1;
         this.lastMouseX = this.lastMouseX || window.innerWidth / 2;
         this.lastMouseY = this.lastMouseY || window.innerHeight / 2;
         this.chatMessages.forEach((message) => {
@@ -1554,6 +1557,7 @@ class GameSession {
         }
         if (this.noticeTimer > 0) this.noticeTimer -= dt;
         this.squeezeIframe = Math.max(0, this.squeezeIframe - dt);
+        this.player.ghost = this.spectate || this.modeName === "spectator";
         if (!this.paused && !this.chatOpen && !this.inventoryOpen) {
             if (!this.spectate) this.mode.update({
                 player: this.player,
@@ -1581,15 +1585,15 @@ class GameSession {
             this.updateVoid(dt);
             this.updateSqueeze(dt);
             this.fx.update(dt);
-            const damagePlayer = this.modeName === "creative" ? () => undefined : (amount: number) => this.damagePlayer(amount);
+            const damagePlayer = this.player.ghost || this.modeName === "creative" ? () => undefined : (amount: number) => this.damagePlayer(amount);
             this.mobs.update(dt, this.world, this.player, damagePlayer, (kind, x, y, cause) => {
                 this.fx.burst(x, y, characterParticleTexture(kind));
                 this.addChat(this.mobDeathLine(kind, cause), "#ffd24a");
                 plugins.notifyMobKilled({...this.pluginContext(), kind, x, y});
                 storage.log("Mob killed", {world: this.meta.name, kind, x, y, cause});
-            }, !this.spectate, (damage, undead) => {
-                // MC 式实体挤压伤害：创造/旁观模式免伤；1s 无敌帧；亡灵挤压附带 5s 缓慢
-                if (this.modeName === "creative" || this.spectate || this.squeezeIframe > 0) return;
+            }, !this.player.ghost, (damage, undead) => {
+                // MC 式实体挤压伤害：创造/幽灵/旁观免伤；1s 无敌帧；亡灵挤压附带 5s 缓慢
+                if (this.player.ghost || this.modeName === "creative" || this.squeezeIframe > 0) return;
                 this.squeezeIframe = PLAYER_SQUEEZE_IFRAME;
                 if (undead) this.player.slowTimer = UNDEAD_SLOW_SECONDS;
                 damagePlayer(damage);
@@ -1606,7 +1610,7 @@ class GameSession {
     };
 
     private updateVoid(dt: number): void {
-        if (this.modeName !== "creative" || this.player.y >= WORLD_MIN_Y - 2) {
+        if (this.player.ghost || this.modeName !== "creative" || this.player.y >= WORLD_MIN_Y - 2) {
             this.voidDamageTimer = 0;
             return;
         }
@@ -1636,16 +1640,17 @@ class GameSession {
     /** 方块挤压（窒息）伤害：玩家身体与实心方块重叠时每 0.5s 受 1 点伤害。
      *  创造模式免疫（创造只受虚空伤害），旁观模式免疫。
      *  格子坐标 = 方块顶面（cell [c-1, c)），查碰撞箱接触到的所有格子（floor(边缘)+1 ..
-     *  ceil(边缘)）；脚底 0.001 留边落在空气格，站立时不会误判地面。 */
+     *  floor(边缘)）；只有「真正侵入」实心方块的那一格才计入，紧贴墙体/天花板（0.001 留边）
+     *  不会误判为窒息；脚底 0.001 留边落在空气格，站立时不会误判地面。 */
     private updateSqueeze(dt: number): void {
-        if (this.modeName === "creative" || this.spectate) {
+        if (this.player.ghost || this.modeName === "creative" || this.spectate) {
             this.squeezeTimer = 0;
             return;
         }
         const p = this.player;
         let inside = false;
-        for (let x = Math.floor(p.x - p.halfWidth) + 1; x <= Math.ceil(p.x + p.halfWidth) && !inside; x += 1) {
-            for (let y = Math.floor(p.y) + 1; y <= Math.ceil(p.y + p.height); y += 1) {
+        for (let x = Math.floor(p.x - p.halfWidth) + 1; x <= Math.floor(p.x + p.halfWidth) && !inside; x += 1) {
+            for (let y = Math.floor(p.y) + 1; y <= Math.floor(p.y + p.height); y += 1) {
                 if (this.world.isSolid(x, y)) {
                     inside = true;
                     break;
@@ -1664,7 +1669,7 @@ class GameSession {
     }
 
     private damagePlayer(amount: number): void {
-        if (this.spectate) return;
+        if (this.spectate || this.player.ghost) return;
         this.health = Math.max(0, this.health - amount);
         plugins.notifyPlayerHurt({...this.pluginContext(), amount, health: this.health});
         if (this.health <= 0) {
@@ -1697,10 +1702,22 @@ class GameSession {
 
     /** Raw texture for a block id, or a biome-tinted variant for grass/leaves at column `x`. */
     private blockImageFor(id: string, x: number): HTMLImageElement | HTMLCanvasElement | undefined {
-        if (id === Blocks.MY2DWORLD.GRASS_BLOCK.id) return this.biomeTexture("grass_block", biomeAt(x, this.world.seed));
-        if (id === Blocks.MY2DWORLD.OAK_LEAVES.id) return this.biomeTexture("leaves", biomeAt(x, this.world.seed));
-        if (id === Blocks.MY2DWORLD.SHORT_GRASS.id) return this.biomeTexture("short_grass", biomeAt(x, this.world.seed));
+        if (id === Blocks.MY2DWORLD.GRASS_BLOCK.id) return this.biomeTexture("grass_block", this.biomeAtCached(x));
+        if (id === Blocks.MY2DWORLD.OAK_LEAVES.id) return this.biomeTexture("leaves", this.biomeAtCached(x));
+        if (id === Blocks.MY2DWORLD.SHORT_GRASS.id) return this.biomeTexture("short_grass", this.biomeAtCached(x));
         return this.blockImages.get(id);
+    }
+
+    /** 按列缓存 biomeAt：同一整数列 x 的草/树叶/草丛每帧共享一次噪声采样（世界种子固定，缓存永不过期）。 */
+    private biomeAtCached(x: number): Biome {
+        const xi = Math.floor(x);
+        let biome = this.biomeAtCache.get(xi);
+        if (!biome) {
+            biome = biomeAt(xi, this.world.seed);
+            if (this.biomeAtCache.size > 20000) this.biomeAtCache.clear();
+            this.biomeAtCache.set(xi, biome);
+        }
+        return biome;
     }
 
     /** Icon texture for inventory/hotbar slots (uses a neutral biome tint). */
@@ -2042,18 +2059,49 @@ class GameSession {
         const right = Math.ceil(cameraX + width / this.blockSize / 2 + 1);
         const bottom = Math.max(WORLD_MIN_Y, Math.floor(cameraY - height / this.blockSize / 2 - 1));
         const top = Math.ceil(cameraY + height / this.blockSize / 2 + 1);
+        const bs = this.blockSize;
+        // 缩到 25%（8px/格）时可见方块数激增，逐一 drawImage 会卡顿。
+        // 此时把同列连续相同的方块合并成一次绘制（最近邻竖向拉伸），大幅减少绘制调用。
+        const mergeColumns = bs <= 8;
         for (const [chunkX, chunk] of this.world.chunks) {
             if (chunkX * 16 > right || (chunkX + 1) * 16 < left) continue;
-            for (let x = Math.max(left, chunk.start); x < Math.min(right, chunk.start + 16); x += 1) for (let y = bottom; y <= Math.min(top, WORLD_MAX_Y); y += 1) {
-                const id = this.world.getBlockId(x, y);
-                if (!id) continue;
-                const sx = Math.round((x - cameraX) * this.blockSize + width / 2);
-                const sy = Math.round((cameraY - y) * this.blockSize + height / 2);
-                const image = this.blockImageFor(id, x);
-                if (image) ctx.drawImage(image, sx, sy, this.blockSize, this.blockSize); else {
-                    const definition = blockRegistry.get(id);
-                    ctx.fillStyle = definition?.color ?? "#000000";
-                    ctx.fillRect(sx, sy, this.blockSize, this.blockSize);
+            const xFrom = Math.max(left, chunk.start);
+            const xTo = Math.min(right, chunk.start + 16);
+            const yUpTo = Math.min(top, WORLD_MAX_Y);
+            if (mergeColumns) {
+                for (let x = xFrom; x < xTo; x += 1) {
+                    const sx = Math.round((x - cameraX) * bs + width / 2);
+                    let y = bottom;
+                    while (y <= yUpTo) {
+                        const id = this.world.getBlockId(x, y);
+                        if (!id) { y += 1; continue; }
+                        let y2 = y + 1;
+                        while (y2 <= yUpTo && this.world.getBlockId(x, y2) === id) y2 += 1;
+                        const run = y2 - y;
+                        const image = this.blockImageFor(id, x);
+                        const sy = Math.round((cameraY - (y + run - 1)) * bs + height / 2);
+                        if (image) ctx.drawImage(image, sx, sy, bs, bs * run); else {
+                            const definition = blockRegistry.get(id);
+                            ctx.fillStyle = definition?.color ?? "#000000";
+                            ctx.fillRect(sx, sy, bs, bs * run);
+                        }
+                        y = y2;
+                    }
+                }
+            } else {
+                for (let x = xFrom; x < xTo; x += 1) {
+                    const sx = Math.round((x - cameraX) * bs + width / 2);
+                    for (let y = bottom; y <= yUpTo; y += 1) {
+                        const id = this.world.getBlockId(x, y);
+                        if (!id) continue;
+                        const sy = Math.round((cameraY - y) * bs + height / 2);
+                        const image = this.blockImageFor(id, x);
+                        if (image) ctx.drawImage(image, sx, sy, bs, bs); else {
+                            const definition = blockRegistry.get(id);
+                            ctx.fillStyle = definition?.color ?? "#000000";
+                            ctx.fillRect(sx, sy, bs, bs);
+                        }
+                    }
                 }
             }
         }
@@ -2226,17 +2274,19 @@ class GameSession {
         const centerX = this.player.x;
         const centerY = this.player.y + 0.95;
         drawBox(toScreenX(centerX - reachX), toScreenY(centerY + reachY), reachX * 2 * bs, reachY * 2 * bs, "#39e75f", true);
-        // 玩家碰撞箱（与生物统一颜色）
-        drawBox(toScreenX(this.player.x - this.player.halfWidth), toScreenY(this.player.y + this.player.height), this.player.halfWidth * 2 * bs, this.player.height * bs, hitColor);
+        // 玩家碰撞箱（与生物统一颜色；旁观/幽灵时无物理碰撞箱，不绘制）
+        if (!this.player.ghost) drawBox(toScreenX(this.player.x - this.player.halfWidth), toScreenY(this.player.y + this.player.height), this.player.halfWidth * 2 * bs, this.player.height * bs, hitColor);
         // 生物碰撞箱（多矩形并集逐个绘制，朝向不同时矩形可能镜像）
         for (const mob of this.mobs.mobsNear(this.player, MOB_RENDER_RADIUS)) {
             for (const box of mob.boxes) {
                 drawBox(toScreenX(box.left), toScreenY(box.top), (box.right - box.left) * bs, (box.top - box.bottom) * bs, hitColor);
             }
         }
-        // 玩家挤压箱（= 身体碰撞箱小一圈，与生物挤压箱约定一致；虚线绘于其上以便同时可见）
-        const sqInsetY = (this.player.height - PLAYER_SQUEEZE_HEIGHT) / 2;
-        drawBox(toScreenX(this.player.x - PLAYER_SQUEEZE_HALF_WIDTH), toScreenY(this.player.y + this.player.height - sqInsetY), PLAYER_SQUEEZE_HALF_WIDTH * 2 * bs, PLAYER_SQUEEZE_HEIGHT * bs, squeezeColor, true);
+        // 玩家挤压箱（= 身体碰撞箱小一圈，与生物挤压箱约定一致；虚线绘于其上以便同时可见；旁观/幽灵时不绘制）
+        if (!this.player.ghost) {
+            const sqInsetY = (this.player.height - PLAYER_SQUEEZE_HEIGHT) / 2;
+            drawBox(toScreenX(this.player.x - PLAYER_SQUEEZE_HALF_WIDTH), toScreenY(this.player.y + this.player.height - sqInsetY), PLAYER_SQUEEZE_HALF_WIDTH * 2 * bs, PLAYER_SQUEEZE_HEIGHT * bs, squeezeColor, true);
+        }
         // 生物挤压箱（独立于碰撞箱，多矩形逐个绘制，虚线）
         for (const mob of this.mobs.mobsNear(this.player, MOB_RENDER_RADIUS)) {
             for (const box of mob.squeezeBoxes) {
@@ -2381,7 +2431,7 @@ class GameSession {
             ctx.fillStyle = "#d8e4df";
             ctx.font = "12px ui-monospace";
             const lines = [
-                `${t(language, "debug_fps")} ${Math.round(1000 / 16)}`,
+                `${t(language, "debug_fps")} ${Math.round(this.fps)}`,
                 `${t(language, "debug_mode")} ${t(language, this.modeName === "creative" ? "mode_creative" : "mode_spectator")}`,
                 `${t(language, "debug_world")} ${this.meta.name}`,
                 `${t(language, "debug_seed")} ${this.meta.seed ?? 0}`,

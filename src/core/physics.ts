@@ -13,6 +13,8 @@ export interface PhysicsBody {
     readonly centerOffsetX?: number;
     /** 碰撞箱中心相对锚点 (x, y) 的竖直偏移（方块）。 */
     readonly centerOffsetY?: number;
+    /** 无碰撞（如旁观/幽灵）：跳过与世界实心方块的碰撞，直接积分位置。 */
+    readonly noclip?: boolean;
 }
 
 /**
@@ -37,6 +39,14 @@ export function moveBody(body: PhysicsBody, world: World, dt: number): void {
     const right = () => body.x + cx + body.halfWidth;
     const bottom = () => body.y + cy - body.height / 2;
     const top = () => body.y + cy + body.height / 2;
+
+    // 无碰撞（旁观/幽灵）：不检测世界实心方块，直接积分位置，称为「无物理碰撞箱」。
+    if (body.noclip) {
+        body.x += body.velocityX * dt;
+        body.y += body.velocityY * dt;
+        body.onGround = false;
+        return;
+    }
 
     const dx = body.velocityX * dt;
     const stepsX = Math.max(1, Math.ceil(Math.abs(dx) / MAX_SUBSTEP));

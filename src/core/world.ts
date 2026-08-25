@@ -462,6 +462,13 @@ export class World {
         if (!chunk) return null;
         chunk.setBlock(x - chunk.start, y, 0);
         this.blockNbt.delete(World.cell(x, y));
+        // 级联破坏：若正上方方块是地物（花/草/仙人掌），其支撑已消失，一同破坏（递归向上）。
+        // 只级联 feature 方块，普通方块/树干/树叶不随之掉落。
+        const above = this.getBlockId(x, y + 1);
+        if (above) {
+            const def = blockRegistry.get(above);
+            if (def?.feature) this.breakBlock(x, y + 1);
+        }
         this.markEdited(Math.floor(x / CHUNK_SIZE));
         return block;
     }

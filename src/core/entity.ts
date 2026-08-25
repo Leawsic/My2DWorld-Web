@@ -300,6 +300,15 @@ export class Mob implements PhysicsBody {
         return {width: union.halfWidth * 2, height: union.height};
     }
 
+    /** 挤压箱并集包围盒中心相对锚点的水平偏移（方块）。 */
+    get squeezeCenterOffsetX(): number {
+        return this.squeezeFacingUnion().centerX ?? 0;
+    }
+    /** 挤压箱并集包围盒中心相对锚点的竖直偏移（方块）。 */
+    get squeezeCenterOffsetY(): number {
+        return this.squeezeFacingUnion().centerY ?? 0;
+    }
+
     update(dt: number, world: World, player: Player, onPlayerDamage: (amount: number) => void, aggroRange = DEFAULT_AGGRO_RANGE): void {
         const seconds = Math.min(dt, 0.05);
         this.hurtTimer = Math.max(0, this.hurtTimer - seconds);
@@ -313,9 +322,11 @@ export class Mob implements PhysicsBody {
         const dy = player.y + player.height / 2 - this.centerY;
         const sameLevel = Math.abs(dy) < SAME_LEVEL_TOLERANCE;
 
-        const targetState: MobState = config.hostile
-            ? distX <= config.hitRange && sameLevel ? "attack" : distX <= aggroRange && sameLevel ? "walk" : "idle"
-            : Math.sin((this.animationTime + this.x * 0.13) * 0.8) > 0.45 ? "walk" : "idle";
+        const targetState: MobState = player.ghost && config.hostile
+            ? "idle"
+            : config.hostile
+                ? distX <= config.hitRange && sameLevel ? "attack" : distX <= aggroRange && sameLevel ? "walk" : "idle"
+                : Math.sin((this.animationTime + this.x * 0.13) * 0.8) > 0.45 ? "walk" : "idle";
         if (targetState !== this.state) {
             this.state = targetState;
             this.stateTime = 0;
@@ -420,15 +431,16 @@ export class Mob implements PhysicsBody {
 
     /** 碰撞箱是否与实心方块重叠（非实心的植物等不算）。
      *  格子坐标 = 方块顶面（cell [c-1, c)），因此接触到的格子从 floor(边缘)+1 到
-     *  ceil(边缘)；站立时脚底 0.001 的留边正好落在空气格，不会误判地面。
-     *  旧实现只查「完全包含在箱体内的格子」，小生物或压线重叠会漏判窒息伤害。 */
+     *  floor(边缘)：只有「真正侵入」实心方块的那一格才计入，紧贴墙体（0.001 留边）
+     *  不误判为窒息；站立时脚底 0.001 的留边正好落在空气格，不会误判地面。
+     *  旧实现用 ceil(边缘) 作右/上界，紧贴右侧墙/上方天花板会误判为窒息。 */
     private overlapsSolid(world: World): boolean {
         const left = this.x + this.centerOffsetX - this.halfWidth;
         const right = this.x + this.centerOffsetX + this.halfWidth;
         const bottom = this.y + this.centerOffsetY - this.height / 2;
         const top = this.y + this.centerOffsetY + this.height / 2;
-        for (let x = Math.floor(left) + 1; x <= Math.ceil(right); x += 1) {
-            for (let y = Math.floor(bottom) + 1; y <= Math.ceil(top); y += 1) {
+        for (let x = Math.floor(left) + 1; x <= Math.floor(right); x += 1) {
+            for (let y = Math.floor(bottom) + 1; y <= Math.floor(top); y += 1) {
                 if (world.isSolid(x, y)) return true;
             }
         }
@@ -534,7 +546,8 @@ export class MobManager {
             if (structuresNear(xi, this.seed, 0)) continue;
             if (world.isSolid(xi, surface + 1)) continue;
             const mob = new Mob(roll.kind, xi, surface + 1);
-            if (mob.hitboxRight >= player.x - player.halfWidth && mob.hitboxLeft <= player.x + player.halfWidth
+            // 幽灵/旁观时玩家无物理碰撞箱，不阻止生物在玩家处生成。
+            if (!player.ghost && mob.hitboxRight >= player.x - player.halfWidth && mob.hitboxLeft <= player.x + player.halfWidth
                 && mob.hitboxTop > player.y && mob.hitboxBottom < player.y + player.height) continue;
             this.mobs.set(chunkX, mob);
         }
@@ -575,12 +588,14 @@ export class MobManager {
      * - 玩家挤压怪物按 playerDamageScale 缩放并推开；亡灵生物挤压玩家附带 5s 缓慢。
      */
     /** 玩家是否正主动朝该生物方向移动（推着它）。与 resolvePlayerMob 的 pushing 判定一致：
-     *  按穿透较深的那一轴取方向，玩家该轴速度非零且朝该生物移动即为「推」。 */
+     *  按穿透较深的那一轴取方向，玩家该轴速度非零且朝该生物移动即为「推」。
+     *  用挤压箱几何（玩家挤压箱 × 生物挤压箱并集）判定，与 squeezeEntities 的伤害
+     *  重叠检测一致：只有在玩家挤压箱与生物挤压箱真正重叠时才考虑推动，避免误判。 */
     private playerIsPushing(mob: Mob, player: Player): boolean {
-        const dx = mob.centerX - player.x;
-        const dy = mob.centerY - (player.y + player.height / 2);
-        const penX = player.halfWidth + mob.halfWidth - Math.abs(dx);
-        const penY = (player.height + mob.height) / 2 - Math.abs(dy);
+        const dx = mob.squeezeCenterOffsetX + mob.x - player.x;
+        const dy = mob.squeezeCenterOffsetY + mob.y - (player.y + player.height / 2);
+        const penX = PLAYER_SQUEEZE_HALF_WIDTH + mob.squeezeSize.width / 2 - Math.abs(dx);
+        const penY = (PLAYER_SQUEEZE_HEIGHT + mob.squeezeSize.height) / 2 - Math.abs(dy);
         if (penX <= 0 || penY <= 0) return false;
         const axis = penX <= penY ? "x" : "y";
         const dir = (axis === "x" ? dx : dy) >= 0 ? 1 : -1;
@@ -643,8 +658,9 @@ export class MobManager {
             return hit ? {penX, penY} : null;
         };
 
-        // 玩家 × 生物（用各自的挤压箱判定重叠）
-        for (const mob of mobs) {
+        // 玩家 × 生物（用各自的挤压箱判定重叠）。旁观/幽灵时玩家无碰撞箱与挤压箱，
+        // 既不挤压生物也不被生物挤压（否则不可见的幽灵会在生物间乱触发伤害）。
+        if (!player.ghost) for (const mob of mobs) {
             // 玩家正朝该生物方向移动（推着它跑）时，这是「推」而不是「挤」：
             // 保持接触并交给 separateBodies 推开，但双方都不结算挤压伤害，
             // 否则推僵尸等窄挤压箱生物时会被误伤（即使挤压箱看起来没重叠也会扣血）。

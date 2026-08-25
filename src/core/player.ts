@@ -36,6 +36,12 @@ export class Player implements PhysicsBody {
     facing = 1;
     /** 缓慢效果剩余时间（秒）：>0 时移动/飞行速度 -20%（亡灵生物挤压附带）。 */
     slowTimer = 0;
+    /** 幽灵标志：旁观模式 / 灵魂出窍时实体不吸引仇恨、不受伤、不被物理挤压。 */
+    ghost = false;
+    /** 无碰撞：随 ghost 同步（旁观/灵魂出窍时无物理碰撞箱，直接穿越方块）。 */
+    get noclip(): boolean {
+        return this.ghost;
+    }
     private jumpWasDown = false;
     private doubleSpaceTimer = 0;
     private animationTime = 0;
