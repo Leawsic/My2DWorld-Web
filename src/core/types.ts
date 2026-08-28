@@ -18,6 +18,21 @@ export interface WorldMeta {
     seed?: number;
 }
 
+/** 存档中的单个生物状态（生物持久化用，kind 为实体注册 id）。 */
+export interface SavedMob {
+    kind: string;
+    x: number;
+    y: number;
+    /** 当前生命值。 */
+    hp: number;
+    /** 面朝方向：1=right，-1=left。 */
+    facing: -1 | 1;
+    /** 由 /summon 召唤的生物（不随距离消失），缺省为区块生成生物。 */
+    summoned?: boolean;
+    /** 区块生成生物所属区块 x（保持与生成决定论一致），召唤生物无此字段。 */
+    chunkX?: number;
+}
+
 export interface WorldSave {
     playerX: number;
     playerY: number;
@@ -31,6 +46,8 @@ export interface WorldSave {
     inventorySlots?: (string | null)[];
     /** 物品栏（快捷栏 9 格）内容，保存放置顺序；缺省时使用默认填充。 */
     hotbar?: (string | null)[];
+    /** 活着的生物状态；缺省时按区块生成决定论重新生成。 */
+    mobs?: SavedMob[];
     idTable: string[];
     chunks: Record<string, string>;
     /** 每格方块的覆盖 NBT（cell "x,y" -> JSON 字符串）。 */

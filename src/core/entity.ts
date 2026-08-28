@@ -1,4 +1,5 @@
 import {biomeAt, CHUNK_SIZE, WORLD_MIN_Y, type World} from "./world";
+import type {SavedMob} from "./types";
 import {PLAYER_SQUEEZE_HALF_WIDTH, PLAYER_SQUEEZE_HEIGHT, type Player} from "./player";
 import {moveBody, resolveEntityCollision, type PhysicsBody} from "./physics";
 import {mulberry32} from "./noise";
@@ -481,6 +482,44 @@ export class MobManager {
         const mob = new Mob(kind, x, y);
         this.summoned.push(mob);
         return mob;
+    }
+
+    /** 把当前所有活着的生物序列化为存档条目（区块生物记录所属区块，召唤生物记录 summoned 标记）。 */
+    serialize(): SavedMob[] {
+        const saved: SavedMob[] = [];
+        for (const [chunkX, mob] of this.mobs) {
+            if (!mob.alive) continue;
+            saved.push({kind: mob.kind, x: mob.x, y: mob.y, hp: mob.hp, facing: mob.facing < 0 ? -1 : 1, chunkX});
+        }
+        for (const mob of this.summoned) {
+            if (!mob.alive) continue;
+            saved.push({kind: mob.kind, x: mob.x, y: mob.y, hp: mob.hp, facing: mob.facing < 0 ? -1 : 1, summoned: true});
+        }
+        return saved;
+    }
+
+    /** 从存档恢复生物（缺省/损坏条目会被安全跳过）。 */
+    restore(saved: SavedMob[] | undefined): void {
+        if (!Array.isArray(saved)) return;
+        for (const data of saved) {
+            if (!data || typeof data.kind !== "string" || !(data.kind in MOB_KINDS)) continue;
+            const kind = data.kind as MobKind;
+            const x = Number.isFinite(data.x) ? data.x : 0;
+            const y = Number.isFinite(data.y) ? data.y : 0;
+            const mob = new Mob(kind, x, y);
+            mob.hp = Number.isFinite(data.hp) && (data.hp as number) > 0
+                ? Math.min((data.hp as number), MOB_KINDS[kind].hp)
+                : MOB_KINDS[kind].hp;
+            mob.facing = data.facing === -1 ? -1 : 1;
+            if (data.summoned) {
+                this.summoned.push(mob);
+            } else {
+                const chunkX = typeof data.chunkX === "number" && Number.isFinite(data.chunkX)
+                    ? Math.floor(data.chunkX)
+                    : Math.floor(x / CHUNK_SIZE);
+                this.mobs.set(chunkX, mob);
+            }
+        }
     }
 
     /** Re-reads hitbox config for all living mobs (used after /reload hitboxes). */

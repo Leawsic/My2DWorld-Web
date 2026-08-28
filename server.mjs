@@ -157,6 +157,7 @@ const api = async (req, res) => {
                 idTable: Array.isArray(data.idTable) ? data.idTable : [],
                 inventorySlots: Array.isArray(data.inventorySlots) ? data.inventorySlots : [],
                 hotbar: Array.isArray(data.hotbar) ? data.hotbar : [],
+                mobs: Array.isArray(data.mobs) ? data.mobs.filter((mob) => mob && typeof mob === "object" && typeof mob.kind === "string") : [],
                 nbt: data.nbt && typeof data.nbt === "object" ? data.nbt : {}
             }, null, 2));
             if (data.chunks && typeof data.chunks === "object") {

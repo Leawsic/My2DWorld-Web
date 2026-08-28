@@ -184,6 +184,12 @@ const mobName = (kind: MobKind): string => {
     return names ? text(names[0], names[1]) : kind;
 };
 
+/** 生物悬停名牌：显示名 + 当前血量/最大血量。 */
+const mobHealthText = (kind: MobKind, hp: number): string => {
+    const max = MOB_KINDS[kind].hp;
+    return `${mobName(kind)} ${Math.max(0, Math.ceil(hp))}/${max}`;
+};
+
 /** Scale an "#rrggbb" colour by a brightness factor. */
 function shadeColor(hex: string, factor: number): string {
     const n = Number.parseInt(hex.slice(1), 16);
@@ -359,6 +365,7 @@ class GameSession {
         const y = this.initialSave?.playerY ?? this.world.getSurfaceHeight(x) + 0.001;
         this.world.updateView(x);
         this.world.restore(this.initialSave);
+        this.mobs.restore(this.initialSave?.mobs);
         plugins.notifyWorldCreated(this.world);
         this.player = new Player(x, y, meta.physics);
         if (this.initialSave?.mode) this.modeName = this.initialSave.mode;
@@ -2038,6 +2045,7 @@ class GameSession {
             ...(this.spawnPoint ? {spawnX: this.spawnPoint.x, spawnY: this.spawnPoint.y, spawnFacing: this.spawnPoint.facing} : {}),
             inventorySlots: this.inventorySlots,
             hotbar: this.hotbar,
+            mobs: this.mobs.serialize(),
             idTable: changes.idTable,
             chunks: changes.chunks,
             nbt: changes.nbt,
@@ -2230,6 +2238,26 @@ class GameSession {
                 ctx.strokeStyle = "rgba(255,90,70,.95)";
                 ctx.lineWidth = 2;
                 ctx.strokeRect(sx - 1.5, sy - 1.5, sw + 3, sh + 3);
+                const label = mobHealthText(touched.mob.kind, touched.mob.hp);
+                ctx.font = "600 13px ui-monospace";
+                const padX = 8, padY = 5;
+                const textW = ctx.measureText(label).width;
+                const boxW = textW + padX * 2;
+                const boxH = 15 + padY * 2;
+                let lx = sx + sw / 2 - boxW / 2;
+                let ly = sy - boxH - 6;
+                if (lx < 4) lx = 4;
+                if (lx + boxW > width - 4) lx = width - 4 - boxW;
+                if (ly < 4) ly = sy + sh + 6;
+                ctx.fillStyle = "rgba(9,17,24,.92)";
+                ctx.fillRect(lx, ly, boxW, boxH);
+                ctx.strokeStyle = "#ff5a46";
+                ctx.lineWidth = 1;
+                ctx.strokeRect(lx + 0.5, ly + 0.5, boxW - 1, boxH - 1);
+                ctx.fillStyle = "#f8f4e7";
+                ctx.textBaseline = "middle";
+                ctx.fillText(label, lx + padX, ly + boxH / 2 + 0.5);
+                ctx.textBaseline = "alphabetic";
             }
         }
         if (this.spectate) {
@@ -2426,6 +2454,11 @@ class GameSession {
                 const image = type ? this.iconFor(type) : undefined;
                 if (image && (!("naturalWidth" in image) || (image.complete && image.naturalWidth))) ctx.drawImage(image, x + 7, height - 53, 28, 28);
             });
+            if (!this.paused && !this.chatOpen) {
+                const hoveredIndex = this.hotbarSlotAt(this.lastMouseX, this.lastMouseY);
+                const hoveredType = hoveredIndex >= 0 ? this.hotbar[hoveredIndex] : null;
+                if (hoveredType) this.drawItemTooltip(ctx, this.blockName(hoveredType));
+            }
         }
         if (this.debug) {
             ctx.fillStyle = "#102229";
@@ -2584,28 +2617,30 @@ class GameSession {
         if (hovered) {
             const slots = hovered.kind === "hotbar" ? this.hotbar : this.inventorySlots;
             const type = slots[hovered.index];
-            if (type) {
-                const label = this.blockName(type);
-                ctx.font = "13px ui-monospace";
-                const padX = 8, padY = 6;
-                const textW = ctx.measureText(label).width;
-                const boxW = textW + padX * 2;
-                const boxH = 13 + padY * 2;
-                let tx = this.lastMouseX + 16;
-                let ty = this.lastMouseY + 16;
-                if (tx + boxW > window.innerWidth) tx = this.lastMouseX - boxW - 8;
-                if (ty + boxH > window.innerHeight) ty = this.lastMouseY - boxH - 8;
-                ctx.fillStyle = "rgba(9,17,24,.94)";
-                ctx.fillRect(tx, ty, boxW, boxH);
-                ctx.strokeStyle = "#e2bc68";
-                ctx.lineWidth = 1;
-                ctx.strokeRect(tx + 0.5, ty + 0.5, boxW - 1, boxH - 1);
-                ctx.fillStyle = "#f8f4e7";
-                ctx.textBaseline = "middle";
-                ctx.fillText(label, tx + padX, ty + boxH / 2 + 0.5);
-                ctx.textBaseline = "alphabetic";
-            }
+            if (type) this.drawItemTooltip(ctx, this.blockName(type));
         }
+    }
+
+    /** 鼠标旁的名牌提示框（物品栏与快捷栏共用）。 */
+    private drawItemTooltip(ctx: CanvasRenderingContext2D, label: string): void {
+        ctx.font = "13px ui-monospace";
+        const padX = 8, padY = 6;
+        const textW = ctx.measureText(label).width;
+        const boxW = textW + padX * 2;
+        const boxH = 13 + padY * 2;
+        let tx = this.lastMouseX + 16;
+        let ty = this.lastMouseY + 16;
+        if (tx + boxW > window.innerWidth) tx = this.lastMouseX - boxW - 8;
+        if (ty + boxH > window.innerHeight) ty = this.lastMouseY - boxH - 8;
+        ctx.fillStyle = "rgba(9,17,24,.94)";
+        ctx.fillRect(tx, ty, boxW, boxH);
+        ctx.strokeStyle = "#e2bc68";
+        ctx.lineWidth = 1;
+        ctx.strokeRect(tx + 0.5, ty + 0.5, boxW - 1, boxH - 1);
+        ctx.fillStyle = "#f8f4e7";
+        ctx.textBaseline = "middle";
+        ctx.fillText(label, tx + padX, ty + boxH / 2 + 0.5);
+        ctx.textBaseline = "alphabetic";
     }
 
     private renderMenu(ctx: CanvasRenderingContext2D, width: number, height: number): void {
