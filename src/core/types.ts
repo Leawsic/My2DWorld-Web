@@ -33,6 +33,28 @@ export interface SavedMob {
     chunkX?: number;
 }
 
+/** 物品堆叠：一个格子内同 id 物品的数量（1..上限，上限由游戏逻辑决定）。 */
+export interface ItemStack {
+    id: string;
+    count: number;
+}
+
+/** 存档格子：旧版只有方块 id 字符串，新版为 {id, count} 堆叠。 */
+export type ItemStackSlot = ItemStack | string | null;
+
+/** 单格堆叠上限。 */
+export const MAX_STACK_SIZE = 64;
+
+/** 存档中的掉落物实体。 */
+export interface SavedDroppedItem {
+    id: string;
+    count: number;
+    x: number;
+    y: number;
+    velocityX?: number;
+    velocityY?: number;
+}
+
 export interface WorldSave {
     playerX: number;
     playerY: number;
@@ -42,12 +64,14 @@ export interface WorldSave {
     spawnY?: number;
     /** 重生面朝方向：1=right，-1=left（缺省保持死亡前朝向）。 */
     spawnFacing?: -1 | 1;
-    /** 创造背包主网格（3×9=27 格）内容，保存放置顺序；缺省时使用默认填充。 */
-    inventorySlots?: (string | null)[];
-    /** 物品栏（快捷栏 9 格）内容，保存放置顺序；缺省时使用默认填充。 */
-    hotbar?: (string | null)[];
+    /** 创造背包主网格（3×9=27 格）内容；缺省时背包为空。 */
+    inventorySlots?: ItemStackSlot[];
+    /** 物品栏（快捷栏 9 格）内容；缺省时物品栏为空。 */
+    hotbar?: ItemStackSlot[];
     /** 活着的生物状态；缺省时按区块生成决定论重新生成。 */
     mobs?: SavedMob[];
+    /** 世界中的掉落物实体；缺省时为空。 */
+    droppedItems?: SavedDroppedItem[];
     idTable: string[];
     chunks: Record<string, string>;
     /** 每格方块的覆盖 NBT（cell "x,y" -> JSON 字符串）。 */

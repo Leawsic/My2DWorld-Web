@@ -158,6 +158,7 @@ const api = async (req, res) => {
                 inventorySlots: Array.isArray(data.inventorySlots) ? data.inventorySlots : [],
                 hotbar: Array.isArray(data.hotbar) ? data.hotbar : [],
                 mobs: Array.isArray(data.mobs) ? data.mobs.filter((mob) => mob && typeof mob === "object" && typeof mob.kind === "string") : [],
+                droppedItems: Array.isArray(data.droppedItems) ? data.droppedItems.filter((item) => item && typeof item === "object" && typeof item.id === "string") : [],
                 nbt: data.nbt && typeof data.nbt === "object" ? data.nbt : {}
             }, null, 2));
             if (data.chunks && typeof data.chunks === "object") {

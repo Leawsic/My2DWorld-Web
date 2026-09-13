@@ -7,10 +7,14 @@ import {clampSpectateOffset} from "./core/spectate";
 import {ParticleSystem} from "./core/particles";
 import {characterParticleTexture, preloadCharacterAnimations, reloadCharacterAnimations, reloadCharacterImages, renderCharacter} from "./core/skeleton";
 import {loadHitboxes} from "./core/hitboxes";
+import {DroppedItemManager, DROP_PICKUP_RADIUS} from "./core/itemdrop";
 import {loadSqueeze} from "./core/squeeze";
 import {
     DEFAULT_SETTINGS,
+    MAX_STACK_SIZE,
     type GameModeName,
+    type ItemStack,
+    type ItemStackSlot,
     type KeyBindings,
     type Language,
     type PlayerSettings,
@@ -36,7 +40,7 @@ const PLAYER_SQUEEZE_IFRAME = 1;
 const UNDEAD_SLOW_SECONDS = 5;
 
 /** 命令补全与语法高亮共用的命令表。 */
-const CHAT_COMMANDS = ["gamemode", "speed", "movespeed", "debug", "seed", "locate", "tp", "summon", "structure", "reload", "aggro", "clearchat", "spawnpoint"];
+const CHAT_COMMANDS = ["gamemode", "speed", "movespeed", "debug", "seed", "locate", "tp", "summon", "structure", "reload", "aggro", "clearchat", "spawnpoint", "give"];
 const CHAT_ARG_SUGGESTIONS: Record<string, string[]> = {
     gamemode: ["creative", "spectator"],
     debug: ["on", "off", "true", "false"],
@@ -48,7 +52,7 @@ const CHAT_ARG_SUGGESTIONS: Record<string, string[]> = {
 };
 
 /** 补全命令后自动补一个空格（还有后续参数）。 */
-const COMMANDS_WITH_ARGS = ["/gamemode", "/debug", "/locate", "/tp", "/summon", "/reload", "/structure", "/aggro", "/spawnpoint"];
+const COMMANDS_WITH_ARGS = ["/gamemode", "/debug", "/locate", "/tp", "/summon", "/reload", "/structure", "/aggro", "/spawnpoint", "/give"];
 
 /** Region placed by the two-phase /structure export|load flow before confirm. */
 interface StructurePending {
@@ -142,6 +146,16 @@ const CREATIVE_INVENTORY_GUI = {
 } as const;
 const INVENTORY_SLOT_COUNT = CREATIVE_INVENTORY_GUI.gridColumns * CREATIVE_INVENTORY_GUI.gridRows;
 const HOTBAR_SLOT_COUNT = 9;
+
+/** 兼容旧版存档（纯 id 字符串）与新版堆叠（{id, count}），并夹紧数量到合法范围。 */
+const normalizeStack = (value: ItemStackSlot | undefined, maxStack: number): ItemStack | null => {
+    if (typeof value === "string") return value ? {id: value, count: 1} : null;
+    if (value && typeof value.id === "string") {
+        const count = Number.isFinite(value.count) ? Math.min(maxStack, Math.max(1, Math.floor(value.count))) : 1;
+        return {id: value.id, count};
+    }
+    return null;
+};
 
 function toggleLanguage(): void {
     language = language === "zh" ? "en" : "zh";
@@ -295,24 +309,9 @@ class GameSession {
     private last = performance.now();
     private frame = 0;
     private autosaveElapsed = 0;
-    private hotbar: Array<string | null> = [
-        Blocks.MY2DWORLD.GRASS_BLOCK, Blocks.MY2DWORLD.DIRT, Blocks.MY2DWORLD.STONE,
-        Blocks.MY2DWORLD.OAK_LOG, Blocks.MY2DWORLD.OAK_LEAVES, Blocks.MY2DWORLD.SHORT_GRASS,
-        Blocks.MY2DWORLD.POPPY, Blocks.MY2DWORLD.SAND, Blocks.MY2DWORLD.SNOW,
-    ].map((block) => block.id).slice(0, HOTBAR_SLOT_COUNT);
-    // 主网格仅 3×9=27 格。多出的第 28 项（曾是仙人掌）会画到第 4 行，正好叠在下方物品栏第一格上，
-    // 表现为「HUD 第一格为空，打开背包后却出现不明绿色物体」。
-    private inventorySlots: Array<string | null> = [
-        Blocks.MY2DWORLD.DIAMOND_BLOCK, Blocks.MY2DWORLD.COAL_ORE, Blocks.MY2DWORLD.IRON_ORE,
-        Blocks.MY2DWORLD.GOLD_ORE, Blocks.MY2DWORLD.DIAMOND_ORE, Blocks.MY2DWORLD.EMERALD_ORE,
-        Blocks.MY2DWORLD.LAPIS_ORE, Blocks.MY2DWORLD.REDSTONE_ORE, Blocks.MY2DWORLD.COPPER_ORE,
-        Blocks.MY2DWORLD.BEDROCK, Blocks.MY2DWORLD.DEEPSLATE, Blocks.MY2DWORLD.DEEPSLATE_COAL_ORE,
-        Blocks.MY2DWORLD.DEEPSLATE_IRON_ORE, Blocks.MY2DWORLD.DEEPSLATE_GOLD_ORE, Blocks.MY2DWORLD.DEEPSLATE_DIAMOND_ORE,
-        Blocks.MY2DWORLD.DEEPSLATE_EMERALD_ORE, Blocks.MY2DWORLD.DEEPSLATE_LAPIS_ORE, Blocks.MY2DWORLD.DEEPSLATE_REDSTONE_ORE,
-        Blocks.MY2DWORLD.DEEPSLATE_COPPER_ORE, Blocks.MY2DWORLD.RAW_IRON_BLOCK, Blocks.MY2DWORLD.RAW_GOLD_BLOCK,
-        Blocks.MY2DWORLD.NETHER_QUARTZ_ORE, Blocks.MY2DWORLD.NETHER_GOLD_ORE, Blocks.MY2DWORLD.IRON_BARS,
-        Blocks.MY2DWORLD.IRON_CHAIN, Blocks.MY2DWORLD.MOSSY_COBBLESTONE, Blocks.MY2DWORLD.DANDELION,
-    ].map((block) => block.id).slice(0, INVENTORY_SLOT_COUNT);
+    /** 快捷栏与背包格子：null 为空，否则为 {id, count} 堆叠；游戏开始时玩家身上为空。 */
+    private hotbar: Array<ItemStack | null> = new Array(HOTBAR_SLOT_COUNT).fill(null);
+    private inventorySlots: Array<ItemStack | null> = new Array(INVENTORY_SLOT_COUNT).fill(null);
     private selected = 0;
     private health = 20;
     private voidDamageTimer = 0;
@@ -329,7 +328,7 @@ class GameSession {
     /** 正在拖动的 RGB 滑块（目标颜色 + 通道）。 */
     private colorDrag: {target: "hitbox" | "squeeze"; channel: "r" | "g" | "b"} | null = null;
     private inventoryOpen = false;
-    private heldInventoryItem: string | null = null;
+    private heldInventoryItem: ItemStack | null = null;
     private bindingCapture: keyof KeyBindings | null = null;
     private readonly blockImages = new Map<string, HTMLImageElement | HTMLCanvasElement>();
     private readonly biomeImages = new Map<string, HTMLCanvasElement>();
@@ -337,6 +336,7 @@ class GameSession {
     private fps = 60;
     private readonly biomeAtCache = new Map<number, Biome>();
     private readonly mobs: MobManager;
+    private readonly drops = new DroppedItemManager();
     private readonly fx = new ParticleSystem();
     private readonly inventoryBackground = this.loadImage("/assets/gui/creative_inventory/tab_inventory.png");
     private placement: [number, number] | null = null;
@@ -366,21 +366,22 @@ class GameSession {
         this.world.updateView(x);
         this.world.restore(this.initialSave);
         this.mobs.restore(this.initialSave?.mobs);
+        this.drops.restore(this.initialSave?.droppedItems);
         plugins.notifyWorldCreated(this.world);
         this.player = new Player(x, y, meta.physics);
         if (this.initialSave?.mode) this.modeName = this.initialSave.mode;
         if (this.initialSave?.spawnX !== undefined && this.initialSave?.spawnY !== undefined) {
             this.spawnPoint = {x: this.initialSave.spawnX, y: this.initialSave.spawnY, facing: this.initialSave.spawnFacing};
         }
-        // 恢复背包/物品栏：按保存顺序逐格填回，保存短于默认长度时保留默认项。
+        // 恢复背包/物品栏：新世界（无存档）保持为空；有存档则逐格恢复（兼容旧版纯 id 字符串）。
         if (this.initialSave?.hotbar) {
             for (let i = 0; i < this.hotbar.length && i < this.initialSave.hotbar.length; i += 1) {
-                this.hotbar[i] = this.initialSave.hotbar[i] ?? null;
+                this.hotbar[i] = normalizeStack(this.initialSave.hotbar[i], MAX_STACK_SIZE);
             }
         }
         if (this.initialSave?.inventorySlots) {
             for (let i = 0; i < this.inventorySlots.length && i < this.initialSave.inventorySlots.length; i += 1) {
-                this.inventorySlots[i] = this.initialSave.inventorySlots[i] ?? null;
+                this.inventorySlots[i] = normalizeStack(this.initialSave.inventorySlots[i], MAX_STACK_SIZE);
             }
         }
         this.mode = createMode(this.modeName);
@@ -460,6 +461,12 @@ class GameSession {
             }
             if (this.inventoryOpen) {
                 if (event.key === "Escape") this.toggleInventory();
+                else if (event.code === "KeyQ") this.destroyHoveredItem();
+                event.preventDefault();
+                return;
+            }
+            if (event.code === "KeyQ") {
+                if (!this.menu && this.modeName === GameModes.CREATIVE.id && !this.spectate) this.dropSelectedItem();
                 event.preventDefault();
                 return;
             }
@@ -564,6 +571,11 @@ class GameSession {
             }
             if (this.menu) {
                 if (event.button === 0) this.handleMenuClick(event.clientX, event.clientY);
+                return;
+            }
+            if (event.button === 1) {
+                if (this.modeName === GameModes.CREATIVE.id && !this.spectate) this.pickBlock();
+                event.preventDefault();
                 return;
             }
             if (event.button === 0) {
@@ -688,6 +700,7 @@ class GameSession {
 
     private getPlacementTarget(): [number, number] | null {
         if (this.modeName !== "creative") return null;
+        if (!this.hotbar[this.selected]) return null;
         const [x, y] = this.worldAtMouse();
         const cellX = Math.floor(x);
         const cellY = Math.ceil(y);
@@ -704,7 +717,7 @@ class GameSession {
         if (target[1] < WORLD_MIN_Y || target[1] > WORLD_MAX_Y) return null;
         if (this.world.isSolid(target[0], target[1])) return null;
         const placing = this.hotbar[this.selected];
-        if (placing && blockRegistry.get(placing)?.feature && !this.world.hasSupport(target[0], target[1])) return null;
+        if (placing && blockRegistry.get(placing.id)?.feature && !this.world.hasSupport(target[0], target[1])) return null;
         if (this.mobs.occupies(target[0], target[1])) return null;
         if (!this.inReach(target[0] + 0.5, target[1] - 0.5)) return null;
         const left = this.player.x - 0.25;
@@ -1040,6 +1053,17 @@ class GameSession {
         } else if (command === "tp" && Number.isFinite(Number(parts[1]))) {
             const x = Math.floor(Number(parts[1])) + 0.5;
             this.teleportTo(x, Number.isFinite(Number(parts[2])) ? Number(parts[2]) : undefined);
+        } else if (command === "give") {
+            const raw = (parts[1] ?? "").toLowerCase();
+            const definition = raw ? blockRegistry.get(raw) ?? plugins.blocks.get(raw) : undefined;
+            if (!definition) {
+                this.addChat(`${text("未知方块", "Unknown block")} "${parts[1] ?? ""}"`);
+            } else {
+                const count = parts.length >= 3 && Number.isFinite(Number(parts[2]))
+                    ? Math.max(1, Math.min(MAX_STACK_SIZE, Math.floor(Number(parts[2]))))
+                    : 1;
+                this.giveItems(definition.id, count);
+            }
         } else if (command === "summon") {
             const kind = (parts[1] ?? "").toLowerCase() as MobKind;
             if (!(kind in MOB_KINDS)) this.addChat(`${text("未知实体", "Unknown entity")} "${parts[1] ?? ""}". ${text("实体列表", "Entities")}: ${Object.keys(MOB_KINDS).join(", ")}`);
@@ -1375,6 +1399,12 @@ class GameSession {
         if (!parts[0]) return CHAT_COMMANDS.map((command) => `/${command}`);
         if (parts.length === 1 && !trailing) return CHAT_COMMANDS.filter((command) => command.startsWith(parts[0].toLowerCase())).map((command) => `/${command}`);
         const command = parts[0].toLowerCase();
+        // /give：按已输入的方块 id 前缀补全方块列表（含插件方块）。
+        if (command === "give") {
+            const prefix = trailing ? "" : parts.at(-1)?.toLowerCase() || "";
+            const ids = [...blockRegistry.list().map((block) => block.id), ...plugins.blocks.keys()];
+            return [...new Set(ids.filter((id): id is string => typeof id === "string"))].filter((id) => id.startsWith(prefix));
+        }
         // /tp：Tab 补全当前坐标（整数）。无参数时一次给出 "x y"，已有 x 时补 y。
         if (command === "tp") {
             const args = parts.slice(1).filter(Boolean);
@@ -1535,7 +1565,7 @@ class GameSession {
         const playerBottom = this.player.y;
         const playerTop = playerBottom + 1.9;
         if (left < placeX + 1 && right > placeX && playerBottom < placeY && playerTop > placeY - 1) return;
-        const type = this.hotbar[this.selected];
+        const type = this.hotbar[this.selected]?.id;
         if (!type) return;
         if (this.world.placeBlock(placeX, placeY, type)) {
             this.notice = text("方块已放置", "Block placed");
@@ -1589,6 +1619,8 @@ class GameSession {
                 storage.log("Fly mode changed", {world: this.meta.name, flying: this.player.flying});
             }
             this.world.updateView(this.player.x);
+            this.drops.update(dt, this.world, this.player.x, this.player.y + this.player.height / 2);
+            this.updateDroppedItemPickup();
             this.updateVoid(dt);
             this.updateSqueeze(dt);
             this.fx.update(dt);
@@ -1841,22 +1873,131 @@ class GameSession {
         this.inventoryOpen = !this.inventoryOpen;
         if (this.inventoryOpen) return;
         if (this.heldInventoryItem) {
-            const emptyIndex = this.inventorySlots.findIndex((item) => item === null);
-            if (emptyIndex >= 0) {
-                this.inventorySlots[emptyIndex] = this.heldInventoryItem;
-            } else {
-                // 快捷栏无空位时放入第一个空槽，避免覆盖当前选中项导致物品消失
-                const firstEmptyHotbar = this.hotbar.findIndex((item) => item === null);
-                if (firstEmptyHotbar >= 0) {
-                    this.hotbar[firstEmptyHotbar] = this.heldInventoryItem;
-                } else {
-                    // 极端情况仍放入当前选中位
-                    this.hotbar[this.selected] = this.heldInventoryItem;
-                }
-            }
-            this.heldInventoryItem = null;
+            this.stashHeldItem();
             this.save();
         }
+    }
+
+    /** 关闭背包时把手上堆叠归位：先并入同 id 未满格，再放入第一个空格，仍放不下则覆盖当前快捷栏格。 */
+    private stashHeldItem(): void {
+        let held = this.heldInventoryItem;
+        if (!held) return;
+        for (const slots of [this.inventorySlots, this.hotbar]) {
+            for (const slot of slots) {
+                if (!held) break;
+                if (slot && slot.id === held.id && slot.count < MAX_STACK_SIZE) {
+                    const moved = Math.min(MAX_STACK_SIZE - slot.count, held.count);
+                    slot.count += moved;
+                    held = moved >= held.count ? null : {...held, count: held.count - moved};
+                }
+            }
+        }
+        this.heldInventoryItem = held;
+        if (held) {
+            for (const slots of [this.inventorySlots, this.hotbar]) {
+                const emptyIndex = slots.findIndex((slot) => slot === null);
+                if (emptyIndex >= 0) {
+                    slots[emptyIndex] = held;
+                    this.heldInventoryItem = null;
+                    return;
+                }
+            }
+        }
+        if (held) this.hotbar[this.selected] = held;
+        this.heldInventoryItem = null;
+    }
+
+    /** 把一堆物品放进快捷栏/背包（先并入同 id 未满格，再放入空格）；返回放不下的剩余数量。 */
+    private addStack(stack: ItemStack): number {
+        let remaining = stack.count;
+        for (const slots of [this.hotbar, this.inventorySlots]) {
+            for (const slot of slots) {
+                if (remaining <= 0) break;
+                if (slot && slot.id === stack.id && slot.count < MAX_STACK_SIZE) {
+                    const moved = Math.min(MAX_STACK_SIZE - slot.count, remaining);
+                    slot.count += moved;
+                    remaining -= moved;
+                }
+            }
+        }
+        for (const slots of [this.hotbar, this.inventorySlots]) {
+            for (let i = 0; i < slots.length && remaining > 0; i += 1) {
+                if (slots[i] === null) {
+                    const count = Math.min(MAX_STACK_SIZE, remaining);
+                    slots[i] = {id: stack.id, count};
+                    remaining -= count;
+                }
+            }
+        }
+        return remaining;
+    }
+
+    /** /give <方块> [数量]：放入背包，放不下的部分作为掉落物丢在玩家脚下。 */
+    private giveItems(id: string, count: number): void {
+        const leftover = this.addStack({id, count});
+        if (leftover > 0) {
+            this.drops.spawn({id, count: leftover}, this.player.x, this.player.y + 0.5, this.player.facing * 1.2, 2);
+        }
+        this.addChat(`${text("已给予", "Gave")} ${this.blockName(id)} ×${count}`);
+        this.save();
+    }
+
+    /** 按 Q 丢弃：从选中的快捷栏格丢出 1 个物品作为掉落物实体。 */
+    private dropSelectedItem(): void {
+        const stack = this.hotbar[this.selected];
+        if (!stack) return;
+        const id = stack.id;
+        if (stack.count <= 1) this.hotbar[this.selected] = null;
+        else stack.count -= 1;
+        this.drops.spawn(
+            {id, count: 1},
+            this.player.x + this.player.facing * 0.45,
+            this.player.y + 0.6,
+            this.player.facing * 1.8,
+            3.2,
+        );
+        this.save();
+    }
+
+    /** 背包打开时按 Q：销毁鼠标悬停格子的整堆物品。 */
+    private destroyHoveredItem(): void {
+        const slot = this.inventorySlotAt(this.lastMouseX, this.lastMouseY);
+        if (!slot) return;
+        const slots = slot.kind === "hotbar" ? this.hotbar : this.inventorySlots;
+        if (slots[slot.index]) {
+            slots[slot.index] = null;
+            this.save();
+        }
+    }
+
+    /** 鼠标中键：把指向的方块复制到当前选中的快捷栏格（数量 1）。 */
+    private pickBlock(): void {
+        const target = this.pointedBlock();
+        if (!target) return;
+        const id = target[2];
+        this.hotbar[this.selected] = {id, count: 1};
+        this.notice = `${text("已选取", "Picked")} ${this.blockName(id)}`;
+        this.noticeTimer = 1.2;
+        this.save();
+    }
+
+    /** 捡起玩家附近的掉落物（范围由掉落物管理器定义），捡到的东西走 addStack 进背包。 */
+    private updateDroppedItemPickup(): void {
+        if (this.modeName !== "creative" || this.player.ghost) return;
+        let changed = false;
+        const centerY = this.player.y + this.player.height / 2;
+        for (const item of [...this.drops.itemsNear(this.player.x, centerY, DROP_PICKUP_RADIUS)]) {
+            if (item.pickupDelay > 0) continue;
+            const leftover = this.addStack(item.stack);
+            if (leftover <= 0) {
+                this.drops.remove(item);
+                changed = true;
+            } else if (leftover !== item.stack.count) {
+                item.stack.count = leftover;
+                changed = true;
+            }
+        }
+        if (changed) this.save();
     }
 
     private inventoryLayout(): {
@@ -1902,8 +2043,21 @@ class GameSession {
         if (!slot) return;
         const slots = slot.kind === "hotbar" ? this.hotbar : this.inventorySlots;
         const slotItem = slots[slot.index];
-        slots[slot.index] = this.heldInventoryItem;
-        this.heldInventoryItem = slotItem;
+        const held = this.heldInventoryItem;
+        if (!held) {
+            // 空手时拿起当前格整堆
+            this.heldInventoryItem = slotItem;
+            slots[slot.index] = null;
+        } else if (slotItem && slotItem.id === held.id) {
+            // 同 id 堆叠合并，超出上限的部分留在手上
+            const total = slotItem.count + held.count;
+            slots[slot.index] = {id: held.id, count: Math.min(MAX_STACK_SIZE, total)};
+            this.heldInventoryItem = total > MAX_STACK_SIZE ? {id: held.id, count: total - MAX_STACK_SIZE} : null;
+        } else {
+            // 不同物品交换
+            slots[slot.index] = held;
+            this.heldInventoryItem = slotItem;
+        }
         if (slot.kind === "hotbar") this.selected = slot.index;
         this.save();
         storage.log("Creative inventory slot changed", {
@@ -2046,6 +2200,7 @@ class GameSession {
             inventorySlots: this.inventorySlots,
             hotbar: this.hotbar,
             mobs: this.mobs.serialize(),
+            droppedItems: this.drops.serialize(),
             idTable: changes.idTable,
             chunks: changes.chunks,
             nbt: changes.nbt,
@@ -2126,7 +2281,7 @@ class GameSession {
             const [x, y] = this.placement;
             const sx = (x - cameraX) * this.blockSize + width / 2;
             const sy = (cameraY - y) * this.blockSize + height / 2;
-            const image = this.iconFor(this.hotbar[this.selected] ?? "");
+            const image = this.iconFor(this.hotbar[this.selected]?.id ?? "");
             if (image && (!("naturalWidth" in image) || (image.complete && image.naturalWidth))) this.drawGhost(ctx, image, sx, sy, this.blockSize, this.blockSize, settings.placementAlpha, settings.placementBrightness); else {
                 ctx.fillStyle = "rgba(255,255,255,.25)";
                 ctx.fillRect(sx, sy, this.blockSize, this.blockSize);
@@ -2216,6 +2371,23 @@ class GameSession {
                         tint: hurtT > 0 ? "#ff2d20" : undefined,
                         tintAmount: hurtT,
                     });
+                }
+            });
+        }
+        for (const item of this.drops.itemsNear(this.player.x, this.player.y + this.player.height / 2, MOB_RENDER_RADIUS)) {
+            drawables.push({
+                depth: item.centerY,
+                draw: () => {
+                    const sx = (item.x - cameraX) * this.blockSize + width / 2;
+                    const sy = (cameraY - item.centerY) * this.blockSize + height / 2;
+                    const size = Math.max(6, this.blockSize * 0.55);
+                    const image = this.iconFor(item.stack.id);
+                    if (image && (!("naturalWidth" in image) || (image.complete && image.naturalWidth))) {
+                        ctx.drawImage(image, sx - size / 2, sy - size / 2, size, size);
+                    } else {
+                        ctx.fillStyle = blockRegistry.get(item.stack.id)?.color ?? "#ffffff";
+                        ctx.fillRect(sx - size / 2, sy - size / 2, size, size);
+                    }
                 }
             });
         }
@@ -2446,18 +2618,19 @@ class GameSession {
             const barWidth = slot * this.hotbar.length;
             ctx.fillStyle = "rgba(9,17,24,.88)";
             ctx.fillRect((width - barWidth) / 2 - 8, height - 68, barWidth + 16, 56);
-            this.hotbar.forEach((type, index) => {
+            this.hotbar.forEach((stack, index) => {
                 const x = (width - barWidth) / 2 + index * slot;
                 ctx.strokeStyle = index === this.selected ? "#f2d67b" : "#52666a";
                 ctx.lineWidth = index === this.selected ? 3 : 1;
                 ctx.strokeRect(x, height - 60, 42, 42);
-                const image = type ? this.iconFor(type) : undefined;
+                const image = stack ? this.iconFor(stack.id) : undefined;
                 if (image && (!("naturalWidth" in image) || (image.complete && image.naturalWidth))) ctx.drawImage(image, x + 7, height - 53, 28, 28);
+                if (stack && stack.count > 1) this.drawStackCount(ctx, String(stack.count), x + 34, height - 25);
             });
             if (!this.paused && !this.chatOpen) {
                 const hoveredIndex = this.hotbarSlotAt(this.lastMouseX, this.lastMouseY);
-                const hoveredType = hoveredIndex >= 0 ? this.hotbar[hoveredIndex] : null;
-                if (hoveredType) this.drawItemTooltip(ctx, this.blockName(hoveredType));
+                const hoveredStack = hoveredIndex >= 0 ? this.hotbar[hoveredIndex] : null;
+                if (hoveredStack) this.drawItemTooltip(ctx, this.stackLabel(hoveredStack));
             }
         }
         if (this.debug) {
@@ -2586,38 +2759,40 @@ class GameSession {
         ctx.font = "12px ui-monospace";
         ctx.textAlign = "left";
         const hovered = this.inventorySlotAt(this.lastMouseX, this.lastMouseY);
-        const drawSlot = (slots: ReadonlyArray<string | null>, gridX: number, gridY: number, kind: "inventory" | "hotbar"): void => {
-            slots.forEach((type, index) => {
+        const drawSlot = (slots: ReadonlyArray<ItemStack | null>, gridX: number, gridY: number, kind: "inventory" | "hotbar"): void => {
+            slots.forEach((stack, index) => {
                 const x = gridX + (index % 9) * layout.slot;
                 const y = gridY + Math.floor(index / 9) * layout.slot;
                 const isHovered = hovered?.kind === kind && hovered.index === index;
                 ctx.strokeStyle = isHovered ? "#f2d67b" : "#3f5860";
                 ctx.lineWidth = isHovered ? 2 : 1;
                 ctx.strokeRect(x, y, layout.slot, layout.slot);
-                if (type) {
-                    const image = this.iconFor(type);
+                if (stack) {
+                    const image = this.iconFor(stack.id);
                     if (image && (!("naturalWidth" in image) || (image.complete && image.naturalWidth))) {
                         const inset = layout.slot * 0.2;
                         ctx.drawImage(image, x + inset, y + inset, layout.slot - inset * 2, layout.slot - inset * 2);
                     }
+                    if (stack.count > 1) this.drawStackCount(ctx, String(stack.count), x + layout.slot - 2, y + layout.slot - 2);
                 }
             });
         };
         drawSlot(this.inventorySlots, layout.gridX, layout.gridY, "inventory");
         drawSlot(this.hotbar, layout.hotbarX, layout.hotbarY, "hotbar");
         if (this.heldInventoryItem) {
-            const image = this.iconFor(this.heldInventoryItem);
+            const image = this.iconFor(this.heldInventoryItem.id);
             if (image && (!("naturalWidth" in image) || (image.complete && image.naturalWidth))) {
                 const x = this.lastMouseX - layout.slot / 2;
                 const y = this.lastMouseY - layout.slot / 2;
                 const inset = layout.slot * 0.15;
                 ctx.drawImage(image, x + inset, y + inset, layout.slot - inset * 2, layout.slot - inset * 2);
             }
+            if (this.heldInventoryItem.count > 1) this.drawStackCount(ctx, String(this.heldInventoryItem.count), this.lastMouseX + layout.slot / 2 - 2, this.lastMouseY + layout.slot / 2 - 2);
         }
         if (hovered) {
             const slots = hovered.kind === "hotbar" ? this.hotbar : this.inventorySlots;
-            const type = slots[hovered.index];
-            if (type) this.drawItemTooltip(ctx, this.blockName(type));
+            const stack = slots[hovered.index];
+            if (stack) this.drawItemTooltip(ctx, this.stackLabel(stack));
         }
     }
 
@@ -2640,6 +2815,24 @@ class GameSession {
         ctx.fillStyle = "#f8f4e7";
         ctx.textBaseline = "middle";
         ctx.fillText(label, tx + padX, ty + boxH / 2 + 0.5);
+        ctx.textBaseline = "alphabetic";
+    }
+
+    /** 物品堆叠的名称标签：数量 >1 时附加 ×N。 */
+    private stackLabel(stack: ItemStack): string {
+        return stack.count > 1 ? `${this.blockName(stack.id)} ×${stack.count}` : this.blockName(stack.id);
+    }
+
+    /** 绘制堆叠数量角标（右下角，白色带阴影）。 */
+    private drawStackCount(ctx: CanvasRenderingContext2D, label: string, rightX: number, bottomY: number): void {
+        ctx.font = "600 12px ui-monospace";
+        ctx.textAlign = "right";
+        ctx.textBaseline = "bottom";
+        ctx.fillStyle = "rgba(0,0,0,.72)";
+        ctx.fillText(label, rightX + 1, bottomY + 1);
+        ctx.fillStyle = "#ffffff";
+        ctx.fillText(label, rightX, bottomY);
+        ctx.textAlign = "left";
         ctx.textBaseline = "alphabetic";
     }
 
