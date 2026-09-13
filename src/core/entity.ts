@@ -528,6 +528,27 @@ export class MobManager {
         for (const mob of this.summoned) mob.applyHitbox();
     }
 
+    /** 直接移除匹配的生物（不触发死亡播报），用于 /kill；kind 缺省为全部。返回移除数量。 */
+    clear(kind?: MobKind): number {
+        let count = 0;
+        const matches = (mob: Mob): boolean => mob.alive && (!kind || mob.kind === kind);
+        for (const [chunkX, mob] of [...this.mobs]) {
+            if (!matches(mob)) continue;
+            mob.alive = false;
+            this.mobs.delete(chunkX);
+            this.dead.add(chunkX);
+            count += 1;
+        }
+        for (let i = this.summoned.length - 1; i >= 0; i -= 1) {
+            const mob = this.summoned[i];
+            if (!matches(mob)) continue;
+            mob.alive = false;
+            this.summoned.splice(i, 1);
+            count += 1;
+        }
+        return count;
+    }
+
     update(dt: number, world: World, player: Player, onPlayerDamage: (amount: number) => void, onMobKilled: (kind: MobKind, x: number, y: number, cause: MobDeathCause) => void, collideWithPlayer = true, onPlayerSqueezed: (damage: number, undead: boolean) => void = () => undefined): void {
         const seconds = Math.min(dt, 0.05);
         const center = Math.floor(player.x / CHUNK_SIZE);

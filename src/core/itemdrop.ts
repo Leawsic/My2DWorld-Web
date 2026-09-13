@@ -121,6 +121,13 @@ export class DroppedItemManager {
         }
     }
 
+    /** 移除全部掉落物（用于 /kill items），返回移除数量。 */
+    clear(): number {
+        const count = this.items.length;
+        this.items.length = 0;
+        return count;
+    }
+
     serialize(): SavedDroppedItem[] {
         return this.items.map((item) => ({
             id: item.stack.id,

@@ -79,3 +79,4 @@ npm run build          # tsc --noEmit && vite build（生产构建验证）
 
 ## 6. 额外补充
 - 回答问题之前若任务要求修改文件,则不能只回答问题而不修改文件
+- 增加新的指令时，要将新增的指令用法写入`/docs/zh_cn/commands_zh.md`中

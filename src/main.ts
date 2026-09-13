@@ -40,7 +40,7 @@ const PLAYER_SQUEEZE_IFRAME = 1;
 const UNDEAD_SLOW_SECONDS = 5;
 
 /** 命令补全与语法高亮共用的命令表。 */
-const CHAT_COMMANDS = ["gamemode", "speed", "movespeed", "debug", "seed", "locate", "tp", "summon", "structure", "reload", "aggro", "clearchat", "spawnpoint", "give"];
+const CHAT_COMMANDS = ["gamemode", "speed", "movespeed", "debug", "seed", "locate", "tp", "summon", "structure", "reload", "aggro", "clearchat", "spawnpoint", "give", "kill"];
 const CHAT_ARG_SUGGESTIONS: Record<string, string[]> = {
     gamemode: ["creative", "spectator"],
     debug: ["on", "off", "true", "false"],
@@ -52,7 +52,7 @@ const CHAT_ARG_SUGGESTIONS: Record<string, string[]> = {
 };
 
 /** 补全命令后自动补一个空格（还有后续参数）。 */
-const COMMANDS_WITH_ARGS = ["/gamemode", "/debug", "/locate", "/tp", "/summon", "/reload", "/structure", "/aggro", "/spawnpoint", "/give"];
+const COMMANDS_WITH_ARGS = ["/gamemode", "/debug", "/locate", "/tp", "/summon", "/reload", "/structure", "/aggro", "/spawnpoint", "/give", "/kill"];
 
 /** Region placed by the two-phase /structure export|load flow before confirm. */
 interface StructurePending {
@@ -1054,15 +1054,52 @@ class GameSession {
             const x = Math.floor(Number(parts[1])) + 0.5;
             this.teleportTo(x, Number.isFinite(Number(parts[2])) ? Number(parts[2]) : undefined);
         } else if (command === "give") {
-            const raw = (parts[1] ?? "").toLowerCase();
-            const definition = raw ? blockRegistry.get(raw) ?? plugins.blocks.get(raw) : undefined;
-            if (!definition) {
-                this.addChat(`${text("未知方块", "Unknown block")} "${parts[1] ?? ""}"`);
+            // /give [<targets>] <方块> [数量]；<targets> = @p / @a / @r / 玩家名（单机全部指向本地玩家），默认 @p
+            const first = (parts[1] ?? "").toLowerCase();
+            let target = "@p";
+            let blockArg: string;
+            let countArg: string | undefined;
+            if (first.startsWith("@") || first === username.toLowerCase()) {
+                target = first;
+                blockArg = (parts[2] ?? "").toLowerCase();
+                countArg = parts[3];
+                if (!["@p", "@a", "@r", username.toLowerCase()].includes(target)) {
+                    this.addChat(`${text("未知目标", "Unknown target")} "${first}"`);
+                    return;
+                }
             } else {
-                const count = parts.length >= 3 && Number.isFinite(Number(parts[2]))
-                    ? Math.max(1, Math.min(MAX_STACK_SIZE, Math.floor(Number(parts[2]))))
+                blockArg = first;
+                countArg = parts[2];
+            }
+            const definition = blockArg ? blockRegistry.get(blockArg) ?? plugins.blocks.get(blockArg) : undefined;
+            if (!definition) {
+                this.addChat(`${text("未知方块", "Unknown block")} "${blockArg}"`);
+            } else {
+                const count = countArg !== undefined && Number.isFinite(Number(countArg))
+                    ? Math.max(1, Math.min(MAX_STACK_SIZE, Math.floor(Number(countArg))))
                     : 1;
-                this.giveItems(definition.id, count);
+                this.giveItems(definition.id, count, target);
+            }
+        } else if (command === "kill") {
+            const target = (parts[1] ?? "@p").toLowerCase();
+            if (target === "@p" || target === "@a" || target === "@r" || target === username.toLowerCase()) {
+                this.killPlayer();
+            } else if (target === "@e") {
+                const mobs = this.mobs.clear();
+                const items = this.drops.clear();
+                this.save();
+                this.addChat(`${text("已清除", "Cleared")} ${mobs} ${text("个生物", "mobs")}, ${items} ${text("个掉落物", "items")}`);
+            } else if (target === "items" || target === "item" || target === "drops") {
+                const items = this.drops.clear();
+                this.save();
+                this.addChat(`${text("已清除", "Cleared")} ${items} ${text("个掉落物", "items")}`);
+            } else if (target in MOB_KINDS) {
+                const kind = target as MobKind;
+                const mobs = this.mobs.clear(kind);
+                this.save();
+                this.addChat(`${text("已清除", "Cleared")} ${mobs} × ${kind}`);
+            } else {
+                this.addChat(`${text("未知目标", "Unknown target")} "${parts[1] ?? ""}"`);
             }
         } else if (command === "summon") {
             const kind = (parts[1] ?? "").toLowerCase() as MobKind;
@@ -1399,11 +1436,17 @@ class GameSession {
         if (!parts[0]) return CHAT_COMMANDS.map((command) => `/${command}`);
         if (parts.length === 1 && !trailing) return CHAT_COMMANDS.filter((command) => command.startsWith(parts[0].toLowerCase())).map((command) => `/${command}`);
         const command = parts[0].toLowerCase();
-        // /give：按已输入的方块 id 前缀补全方块列表（含插件方块）。
+        // /give：目标选择器 + 方块 id 列表（含插件方块）。
         if (command === "give") {
             const prefix = trailing ? "" : parts.at(-1)?.toLowerCase() || "";
-            const ids = [...blockRegistry.list().map((block) => block.id), ...plugins.blocks.keys()];
+            const ids = ["@p", "@a", "@r", username, ...blockRegistry.list().map((block) => block.id), ...plugins.blocks.keys()];
             return [...new Set(ids.filter((id): id is string => typeof id === "string"))].filter((id) => id.startsWith(prefix));
+        }
+        // /kill：目标选择器 + 全部生物种类 + items。
+        if (command === "kill") {
+            const prefix = trailing ? "" : parts.at(-1)?.toLowerCase() || "";
+            const targets = ["@p", "@a", "@r", "@e", "items", username, ...Object.keys(MOB_KINDS)];
+            return targets.filter((target) => target.startsWith(prefix));
         }
         // /tp：Tab 补全当前坐标（整数）。无参数时一次给出 "x y"，已有 x 时补 y。
         if (command === "tp") {
@@ -1662,7 +1705,7 @@ class GameSession {
 
     /** 死亡重生：优先使用 /spawnpoint 设置的重生点，否则回落到世界出生点。
      *  未指定面朝方向时保持死亡前的朝向（reset 不会重置 facing）。 */
-    private respawn(reason: "void" | "mob"): void {
+    private respawn(reason: "void" | "mob" | "command"): void {
         const sp = this.spawnPoint;
         const x = sp ? sp.x : spawnX(this.meta.seed ?? 0);
         const y = sp ? sp.y : this.world.getSurfaceHeight(Math.floor(x)) + 0.001;
@@ -1670,7 +1713,11 @@ class GameSession {
         if (sp?.facing) this.player.facing = sp.facing;
         this.health = 20;
         this.save();
-        this.notice = reason === "void" ? text("你掉入虚空并重生了", "You fell into the void and respawned") : text("你被怪物击败并重生了", "You were slain and respawned");
+        this.notice = reason === "void"
+            ? text("你掉入虚空并重生了", "You fell into the void and respawned")
+            : reason === "command"
+                ? text("你被 /kill 杀死了", "You were killed by /kill")
+                : text("你被怪物击败并重生了", "You were slain and respawned");
         this.noticeTimer = 3;
         plugins.notifyPlayerRespawn(this.pluginContext());
         storage.log("Player respawned", {world: this.meta.name, reason});
@@ -1932,14 +1979,20 @@ class GameSession {
         return remaining;
     }
 
-    /** /give <方块> [数量]：放入背包，放不下的部分作为掉落物丢在玩家脚下。 */
-    private giveItems(id: string, count: number): void {
+    /** /give [目标] <方块> [数量]：放入背包，放不下的部分作为掉落物丢在玩家脚下。 */
+    private giveItems(id: string, count: number, target = "@p"): void {
         const leftover = this.addStack({id, count});
         if (leftover > 0) {
             this.drops.spawn({id, count: leftover}, this.player.x, this.player.y + 0.5, this.player.facing * 1.2, 2);
         }
-        this.addChat(`${text("已给予", "Gave")} ${this.blockName(id)} ×${count}`);
+        this.addChat(`${text("已给予", "Gave")} ${target} ${this.blockName(id)} ×${count}`);
         this.save();
+    }
+
+    /** /kill 玩家：立即重置为死亡重生（命令致死，创造/旁观也生效）。 */
+    private killPlayer(): void {
+        this.health = 0;
+        this.respawn("command");
     }
 
     /** 按 Q 丢弃：从选中的快捷栏格丢出 1 个物品作为掉落物实体。 */
@@ -2483,6 +2536,10 @@ class GameSession {
             for (const box of mob.boxes) {
                 drawBox(toScreenX(box.left), toScreenY(box.top), (box.right - box.left) * bs, (box.top - box.bottom) * bs, hitColor);
             }
+        }
+        // 掉落物碰撞箱（虚线；掉落物没有独立的挤压箱）
+        for (const item of this.drops.itemsNear(this.player.x, this.player.y + this.player.height / 2, MOB_RENDER_RADIUS)) {
+            drawBox(toScreenX(item.x - item.halfWidth), toScreenY(item.y + item.height), item.halfWidth * 2 * bs, item.height * bs, hitColor, true);
         }
         // 玩家挤压箱（= 身体碰撞箱小一圈，与生物挤压箱约定一致；虚线绘于其上以便同时可见；旁观/幽灵时不绘制）
         if (!this.player.ghost) {
