@@ -43,4 +43,8 @@ export class CreativeMode extends GameMode {
             cameraY,
         });
     }
+
+    renderEffects(ctx: CanvasRenderingContext2D, cameraX: number, cameraY: number, blockSize: number): void {
+        this.particles.render(ctx, cameraX, cameraY, blockSize);
+    }
 }

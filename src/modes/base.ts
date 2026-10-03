@@ -28,4 +28,8 @@ export abstract class GameMode {
 
     renderPlayer(_ctx: CanvasRenderingContext2D, _context: ModeContext, _cameraX: number, _cameraY: number): void {
     }
+
+    /** 在方块层之后、实体层之前绘制的模式特效（粒子/挖掘裂纹等）；默认无。 */
+    renderEffects(_ctx: CanvasRenderingContext2D, _cameraX: number, _cameraY: number, _blockSize: number): void {
+    }
 }

@@ -27,6 +27,20 @@ export class ParticleSystem {
         }
     }
 
+    /** 挖掘时持续掉落的小碎片：单个短寿命颗粒，向下飘落。 */
+    chip(x: number, y: number, texture?: HTMLImageElement | HTMLCanvasElement): void {
+        const life = 0.22 + Math.random() * 0.3;
+        this.particles.push({
+            x: x + Math.random() * 0.7 + 0.15,
+            y: y - 0.15 - Math.random() * 0.5,
+            vx: Math.random() * 2.4 - 1.2,
+            vy: -2 - Math.random() * 4,
+            life,
+            maxLife: life,
+            sprite: this.sample(texture)
+        });
+    }
+
     /** Wider, longer-lived burst of the target texture, used for a mob death. */
     burst(x: number, y: number, texture?: HTMLImageElement | HTMLCanvasElement, count = 18, size = 1.5): void {
         for (let i = 0; i < count; i += 1) {

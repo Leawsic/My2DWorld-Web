@@ -25,7 +25,6 @@ import {
 } from "./core/types";
 import {createMode} from "./modes";
 import type {GameMode, ModeContext} from "./modes/base";
-import {CreativeMode} from "./modes/creative";
 import {type GamePlugin, type PluginGameContext, PluginRegistry} from "./plugins/api";
 import {keyName, t} from "./i18n";
 import {Blocks, GameModes, blockRegistry} from "./registry";
@@ -2421,7 +2420,7 @@ class GameSession {
                 }
             }
         }
-        if (this.mode instanceof CreativeMode) this.mode.particles.render(ctx, cameraX, cameraY, this.blockSize);
+        this.mode.renderEffects(ctx, cameraX, cameraY, this.blockSize);
         this.fx.render(ctx, cameraX, cameraY, this.blockSize);
         const playerContext: ModeContext = {
             player: this.player,
