@@ -61,6 +61,20 @@ export class Registry<T extends RegistryObject> {
         return registered;
     }
 
+    /** 注册或覆盖一个对象（幂等，运行时从 JSON 加载方块配置时用于覆盖内置定义）。 */
+    upsert(value: T): T {
+        if (!value.id) throw new Error("Registry objects require an id");
+        if (!this.namespaced) {
+            this.values.set(value.id, value);
+            return value;
+        }
+        const [namespace, path] = this.parts(value.id, value.namespace ?? CORE_NAMESPACE);
+        const id = `${namespace}:${path}`;
+        const registered = {...value, id, namespace, path} as T;
+        this.values.set(id, registered);
+        return registered;
+    }
+
     get(id: string, defaultNamespace = CORE_NAMESPACE): T | undefined {
         if (!this.namespaced) return this.values.get(id);
         const [namespace, path] = this.parts(id, defaultNamespace);
@@ -185,4 +199,5 @@ export const Registries = {
 } as const;
 
 gameModeRegistry.register({id: "creative", label: {zh: "创造模式", en: "Creative"}});
+gameModeRegistry.register({id: "survival", label: {zh: "生存模式", en: "Survival"}});
 gameModeRegistry.register({id: "spectator", label: {zh: "旁观模式", en: "Spectator"}});

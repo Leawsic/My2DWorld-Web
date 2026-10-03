@@ -7,6 +7,8 @@ import {clampSpectateOffset} from "./core/spectate";
 import {ParticleSystem} from "./core/particles";
 import {characterParticleTexture, preloadCharacterAnimations, reloadCharacterAnimations, reloadCharacterImages, renderCharacter} from "./core/skeleton";
 import {loadHitboxes} from "./core/hitboxes";
+import {blockHitboxFor, loadBlockHitboxes} from "./core/blockHitboxes";
+import {loadBlockConfigs} from "./core/blockconfig";
 import {DroppedItemManager, DROP_PICKUP_RADIUS} from "./core/itemdrop";
 import {loadSqueeze} from "./core/squeeze";
 import {
@@ -42,7 +44,7 @@ const UNDEAD_SLOW_SECONDS = 5;
 /** 命令补全与语法高亮共用的命令表。 */
 const CHAT_COMMANDS = ["gamemode", "speed", "movespeed", "debug", "seed", "locate", "tp", "summon", "structure", "reload", "aggro", "clearchat", "spawnpoint", "give", "kill"];
 const CHAT_ARG_SUGGESTIONS: Record<string, string[]> = {
-    gamemode: ["creative", "spectator"],
+    gamemode: ["creative", "survival", "spectator"],
     debug: ["on", "off", "true", "false"],
     locate: LOCATABLE_BIOMES,
     summon: Object.keys(MOB_KINDS),
@@ -258,7 +260,7 @@ function renderLogin(message = ""): void {
 
 async function renderWorlds(message = ""): Promise<void> {
     const worlds = await storage.loadWorlds(username);
-    const rows = worlds.map((world) => `<div class="world-row"><div><b>${world.name}</b><span>${world.mode === "creative" ? text("创造模式", "Creative") : text("旁观模式", "Spectator")} · ${text("种子", "Seed")} ${world.seed ?? 0}</span></div>${button(text("进入", "Enter"), `enter:${world.id}`, "primary")}${button(text("删除", "Delete"), `delete:${world.id}`, "small")}</div>`).join("");
+    const rows = worlds.map((world) => `<div class="world-row"><div><b>${world.name}</b><span>${world.mode === "creative" ? text("创造模式", "Creative") : world.mode === "survival" ? text("生存模式", "Survival") : text("旁观模式", "Spectator")} · ${text("种子", "Seed")} ${world.seed ?? 0}</span></div>${button(text("进入", "Enter"), `enter:${world.id}`, "primary")}${button(text("删除", "Delete"), `delete:${world.id}`, "small")}</div>`).join("");
     shell(`<section class="world-screen"><header class="topbar"><div class="brand compact"><span>MY2D</span><strong>WORLD</strong></div><div class="top-actions"><span>${username}</span><button data-action="plugins">${text("插件", "Plugins")} · ${pluginReports.length}</button><button data-action="language">${language === "zh" ? "中" : "EN"}</button>${button(text("退出", "Log out"), "logout")}</div></header><div class="world-content"><div class="section-kicker">WORLD ARCHIVE / ${String(worlds.length).padStart(2, "0")}</div><h1>${text("我的世界", "My worlds")}</h1><p class="muted">${text("选择一个存档，或者从一片新的地平线开始。", "Choose a save, or start from a new horizon.")}</p><div class="world-list">${rows || `<div class="empty">${text("还没有世界。创建第一个世界。", "No worlds yet. Create your first one.")}</div>`}</div></div><div class="world-actions">${button(text("插件管理", "Plugin Manager"), "plugins")}${button(text("创建世界", "Create world"), "create-world", "primary create")}</div><div class="message">${message}</div></div></section>`);
 }
 
@@ -288,7 +290,7 @@ function renderPlugins(message = ""): void {
 
 function renderCreate(): void {
     const defaults = settings.movement;
-    shell(`<section class="create-screen"><div class="create-card"><div class="section-kicker">NEW TERRITORY / 00${Math.floor(Math.random() * 9)}</div><h1>${text("创建世界", "Create world")}</h1><label>${text("世界名称", "World name")}<input id="world-name" value="新世界" maxlength="24" /></label><label>${text("游戏模式", "Game mode")}<select id="world-mode"><option value="spectator">${text("旁观模式", "Spectator")}</option><option value="creative">${text("创造模式", "Creative")}</option></select></label><label>${text("世界种子", "World seed")}<input id="world-seed" placeholder="${text("留空自动生成", "Blank to random")}" /></label><div class="physics-grid"><label>${text("行走速度", "Walk speed")}<input id="walk-speed" type="number" step="0.1" value="${defaults.walkSpeed}" /></label><label>${text("飞行速度", "Fly speed")}<input id="fly-speed" type="number" step="0.1" value="${defaults.flySpeed}" /></label><label>${text("跳跃力度", "Jump power")}<input id="jump-velocity" type="number" step="0.1" value="${defaults.jumpVelocity}" /></label><label>${text("重力", "Gravity")}<input id="gravity" type="number" step="0.1" value="${defaults.gravity}" /></label></div><div class="actions">${button(text("开始探索", "Start exploring"), "save-world", "primary")}${button(text("取消", "Cancel"), "worlds")}</div></div></section>`);
+    shell(`<section class="create-screen"><div class="create-card"><div class="section-kicker">NEW TERRITORY / 00${Math.floor(Math.random() * 9)}</div><h1>${text("创建世界", "Create world")}</h1><label>${text("世界名称", "World name")}<input id="world-name" value="新世界" maxlength="24" /></label><label>${text("游戏模式", "Game mode")}<select id="world-mode"><option value="creative">${text("创造模式", "Creative")}</option><option value="survival">${text("生存模式", "Survival")}</option><option value="spectator">${text("旁观模式", "Spectator")}</option></select></label><label>${text("世界种子", "World seed")}<input id="world-seed" placeholder="${text("留空自动生成", "Blank to random")}" /></label><div class="physics-grid"><label>${text("行走速度", "Walk speed")}<input id="walk-speed" type="number" step="0.1" value="${defaults.walkSpeed}" /></label><label>${text("飞行速度", "Fly speed")}<input id="fly-speed" type="number" step="0.1" value="${defaults.flySpeed}" /></label><label>${text("跳跃力度", "Jump power")}<input id="jump-velocity" type="number" step="0.1" value="${defaults.jumpVelocity}" /></label><label>${text("重力", "Gravity")}<input id="gravity" type="number" step="0.1" value="${defaults.gravity}" /></label></div><div class="actions">${button(text("开始探索", "Start exploring"), "save-world", "primary")}${button(text("取消", "Cancel"), "worlds")}</div></div></section>`);
 }
 
 class GameSession {
@@ -385,6 +387,7 @@ class GameSession {
             }
         }
         this.mode = createMode(this.modeName);
+        this.applyModeFlags();
         [...new Set([...blockRegistry.list().map((block) => block.id), ...plugins.blocks.keys()].filter((type): type is string => type !== null))].forEach((type) => this.loadBlock(type));
         this.loadGui("mode_creative", "/assets/gui/gamemode/creative.png");
         this.loadGui("mode_spectator", "/assets/gui/gamemode/spectator.png");
@@ -413,6 +416,7 @@ class GameSession {
         // 否则先出生（或已在第一帧生成）的生物会用内置默认碰撞箱显示/碰撞（reload 前错误）。
         void loadHitboxes().then(() => this.mobs.refreshHitboxes());
         void loadSqueeze().then(() => this.mobs.refreshHitboxes());
+        void loadBlockHitboxes();
         requestAnimationFrame(this.tick);
     }
 
@@ -454,7 +458,7 @@ class GameSession {
                 this.handleChatKey(event);
                 return;
             }
-            if (event.code === "KeyE" && this.modeName === GameModes.CREATIVE.id) {
+            if (event.code === "KeyE" && this.modeName !== GameModes.SPECTATOR.id) {
                 this.toggleInventory();
                 event.preventDefault();
                 return;
@@ -466,7 +470,7 @@ class GameSession {
                 return;
             }
             if (event.code === "KeyQ") {
-                if (!this.menu && this.modeName === GameModes.CREATIVE.id && !this.spectate) this.dropSelectedItem();
+                if (!this.menu && this.modeName !== GameModes.SPECTATOR.id && !this.spectate) this.dropSelectedItem();
                 event.preventDefault();
                 return;
             }
@@ -639,15 +643,34 @@ class GameSession {
         }, {passive: false});
     }
 
-    private toggleMode(): void {
-        if (this.menu || this.inventoryOpen) return;
-        const previousMode = this.modeName;
-        this.modeName = this.modeName === "creative" ? "spectator" : "creative";
-        this.mode = createMode(this.modeName);
+    /** 按当前模式应用角色能力（生存/旁观禁止飞行）。 */
+    private applyModeFlags(): void {
+        if (this.modeName === "survival" || this.modeName === "spectator") {
+            this.player.allowFlying = false;
+            this.player.setFlying(false);
+        } else {
+            this.player.allowFlying = true;
+        }
+    }
+
+    /** 设置游戏模式并重置视角拖拽/出窍等状态。 */
+    private setMode(name: GameModeName): void {
+        this.modeName = name;
+        this.mode = createMode(name);
+        this.applyModeFlags();
         this.cameraOffsetX = 0;
         this.cameraOffsetY = 0;
         this.dragging = false;
         this.spectate = false;
+        this.health = 20;
+    }
+
+    private toggleMode(): void {
+        if (this.menu || this.inventoryOpen) return;
+        const previousMode = this.modeName;
+        const cycle: GameModeName[] = [GameModes.CREATIVE.id, GameModes.SURVIVAL.id, GameModes.SPECTATOR.id];
+        const next = cycle[(cycle.indexOf(this.modeName) + 1) % cycle.length] ?? GameModes.CREATIVE.id;
+        this.setMode(next);
         this.notice = text("已切换游戏模式", "Game mode switched");
         this.noticeTimer = 2;
         this.save();
@@ -699,7 +722,7 @@ class GameSession {
     }
 
     private getPlacementTarget(): [number, number] | null {
-        if (this.modeName !== "creative") return null;
+        if (this.modeName === "spectator") return null;
         if (!this.hotbar[this.selected]) return null;
         const [x, y] = this.worldAtMouse();
         const cellX = Math.floor(x);
@@ -1004,14 +1027,9 @@ class GameSession {
         }
         const parts = input.slice(1).trim().split(/\s+/);
         const command = parts[0]?.toLowerCase();
-        if (command === "gamemode" && (parts[1] === "creative" || parts[1] === "spectator")) {
+        if (command === "gamemode" && (parts[1] === "creative" || parts[1] === "survival" || parts[1] === "spectator")) {
             const previousMode = this.modeName;
-            this.modeName = parts[1];
-            this.mode = createMode(this.modeName);
-            this.cameraOffsetX = 0;
-            this.cameraOffsetY = 0;
-            this.dragging = false;
-            this.spectate = false;
+            this.setMode(parts[1]);
             this.save();
             plugins.notifyGameModeChanged({...this.pluginContext(), previousMode, mode: this.modeName});
             storage.log("Game mode changed", {world: this.meta.name, from: previousMode, to: this.modeName});
@@ -1613,6 +1631,14 @@ class GameSession {
         if (this.world.placeBlock(placeX, placeY, type)) {
             this.notice = text("方块已放置", "Block placed");
             this.noticeTimer = 1;
+            // 生存模式消耗 1 个方块；创造模式无限放置。
+            if (this.modeName === "survival") {
+                const stack = this.hotbar[this.selected];
+                if (stack) {
+                    if (stack.count <= 1) this.hotbar[this.selected] = null;
+                    else stack.count -= 1;
+                }
+            }
             this.save();
             plugins.notifyBlockPlaced({...this.pluginContext(), x: placeX, y: placeY, type});
             storage.log("Block placed", {world: this.meta.name, x: placeX, y: placeY, type});
@@ -1654,6 +1680,9 @@ class GameSession {
                 onBlockBroken: (x, y, type) => {
                     plugins.notifyBlockBroken({...this.pluginContext(), x, y, type});
                     storage.log("Block broken", {world: this.meta.name, x, y, type});
+                    if (this.modeName === "survival") {
+                        this.drops.spawn({id: type, count: 1}, x + 0.5, y + 0.3, (Math.random() - 0.5) * 1.5, 3.2);
+                    }
                 }
             });
             if (this.player.flying !== this.lastFlying) {
@@ -1692,7 +1721,7 @@ class GameSession {
     };
 
     private updateVoid(dt: number): void {
-        if (this.player.ghost || this.modeName !== "creative" || this.player.y >= WORLD_MIN_Y - 2) {
+        if (this.player.ghost || this.modeName === "spectator" || this.player.y >= WORLD_MIN_Y - 2) {
             this.voidDamageTimer = 0;
             return;
         }
@@ -2036,7 +2065,7 @@ class GameSession {
 
     /** 捡起玩家附近的掉落物（范围由掉落物管理器定义），捡到的东西走 addStack 进背包。 */
     private updateDroppedItemPickup(): void {
-        if (this.modeName !== "creative" || this.player.ghost) return;
+        if (this.modeName === "spectator" || this.player.ghost) return;
         let changed = false;
         const centerY = this.player.y + this.player.height / 2;
         for (const item of [...this.drops.itemsNear(this.player.x, centerY, DROP_PICKUP_RADIUS)]) {
@@ -2541,6 +2570,19 @@ class GameSession {
         for (const item of this.drops.itemsNear(this.player.x, this.player.y + this.player.height / 2, MOB_RENDER_RADIUS)) {
             drawBox(toScreenX(item.x - item.halfWidth), toScreenY(item.y + item.height), item.halfWidth * 2 * bs, item.height * bs, hitColor, true);
         }
+        // 指向方块的碰撞箱（来自 public/hitboxes/blocks.json）
+        const pointedBlock = this.pointedBlock();
+        if (pointedBlock) {
+            const blockHitbox = blockHitboxFor(pointedBlock[2]);
+            if (blockHitbox) {
+                const cellBottom = pointedBlock[1] - 1;
+                for (const rect of blockHitbox.boxes) {
+                    const cx = pointedBlock[0] + (rect.centerX ?? 0);
+                    const cy = cellBottom + (rect.centerY ?? rect.height / 2);
+                    drawBox(toScreenX(cx - rect.halfWidth), toScreenY(cy + rect.height / 2), rect.halfWidth * 2 * bs, rect.height * bs, hitColor);
+                }
+            }
+        }
         // 玩家挤压箱（= 身体碰撞箱小一圈，与生物挤压箱约定一致；虚线绘于其上以便同时可见；旁观/幽灵时不绘制）
         if (!this.player.ghost) {
             const sqInsetY = (this.player.height - PLAYER_SQUEEZE_HEIGHT) / 2;
@@ -2604,7 +2646,7 @@ class GameSession {
         const target = this.hovered();
         const placement = this.getPlacementTarget();
         if (this.hoveredMob()) key = "mouse_attack";
-        else if (this.modeName === "creative") {
+        else if (this.modeName !== "spectator") {
             if (!target && placement) key = "mouse_right_place_and_move";
             else if (target) key = "mouse_left_broke";
         } else if (this.modeName === "spectator" && this.dragging) {
@@ -2654,7 +2696,8 @@ class GameSession {
             ctx.fillText(info, width / 2, infoY + 19);
             ctx.textAlign = "left";
         }
-        const modeImage = this.guiImages.get(this.modeName === "creative" ? "mode_creative" : "mode_spectator");
+        const modeImageKey = this.modeName === "creative" ? "mode_creative" : this.modeName === "spectator" ? "mode_spectator" : null;
+        const modeImage = modeImageKey ? this.guiImages.get(modeImageKey) : undefined;
         if (modeImage?.complete && modeImage.naturalWidth) {
             ctx.fillStyle = "rgba(9,17,24,.55)";
             ctx.fillRect(width - 18 - 44, 14, 44, 44);
@@ -2697,7 +2740,7 @@ class GameSession {
             ctx.font = "12px ui-monospace";
             const lines = [
                 `${t(language, "debug_fps")} ${Math.round(this.fps)}`,
-                `${t(language, "debug_mode")} ${t(language, this.modeName === "creative" ? "mode_creative" : "mode_spectator")}`,
+                `${t(language, "debug_mode")} ${t(language, this.modeName === "creative" ? "mode_creative" : this.modeName === "survival" ? "mode_survival" : "mode_spectator")}`,
                 `${t(language, "debug_world")} ${this.meta.name}`,
                 `${t(language, "debug_seed")} ${this.meta.seed ?? 0}`,
                 `${t(language, "debug_biome")} ${t(language, `biome_${biomeAt(Math.floor(this.player.x), this.meta.seed ?? 0).id}`)}`,
@@ -2772,7 +2815,8 @@ class GameSession {
         }
         if (this.noticeTimer > 0) {
             ctx.font = "600 16px Manrope";
-            const modeImage = this.guiImages.get(this.modeName === "creative" ? "mode_creative" : "mode_spectator");
+            const noticeModeKey = this.modeName === "creative" ? "mode_creative" : this.modeName === "spectator" ? "mode_spectator" : null;
+            const modeImage = noticeModeKey ? this.guiImages.get(noticeModeKey) : undefined;
             const iconSize = 22;
             const iconShown = Boolean(modeImage?.complete && modeImage.naturalWidth);
             const textW = ctx.measureText(this.notice).width;
@@ -3089,6 +3133,7 @@ class GameSession {
 
 async function startGame(meta: WorldMeta): Promise<void> {
     const save = await storage.loadWorld(meta.id);
+    await loadBlockConfigs();
     new GameSession(meta, save);
 }
 

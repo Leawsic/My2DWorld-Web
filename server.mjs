@@ -151,7 +151,7 @@ const api = async (req, res) => {
             writeFileSync(savePath, JSON.stringify({
                 playerX: Number(data.playerX) || 0,
                 playerY: Number(data.playerY) || 0,
-                mode: data.mode === "spectator" ? "spectator" : "creative",
+                mode: ["creative", "survival", "spectator"].includes(data.mode) ? data.mode : "creative",
                 ...(Number.isFinite(Number(data.spawnX)) && Number.isFinite(Number(data.spawnY)) ? {spawnX: Number(data.spawnX), spawnY: Number(data.spawnY)} : {}),
                 ...(data.spawnFacing === 1 || data.spawnFacing === -1 ? {spawnFacing: data.spawnFacing} : {}),
                 idTable: Array.isArray(data.idTable) ? data.idTable : [],
@@ -235,6 +235,32 @@ const api = async (req, res) => {
                 }
             }
             return send(res, 200, {hitboxes});
+        }
+        if (url.pathname === "/api/blocks" && req.method === "GET") {
+            // 方块定义：public/blocks/*.json。返回 map id -> 定义（透传，客户端覆盖内置方块）。
+            const blocks = {};
+            const blocksDir = join(root, "public", "blocks");
+            if (existsSync(blocksDir)) {
+                for (const file of readdirSync(blocksDir)) {
+                    if (!file.endsWith(".json")) continue;
+                    const data = readJson(join(blocksDir, file), null);
+                    if (!data || typeof data !== "object") continue;
+                    if (typeof data.id === "string") {
+                        blocks[data.id] = data;
+                    } else {
+                        for (const [id, definition] of Object.entries(data)) {
+                            if (definition && typeof definition === "object") blocks[id] = definition;
+                        }
+                    }
+                }
+            }
+            return send(res, 200, {blocks});
+        }
+        if (url.pathname === "/api/block-hitboxes" && req.method === "GET") {
+            // 方块碰撞箱：public/hitboxes/blocks.json，map id -> 碰撞箱配置。
+            const data = readJson(join(root, "public", "hitboxes", "blocks.json"), null);
+            const blocks = (data && typeof data === "object") ? data : {};
+            return send(res, 200, {blocks});
         }
         if (url.pathname === "/api/squeeze" && req.method === "GET") {
             // 挤压箱几何：public/squeeze/*.json，结构与碰撞箱一致（halfWidth/height/centerX/centerY、

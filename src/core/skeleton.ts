@@ -3,7 +3,7 @@ import {Animation, type AnimDrawOptions, type AnimTransform} from "./anim";
 import {loadCharacterAnimations, loadAnimationUrl} from "./animations";
 
 export type CharacterKind = "player" | MobKind;
-export type CharacterPose = "idle" | "walk" | "attack";
+export type CharacterPose = "idle" | "walk" | "attack" | "dig";
 /** 动画模板家族：插件按家族+姿态注册，覆盖该家族所有变体。 */
 export type AnimationFamily = "player" | "zombie" | "cow" | "pig";
 export type AnimationPose = CharacterPose;
@@ -207,8 +207,9 @@ function renderHumanoid(ctx: CanvasRenderingContext2D, asset: string, opt: Chara
     const legRightAngle = walking ? (25 - 50 * u) * degree : 0;
     const attackPhase = (opt.time % 0.75 + 0.75) % 0.75;
     const attackAngle = attackPhase < 0.5 ? (-90 - 90 * attackPhase / 0.5) * degree : (-180 + 90 * (attackPhase - 0.5) / 0.25) * degree;
-    const armLeftAngle = opt.pose === "attack" ? attackAngle : player ? (walking ? (30 - 60 * u) * degree : 0) : -90 * degree;
-    const armRightAngle = opt.pose === "attack" ? attackAngle : player ? (walking ? (-30 + 60 * u) * degree : 0) : -90 * degree;
+    const swinging = opt.pose === "attack" || opt.pose === "dig";
+    const armLeftAngle = swinging ? attackAngle : player ? (walking ? (30 - 60 * u) * degree : 0) : -90 * degree;
+    const armRightAngle = swinging ? attackAngle : player ? (walking ? (-30 + 60 * u) * degree : 0) : -90 * degree;
     const [, armH] = dimensions(armL, asset.endsWith("_baby") ? [4, 10] : [8, 24]);
     const handOffset = armH * (0.8333 - 0.1667);
     const hand = (angle: number) => ({x: -Math.sin(angle) * handOffset, y: -Math.cos(angle) * handOffset});

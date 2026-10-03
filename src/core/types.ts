@@ -1,4 +1,4 @@
-export type GameModeName = "spectator" | "creative";
+export type GameModeName = "spectator" | "creative" | "survival";
 export type Language = "zh" | "en";
 export type BlockType = string;
 

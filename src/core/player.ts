@@ -32,6 +32,8 @@ export class Player implements PhysicsBody {
     readonly centerOffsetY = BODY_HEIGHT / 2;
     jumpsUsed = 0;
     flying = false;
+    /** 是否允许飞行（生存模式禁止：无法双击开飞，夹紧停在陆地上）。 */
+    allowFlying = true;
     health = 20;
     facing = 1;
     /** 缓慢效果剩余时间（秒）：>0 时移动/飞行速度 -20%（亡灵生物挤压附带）。 */
@@ -55,10 +57,11 @@ export class Player implements PhysicsBody {
         const seconds = Math.min(dt, 0.05);
         this.slowTimer = Math.max(0, this.slowTimer - seconds);
         const slow = this.slowTimer > 0 ? 0.8 : 1;
+        if (!this.allowFlying) this.flying = false;
         const pressed = keys.jump && !this.jumpWasDown;
         this.doubleSpaceTimer = Math.max(0, this.doubleSpaceTimer - seconds);
         if (pressed) {
-            if (this.doubleSpaceTimer > 0) {
+            if (this.doubleSpaceTimer > 0 && this.allowFlying) {
                 this.flying = !this.flying;
                 this.velocityY = 0;
                 this.jumpsUsed = 0;
