@@ -13,8 +13,9 @@ const DROP_UPDATE_RADIUS = 44;
 /** 同 id 掉落物自动合并的距离（世界坐标）。 */
 const DROP_MERGE_RADIUS = 0.7;
 const DROP_GRAVITY = 24;
-const DROP_HALF_WIDTH = 0.16;
-const DROP_HEIGHT = 0.28;
+/** 所有方块掉落物统一使用同一个 0.5×0.5 的碰撞箱（与渲染图标尺寸一致）。 */
+const DROP_HALF_WIDTH = 0.25;
+const DROP_HEIGHT = 0.5;
 
 /** 世界中的一个掉落物：受重力、与实心方块碰撞，靠近玩家时可被捡起。 */
 export class DroppedItem implements PhysicsBody {

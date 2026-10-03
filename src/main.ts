@@ -2041,15 +2041,18 @@ class GameSession {
         this.save();
     }
 
-    /** 背包打开时按 Q：销毁鼠标悬停格子的整堆物品。 */
+    /** 背包打开时按 Q：创造模式销毁悬停格整堆物品；生存模式不摧毁，改为整堆丢到世界中。 */
     private destroyHoveredItem(): void {
         const slot = this.inventorySlotAt(this.lastMouseX, this.lastMouseY);
         if (!slot) return;
         const slots = slot.kind === "hotbar" ? this.hotbar : this.inventorySlots;
-        if (slots[slot.index]) {
-            slots[slot.index] = null;
-            this.save();
+        const stack = slots[slot.index];
+        if (!stack) return;
+        if (this.modeName === "survival") {
+            this.drops.spawn(stack, this.player.x + this.player.facing * 0.45, this.player.y + 0.7, this.player.facing * 1.5, 2.5);
         }
+        slots[slot.index] = null;
+        this.save();
     }
 
     /** 鼠标中键：把指向的方块复制到当前选中的快捷栏格（数量 1）。 */
@@ -2462,7 +2465,7 @@ class GameSession {
                 draw: () => {
                     const sx = (item.x - cameraX) * this.blockSize + width / 2;
                     const sy = (cameraY - item.centerY) * this.blockSize + height / 2;
-                    const size = Math.max(6, this.blockSize * 0.55);
+                    const size = Math.max(6, this.blockSize * 0.5);
                     const image = this.iconFor(item.stack.id);
                     if (image && (!("naturalWidth" in image) || (image.complete && image.naturalWidth))) {
                         ctx.drawImage(image, sx - size / 2, sy - size / 2, size, size);

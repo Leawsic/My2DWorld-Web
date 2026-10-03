@@ -23,10 +23,12 @@ export interface BlockDefinition {
     readonly label: { zh: string; en: string };
     readonly solid?: boolean;
     readonly transparent?: boolean;
-    /** 方块类型的默认 NBT（例如树叶 layer:2、木头 layer:3）。 */
+    /** 方块类型默认 NBT（例如树叶 layer:2、木头 layer:3）。 */
     readonly nbt?: BlockNbt;
     /** 地物标记：花/草等需要下方支撑才能放置，且破坏其下方方块时自身不会被破坏。 */
     readonly feature?: boolean;
+    /** 硬度：生存模式空手挖掘耗时（秒）；缺省 1。基岩等不可挖掘方块在生存模式单独禁止。 */
+    readonly hardness?: number;
 }
 
 /** A block type placed in a world. Definitions are shared; instances carry position. */
