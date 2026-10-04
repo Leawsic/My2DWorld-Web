@@ -7,7 +7,8 @@ import {clampSpectateOffset} from "./core/spectate";
 import {ParticleSystem} from "./core/particles";
 import {characterParticleTexture, preloadCharacterAnimations, reloadCharacterAnimations, reloadCharacterImages, renderCharacter} from "./core/skeleton";
 import {loadHitboxes} from "./core/hitboxes";
-import {blockHitboxFor, loadBlockHitboxes} from "./core/blockHitboxes";
+import {loadBlockHitboxes} from "./core/blockHitboxes";
+import {FluidSimulator, fluidColor, isFluid} from "./core/fluid";
 import {loadBlockConfigs} from "./core/blockconfig";
 import {DroppedItemManager, DROP_PICKUP_RADIUS} from "./core/itemdrop";
 import {loadSqueeze} from "./core/squeeze";
@@ -27,7 +28,7 @@ import {createMode} from "./modes";
 import type {GameMode, ModeContext} from "./modes/base";
 import {type GamePlugin, type PluginGameContext, PluginRegistry} from "./plugins/api";
 import {keyName, t} from "./i18n";
-import {Blocks, GameModes, blockRegistry} from "./registry";
+import {Block, Blocks, GameModes, blockRegistry} from "./registry";
 
 const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("App root is missing");
@@ -35,13 +36,17 @@ if (!app) throw new Error("App root is missing");
 const LOCATE_RANGE = 20000;
 const LOCATABLE_BIOMES = ["plains", "forest", "desert", "snowy", "mountains", "ocean", "river"];
 const STRUCTURE_NAME = /^[a-z0-9][a-z0-9_-]{0,31}$/i;
+/** /fill 区域的体积上限（256×128）。 */
+const FILL_MAX_VOLUME = 32768;
+/** /fill 的填充模式。 */
+type FillMode = "replace" | "keep" | "destroy" | "hollow" | "outline";
 /** 玩家被实体挤压后的 1s 无敌帧（期间不再受挤压伤害，击退仍生效）。 */
 const PLAYER_SQUEEZE_IFRAME = 1;
 /** 亡灵生物挤压玩家附带的缓慢时长（秒）。 */
 const UNDEAD_SLOW_SECONDS = 5;
 
 /** 命令补全与语法高亮共用的命令表。 */
-const CHAT_COMMANDS = ["gamemode", "speed", "movespeed", "debug", "seed", "locate", "tp", "summon", "structure", "reload", "aggro", "clearchat", "spawnpoint", "give", "kill"];
+const CHAT_COMMANDS = ["gamemode", "speed", "movespeed", "debug", "seed", "locate", "tp", "summon", "structure", "reload", "aggro", "clearchat", "spawnpoint", "give", "kill", "fill"];
 const CHAT_ARG_SUGGESTIONS: Record<string, string[]> = {
     gamemode: ["creative", "survival", "spectator"],
     debug: ["on", "off", "true", "false"],
@@ -50,10 +55,11 @@ const CHAT_ARG_SUGGESTIONS: Record<string, string[]> = {
     structure: ["export", "load", "list", "delete"],
     reload: ["images", "animations", "hitboxes", "squeeze", "plugins", "all"],
     spawnpoint: ["@p", "@a", "@r", "left", "right"],
+    fill: ["replace", "keep", "destroy", "hollow", "outline", "air", "water", "lava"],
 };
 
 /** 补全命令后自动补一个空格（还有后续参数）。 */
-const COMMANDS_WITH_ARGS = ["/gamemode", "/debug", "/locate", "/tp", "/summon", "/reload", "/structure", "/aggro", "/spawnpoint", "/give", "/kill"];
+const COMMANDS_WITH_ARGS = ["/gamemode", "/debug", "/locate", "/tp", "/summon", "/reload", "/structure", "/aggro", "/spawnpoint", "/give", "/kill", "/fill"];
 
 /** Region placed by the two-phase /structure export|load flow before confirm. */
 interface StructurePending {
@@ -339,6 +345,7 @@ class GameSession {
     private readonly mobs: MobManager;
     private readonly drops = new DroppedItemManager();
     private readonly fx = new ParticleSystem();
+    private readonly fluids = new FluidSimulator();
     private readonly inventoryBackground = this.loadImage("/assets/gui/creative_inventory/tab_inventory.png");
     private placement: [number, number] | null = null;
     private active = true;
@@ -1196,6 +1203,8 @@ class GameSession {
             this.spawnPoint = {x, y, facing};
             this.save();
             this.addChat(`Spawnpoint set to ${Math.floor(x)}, ${Math.floor(y)}${facing ? (facing === 1 ? ", facing right" : ", facing left") : ""} for ${target}`);
+        } else if (command === "fill") {
+            this.handleFillCommand(parts);
         } else if (command === "structure") {
             await this.handleStructureCommand(parts);
         } else if (command === "reload") {
@@ -1690,6 +1699,7 @@ class GameSession {
                 storage.log("Fly mode changed", {world: this.meta.name, flying: this.player.flying});
             }
             this.world.updateView(this.player.x);
+            this.fluids.update(this.world, dt);
             this.drops.update(dt, this.world, this.player.x, this.player.y + this.player.height / 2);
             this.updateDroppedItemPickup();
             this.updateVoid(dt);
@@ -1820,6 +1830,15 @@ class GameSession {
         if (id === Blocks.MY2DWORLD.OAK_LEAVES.id) return this.biomeTexture("leaves", this.biomeAtCached(x));
         if (id === Blocks.MY2DWORLD.SHORT_GRASS.id) return this.biomeTexture("short_grass", this.biomeAtCached(x));
         return this.blockImages.get(id);
+    }
+
+    /** 绘制流体（水/岩浆）：液面随 level 变化，level 0 满格、level 7 最低（1/8 格高）。sx/sy 为该格左上角屏幕坐标。 */
+    private drawFluid(ctx: CanvasRenderingContext2D, sx: number, sy: number, id: string, x: number, y: number, bs: number): void {
+        const nbt = this.world.nbtAt(x, y);
+        const level = typeof nbt.level === "number" ? Math.max(0, Math.min(7, Math.floor(nbt.level))) : 0;
+        const h = Math.max(1, Math.round(bs * (1 - level / 8)));
+        ctx.fillStyle = fluidColor(id);
+        ctx.fillRect(sx, sy + bs - h, bs, h);
     }
 
     /** 按列缓存 biomeAt：同一整数列 x 的草/树叶/草丛每帧共享一次噪声采样（世界种子固定，缓存永不过期）。 */
@@ -2021,6 +2040,209 @@ class GameSession {
     private killPlayer(): void {
         this.health = 0;
         this.respawn("command");
+    }
+
+    /** 把命令参数里的方块 id 解析成规范 id（含命名空间）；未知 id 返回 undefined。 */
+    private resolveBlockId(id: string): string | undefined {
+        return (blockRegistry.get(id) ?? plugins.blocks.get(id))?.id;
+    }
+
+    /**
+     * /fill <x1> <y1> <x2> <y2> <方块> [方块状态] [模式]
+     * 带替换过滤：/fill <x1> <y1> <x2> <y2> <方块> [方块状态] replace [被替换方块] [被替换方块状态]
+     * 模式：replace（默认，全替换）、keep（仅空气）、destroy（全替换并掉落原方块）、
+     *       hollow（仅边界）、outline（仅边界内侧 1 格）。坐标支持绝对与 ~ 相对坐标。
+     */
+    private handleFillCommand(parts: string[]): void {
+        const args = parts.slice(1);
+        if (args.length < 5) {
+            this.addChat("Usage: /fill <x1> <y1> <x2> <y2> <方块> [方块状态] [模式]");
+            return;
+        }
+        const parseCoord = (token: string, current: number): number | null => {
+            if (token === "~") return current;
+            if (token.startsWith("~")) {
+                const offset = Number(token.slice(1));
+                return Number.isFinite(offset) ? current + offset : null;
+            }
+            if (token.startsWith("^")) return null; // 局部坐标暂不支持
+            const value = Number(token);
+            return Number.isFinite(value) ? value : null;
+        };
+        const rawX1 = parseCoord(args[0], this.player.x);
+        const rawY1 = parseCoord(args[1], this.player.y);
+        const rawX2 = parseCoord(args[2], this.player.x);
+        const rawY2 = parseCoord(args[3], this.player.y);
+        if (rawX1 === null || rawY1 === null || rawX2 === null || rawY2 === null) {
+            this.addChat(text("无效坐标", "Invalid coordinates"));
+            return;
+        }
+        const minX = Math.floor(Math.min(rawX1, rawX2));
+        const maxX = Math.floor(Math.max(rawX1, rawX2));
+        const minY = Math.floor(Math.min(rawY1, rawY2));
+        const maxY = Math.floor(Math.max(rawY1, rawY2));
+        if (minY < WORLD_MIN_Y || maxY > WORLD_MAX_Y) {
+            this.addChat(text("坐标超出世界边界", "Coordinates out of world bounds"));
+            return;
+        }
+        const volume = (maxX - minX + 1) * (maxY - minY + 1);
+        if (volume > FILL_MAX_VOLUME) {
+            this.addChat(`${text("填充区域过大", "Fill region too large")} (${volume} > ${FILL_MAX_VOLUME})`);
+            return;
+        }
+
+        const parseState = (tokens: string[]): Record<string, unknown> | null => {
+            const state: Record<string, unknown> = {};
+            for (const token of tokens) {
+                const eq = token.indexOf("=");
+                if (eq <= 0) return null;
+                const key = token.slice(0, eq);
+                const raw = token.slice(eq + 1);
+                let value: unknown = raw;
+                if (raw === "true") value = true;
+                else if (raw === "false") value = false;
+                else if (raw !== "" && Number.isFinite(Number(raw))) value = Number(raw);
+                state[key] = value;
+            }
+            return state;
+        };
+
+        const blockArg = args[4].toLowerCase();
+        const targetId = blockArg === "air" ? null : this.resolveBlockId(blockArg);
+        if (targetId === undefined) {
+            this.addChat(`${text("未知方块", "Unknown block")} "${blockArg}"`);
+            return;
+        }
+
+        let i = 5;
+        const stateTokens: string[] = [];
+        while (i < args.length && args[i].includes("=")) {
+            stateTokens.push(args[i]);
+            i += 1;
+        }
+        const targetNbt = parseState(stateTokens);
+        if (targetNbt === null) {
+            this.addChat(text("无效的方块状态", "Invalid block state"));
+            return;
+        }
+
+        let mode: FillMode = "replace";
+        let filterId: string | null | undefined;
+        let filterNbt: Record<string, unknown> = {};
+        if (i < args.length) {
+            const modeWord = args[i].toLowerCase();
+            if (!["replace", "keep", "destroy", "hollow", "outline"].includes(modeWord)) {
+                this.addChat(`${text("无效的填充模式", "Invalid fill mode")} "${args[i]}"`);
+                return;
+            }
+            mode = modeWord as FillMode;
+            i += 1;
+            if (mode === "replace" && i < args.length && !args[i].includes("=")) {
+                const filterArg = args[i].toLowerCase();
+                i += 1;
+                filterId = filterArg === "air" ? null : this.resolveBlockId(filterArg);
+                if (filterId === undefined) {
+                    this.addChat(`${text("未知方块", "Unknown block")} "${filterArg}"`);
+                    return;
+                }
+                const filterTokens: string[] = [];
+                while (i < args.length && args[i].includes("=")) {
+                    filterTokens.push(args[i]);
+                    i += 1;
+                }
+                const parsed = parseState(filterTokens);
+                if (parsed === null) {
+                    this.addChat(text("无效的方块状态", "Invalid block state"));
+                    return;
+                }
+                filterNbt = parsed;
+            }
+        }
+        if (i < args.length) {
+            this.addChat("Usage: /fill <x1> <y1> <x2> <y2> <方块> [方块状态] [模式]");
+            return;
+        }
+
+        // 确保覆盖 x 范围的区块已加载（/fill 可能跨越未加载区域）。
+        for (let x = minX; x <= maxX; x += 1) this.world.ensureColumnLoaded(x);
+
+        let filled = 0;
+        for (let wy = minY; wy <= maxY; wy += 1) {
+            for (let wx = minX; wx <= maxX; wx += 1) {
+                if (this.fillCell(wx, wy, targetId, targetNbt, mode, filterId, filterNbt, minX, maxX, minY, maxY)) filled += 1;
+            }
+        }
+        // 放置/清除流体后立即触发一次传播，让非水源的流动水自然扩散或消失。
+        this.fluids.tickNow(this.world);
+        this.save();
+        this.addChat(`${text("已填充", "Filled")} ${filled} ${text("个方块", "blocks")}`);
+    }
+
+    /** 判断并应用 /fill 的单个格；返回该格是否真正发生了变化。 */
+    private fillCell(
+        wx: number,
+        wy: number,
+        targetId: string | null,
+        targetNbt: Record<string, unknown>,
+        mode: FillMode,
+        filterId: string | null | undefined,
+        filterNbt: Record<string, unknown>,
+        minX: number,
+        maxX: number,
+        minY: number,
+        maxY: number,
+    ): boolean {
+        const current = this.world.getBlockId(wx, wy);
+
+        // replace [被替换方块] [被替换方块状态]：仅替换匹配的方块。
+        if (filterId !== undefined) {
+            const want = filterId === null ? null : filterId;
+            if (current !== want) return false;
+            const currentNbt = this.world.nbtAt(wx, wy);
+            for (const [key, value] of Object.entries(filterNbt)) {
+                if (currentNbt[key] !== value) return false;
+            }
+        }
+
+        const onBorder = wx === minX || wx === maxX || wy === minY || wy === maxY;
+        switch (mode) {
+            case "replace":
+            case "destroy":
+                break;
+            case "keep":
+                if (current !== null) return false;
+                break;
+            case "hollow":
+                if (!onBorder) return false;
+                break;
+            case "outline":
+                if (onBorder) return false;
+                if (wx !== minX + 1 && wx !== maxX - 1 && wy !== minY + 1 && wy !== maxY - 1) return false;
+                break;
+        }
+
+        if (targetId === null) {
+            if (current === null) return false;
+            if (mode === "destroy") this.spawnFillDrop(wx, wy, current);
+            this.world.clearBlock(wx, wy);
+            return true;
+        }
+
+        if (current === targetId) {
+            const currentNbt = this.world.nbtAt(wx, wy);
+            if (Object.entries(targetNbt).every(([key, value]) => currentNbt[key] === value)) return false;
+        }
+
+        if (mode === "destroy" && current !== null && !isFluid(current)) this.spawnFillDrop(wx, wy, current);
+        const definition = blockRegistry.get(targetId) ?? plugins.blocks.get(targetId);
+        if (!definition) return false;
+        this.world.setBlock(wx, wy, new Block(definition, wx, wy, targetNbt));
+        return true;
+    }
+
+    /** destroy 填充模式：被替换的方块以掉落物释放（空气与流体不产生掉落物）。 */
+    private spawnFillDrop(wx: number, wy: number, id: string): void {
+        this.drops.spawn({id, count: 1}, wx + 0.5, wy - 0.5, (Math.random() - 0.5) * 1.2, 2.5);
     }
 
     /** 按 Q 丢弃：从选中的快捷栏格丢出 1 个物品作为掉落物实体。 */
@@ -2322,6 +2544,12 @@ class GameSession {
                     while (y <= yUpTo) {
                         const id = this.world.getBlockId(x, y);
                         if (!id) { y += 1; continue; }
+                        if (isFluid(id)) {
+                            const sy = Math.round((cameraY - y) * bs + height / 2);
+                            this.drawFluid(ctx, sx, sy, id, x, y, bs);
+                            y += 1;
+                            continue;
+                        }
                         let y2 = y + 1;
                         while (y2 <= yUpTo && this.world.getBlockId(x, y2) === id) y2 += 1;
                         const run = y2 - y;
@@ -2342,6 +2570,10 @@ class GameSession {
                         const id = this.world.getBlockId(x, y);
                         if (!id) continue;
                         const sy = Math.round((cameraY - y) * bs + height / 2);
+                        if (isFluid(id)) {
+                            this.drawFluid(ctx, sx, sy, id, x, y, bs);
+                            continue;
+                        }
                         const image = this.blockImageFor(id, x);
                         if (image) ctx.drawImage(image, sx, sy, bs, bs); else {
                             const definition = blockRegistry.get(id);
@@ -2571,19 +2803,6 @@ class GameSession {
         // 掉落物碰撞箱（虚线；掉落物没有独立的挤压箱）
         for (const item of this.drops.itemsNear(this.player.x, this.player.y + this.player.height / 2, MOB_RENDER_RADIUS)) {
             drawBox(toScreenX(item.x - item.halfWidth), toScreenY(item.y + item.height), item.halfWidth * 2 * bs, item.height * bs, hitColor, true);
-        }
-        // 指向方块的碰撞箱（来自 public/hitboxes/blocks.json）
-        const pointedBlock = this.pointedBlock();
-        if (pointedBlock) {
-            const blockHitbox = blockHitboxFor(pointedBlock[2]);
-            if (blockHitbox) {
-                const cellBottom = pointedBlock[1] - 1;
-                for (const rect of blockHitbox.boxes) {
-                    const cx = pointedBlock[0] + (rect.centerX ?? 0);
-                    const cy = cellBottom + (rect.centerY ?? rect.height / 2);
-                    drawBox(toScreenX(cx - rect.halfWidth), toScreenY(cy + rect.height / 2), rect.halfWidth * 2 * bs, rect.height * bs, hitColor);
-                }
-            }
         }
         // 玩家挤压箱（= 身体碰撞箱小一圈，与生物挤压箱约定一致；虚线绘于其上以便同时可见；旁观/幽灵时不绘制）
         if (!this.player.ghost) {

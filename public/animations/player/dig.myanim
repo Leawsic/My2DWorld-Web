@@ -1,6 +1,6 @@
 {
   "name": "player dig (arm swing)",
-  "duration": 0.625,
+  "duration": 0.1,
   "objects": [
     {
       "id": "torso",

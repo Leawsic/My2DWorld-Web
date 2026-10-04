@@ -499,6 +499,36 @@ export class World {
         return true;
     }
 
+    /** 直接清空一格（用于流体模拟等批量内部逻辑，不触发地物级联）。 */
+    clearBlock(x: number, y: number): void {
+        const chunk = this.chunks.get(Math.floor(x / CHUNK_SIZE));
+        if (!chunk) return;
+        chunk.setBlock(x - chunk.start, y, 0);
+        this.blockNbt.delete(World.cell(x, y));
+        this.markEdited(Math.floor(x / CHUNK_SIZE));
+    }
+
+    /** 遍历所有已加载的非空气方块；回调 (x, y, type)。 */
+    scanBlocks(visit: (x: number, y: number, type: BlockType) => void): void {
+        for (const chunk of this.chunks.values()) {
+            for (let local = 0; local < CHUNK_SIZE; local += 1) {
+                const worldX = chunk.start + local;
+                const column = local * WORLD_HEIGHT;
+                for (let y = WORLD_MIN_Y; y <= WORLD_MAX_Y; y += 1) {
+                    const num = chunk.blocks[column + columnOf(y)];
+                    if (!num) continue;
+                    const type = this.typeFor(num);
+                    if (type) visit(worldX, y, type);
+                }
+            }
+        }
+    }
+
+    /** 批量操作（如 /fill）前确保某列所在区块已加载，不改变当前视野中心。 */
+    ensureColumnLoaded(x: number): void {
+        this.loadChunk(Math.floor(x / CHUNK_SIZE));
+    }
+
     /** 保留与方块定义默认值不同的覆盖 NBT（默认值不落盘，保持存档轻量）。 */
     private applyNbt(x: number, y: number, id: BlockType, nbt?: BlockNbt): void {
         const definition = blockRegistry.get(id);

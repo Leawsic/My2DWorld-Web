@@ -175,6 +175,9 @@ const builtinBlocks: Array<[BlockType, string, string, string]> = [
     ["nether_gold_ore", "#a98738", "下界金矿石", "Nether Gold Ore"],
     ["iron_bars", "#8d9696", "铁栏杆", "Iron Bars"],
     ["iron_chain", "#777c7c", "铁链", "Iron Chain"],
+    ["water", "#3a76d2", "水", "Water"],
+    ["lava", "#d4551f", "岩浆", "Lava"],
+    ["obsidian", "#1b1520", "黑曜石", "Obsidian"],
 ];
 
 /** Non-default collision / rendering flags, default NBT and feature tags for blocks that need them. */
@@ -186,6 +189,9 @@ const BLOCK_FLAGS: Record<string, {solid?: boolean; transparent?: boolean; nbt?:
     poppy: {solid: false, transparent: true, feature: true},
     dandelion: {solid: false, transparent: true, feature: true},
     cactus: {feature: true},
+    // 流体：非实心、半透明，方块状态 level（液面高度 0-7）与 falling（是否下落）。
+    water: {solid: false, transparent: true, nbt: {level: 0, falling: false}},
+    lava: {solid: false, transparent: true, nbt: {level: 0, falling: false}},
 };
 
 builtinBlocks.forEach(([id, color, zh, en]) => blockRegistry.register({id, color, label: {zh, en}, ...BLOCK_FLAGS[id]}));
