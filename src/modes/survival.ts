@@ -77,9 +77,9 @@ export class SurvivalMode extends GameMode {
         }
 
         if (this.mineProgress >= 1) {
-            if (context.world.breakBlock(x, y)) {
+            // 支撑消失而被级联破坏的地物（花/草/仙人掌）也走 onBlockBroken：一并掉落自身。
+            if (context.world.breakBlock(x, y, (bx, by, block) => context.onBlockBroken?.(bx, by, block.id))) {
                 this.particles.spawn(x, y, context.blockTextureAt?.(type, x) ?? context.textures.get(type));
-                context.onBlockBroken?.(x, y, type);
             }
             this.mineProgress = 0;
         }
@@ -99,6 +99,7 @@ export class SurvivalMode extends GameMode {
             blockSize,
             cameraX,
             cameraY,
+            itemImages: context.itemImages,
         });
     }
 

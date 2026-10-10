@@ -2,6 +2,7 @@ import type {KeyState, Player} from "../core/player";
 import type {World} from "../core/world";
 import type {BlockType, GameModeName} from "../core/types";
 import type {MobManager} from "../core/entity";
+import type {HeldItemImages} from "../core/skeleton";
 
 export interface ModeContext {
     player: Player;
@@ -17,6 +18,8 @@ export interface ModeContext {
     textures: ReadonlyMap<string, HTMLImageElement | HTMLCanvasElement>;
     /** 取某方块在 x 列的生物群系染色贴图（草方块/树叶/短草按群系着色）；缺省回落 raw textures。 */
     blockTextureAt?: (type: BlockType, x: number) => HTMLImageElement | HTMLCanvasElement | undefined;
+    /** 玩家左右手物品贴图（left=副手，right=主手选中格）；缺省时不覆盖 .myanim 的占位贴图。 */
+    itemImages?: HeldItemImages;
     onBlockBroken?: (x: number, y: number, type: BlockType) => void;
     onPlayerDamage?: (amount: number) => void;
 }

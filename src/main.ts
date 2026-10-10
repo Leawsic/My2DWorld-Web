@@ -5,7 +5,7 @@ import {storage, type PluginPackage} from "./core/storage";
 import {biomeAt, DEFAULT_BIOME, hashSeed, spawnX, World, WORLD_MIN_Y, WORLD_MAX_Y, type Biome} from "./core/world";
 import {clampSpectateOffset} from "./core/spectate";
 import {ParticleSystem} from "./core/particles";
-import {characterParticleTexture, preloadCharacterAnimations, reloadCharacterAnimations, reloadCharacterImages, renderCharacter} from "./core/skeleton";
+import {characterParticleTexture, preloadCharacterAnimations, reloadCharacterAnimations, reloadCharacterImages, renderCharacter, type HeldItemImages} from "./core/skeleton";
 import {loadHitboxes} from "./core/hitboxes";
 import {loadBlockHitboxes} from "./core/blockHitboxes";
 import {FluidSimulator, fluidColor, isFluid} from "./core/fluid";
@@ -130,30 +130,81 @@ async function loadExternalPlugins(bust = false): Promise<void> {
     }
 }
 
-// Coordinates are source pixels in tab_inventory.png (512 x 512). Adjust these
-// values to fine-tune the imported GUI artwork without changing interaction code.
-// The artwork's opaque content is not centered in the 512x512 canvas; its bbox
-// center sits at (contentCenterX, contentCenterY), which the layout aligns to the
-// screen center so the visible inventory is centered.
-const CREATIVE_INVENTORY_GUI = {
-    panelOffsetX: 80,
-    panelOffsetY: 100,
-    gridOffsetX: 16,
-    gridOffsetY: 106,
-    slotSize: 36,
-    hotbarOffsetX: 16,
-    hotbarOffsetY: 222,
-    heldItemOffsetX: 0,
-    heldItemOffsetY: 0,
-    /** 源图中不透明内容的包围盒中心（512x512 坐标）。 */
-    contentCenterX: 194.5,
-    contentCenterY: 135.5,
-    /** 创造背包主网格：3 行 × 9 列（不得超出，否则会叠到下方物品栏行）。 */
-    gridColumns: 9,
-    gridRows: 3,
-} as const;
-const INVENTORY_SLOT_COUNT = CREATIVE_INVENTORY_GUI.gridColumns * CREATIVE_INVENTORY_GUI.gridRows;
+// 物品栏面板：坐标均为源图（512×512 面板图）像素，改图后只需调这里的数值。
+// 面板图的不透明内容不在 512×512 画布中心；用 contentCenterX/Y（内容包围盒中心）
+// 把可见面板对齐屏幕中心。
+interface InventoryGuiPanel {
+    /** 面板图在 guiImages 里的键（/reload images 会按此键刷新）。 */
+    key: string;
+    /** 面板图路径。 */
+    src: string;
+    /** 源图槽位边长（像素）。 */
+    slotSize: number;
+    /** 主网格（3 行 × 9 列）左上角。 */
+    gridX: number;
+    gridY: number;
+    /** 快捷栏（1 行 × 9 列）左上角。 */
+    hotbarX: number;
+    hotbarY: number;
+    /** 副手格左上角。 */
+    offhandX: number;
+    offhandY: number;
+    /** 右下角销毁格左上角（仅创造模式的面板有）。 */
+    destroyX?: number;
+    destroyY?: number;
+    /** 源图中不透明内容包围盒的中心（512×512 坐标）。 */
+    contentCenterX: number;
+    contentCenterY: number;
+}
+
+/** 面板图统一按 512×512 设计，绘制时整体缩放到屏幕短边。 */
+const INVENTORY_GUI_SIZE = 512;
+/** 主网格列数与行数（= 背包格数 27）。 */
+const INVENTORY_GRID_COLUMNS = 9;
+const INVENTORY_GRID_ROWS = 3;
 const HOTBAR_SLOT_COUNT = 9;
+
+const INVENTORY_PANELS: Record<"creative" | "survival", InventoryGuiPanel> = {
+    // 创造模式：public/assets/gui/creative_inventory/tab_inventory.png（内容包围盒 390×272）。
+    creative: {
+        key: "inventory_creative",
+        src: "/assets/gui/creative_inventory/tab_inventory.png",
+        slotSize: 36,
+        gridX: 16,
+        gridY: 106,
+        hotbarX: 16,
+        hotbarY: 222,
+        offhandX: 68,
+        offhandY: 38,
+        destroyX: 344,
+        destroyY: 222,
+        contentCenterX: 194.5,
+        contentCenterY: 135.5,
+    },
+    // 生存模式：public/assets/gui/container/inventory.png（内容包围盒 352×332）。
+    survival: {
+        key: "inventory_survival",
+        src: "/assets/gui/container/inventory.png",
+        slotSize: 36,
+        gridX: 14,
+        gridY: 166,
+        hotbarX: 14,
+        hotbarY: 282,
+        offhandX: 152,
+        offhandY: 122,
+        contentCenterX: 175.5,
+        contentCenterY: 165.5,
+    },
+};
+const INVENTORY_SLOT_COUNT = INVENTORY_GRID_COLUMNS * INVENTORY_GRID_ROWS;
+
+/** 物品栏里可交互的格子类型。 */
+type InventorySlotKind = "inventory" | "hotbar" | "offhand" | "destroy";
+
+interface InventorySlotRef {
+    kind: InventorySlotKind;
+    index: number;
+}
 
 /** 兼容旧版存档（纯 id 字符串）与新版堆叠（{id, count}），并夹紧数量到合法范围。 */
 const normalizeStack = (value: ItemStackSlot | undefined, maxStack: number): ItemStack | null => {
@@ -320,6 +371,8 @@ class GameSession {
     /** 快捷栏与背包格子：null 为空，否则为 {id, count} 堆叠；游戏开始时玩家身上为空。 */
     private hotbar: Array<ItemStack | null> = new Array(HOTBAR_SLOT_COUNT).fill(null);
     private inventorySlots: Array<ItemStack | null> = new Array(INVENTORY_SLOT_COUNT).fill(null);
+    /** 副手格：F 键与当前选中的快捷栏格互换，显示在物品栏的副手槽里。 */
+    private offhand: ItemStack | null = null;
     private selected = 0;
     private health = 20;
     private voidDamageTimer = 0;
@@ -347,7 +400,6 @@ class GameSession {
     private readonly drops = new DroppedItemManager();
     private readonly fx = new ParticleSystem();
     private readonly fluids = new FluidSimulator();
-    private readonly inventoryBackground = this.loadImage("/assets/gui/creative_inventory/tab_inventory.png");
     private placement: [number, number] | null = null;
     private active = true;
     private cameraOffsetX = 0;
@@ -393,6 +445,9 @@ class GameSession {
                 this.inventorySlots[i] = normalizeStack(this.initialSave.inventorySlots[i], MAX_STACK_SIZE);
             }
         }
+        if (this.initialSave?.offhand !== undefined) {
+            this.offhand = normalizeStack(this.initialSave.offhand, MAX_STACK_SIZE);
+        }
         this.mode = createMode(this.modeName);
         this.applyModeFlags();
         [...new Set([...blockRegistry.list().map((block) => block.id), ...plugins.blocks.keys()].filter((type): type is string => type !== null))].forEach((type) => this.loadBlock(type));
@@ -404,6 +459,8 @@ class GameSession {
         this.loadGui("mouse_right_place_and_move", "/assets/gui/mouse/mouse_right_place_and_move.png");
         this.loadGui("move_fly", "/assets/gui/movemode/creative_fly.png");
         this.loadGui("move_walk", "/assets/gui/movemode/creative_walk.png");
+        this.loadGui(INVENTORY_PANELS.creative.key, INVENTORY_PANELS.creative.src);
+        this.loadGui(INVENTORY_PANELS.survival.key, INVENTORY_PANELS.survival.src);
         this.canvas.className = "game-canvas";
         this.ctx.imageSmoothingEnabled = false;
         document.body.innerHTML = "";
@@ -468,6 +525,12 @@ class GameSession {
             }
             if (event.code === "KeyE" && this.modeName !== GameModes.SPECTATOR.id) {
                 this.toggleInventory();
+                event.preventDefault();
+                return;
+            }
+            // 副手交换：背包开着也能按（与 E/Q 一样走无菜单分支）。
+            if (event.code === settings.keyBindings.offhand && !this.menu && this.modeName !== GameModes.SPECTATOR.id) {
+                this.swapOffhand();
                 event.preventDefault();
                 return;
             }
@@ -1240,6 +1303,8 @@ class GameSession {
             this.loadGui("mouse_right_place_and_move", "/assets/gui/mouse/mouse_right_place_and_move.png", true);
             this.loadGui("move_fly", "/assets/gui/movemode/creative_fly.png", true);
             this.loadGui("move_walk", "/assets/gui/movemode/creative_walk.png", true);
+            this.loadGui(INVENTORY_PANELS.creative.key, INVENTORY_PANELS.creative.src, true);
+            this.loadGui(INVENTORY_PANELS.survival.key, INVENTORY_PANELS.survival.src, true);
             reloadCharacterImages();
             reloaded.push("images");
         }
@@ -1617,15 +1682,34 @@ class GameSession {
         return snapped;
     }
 
-    private hotbarSlotAt(clientX: number, clientY: number): number {
-        const width = window.innerWidth;
-        const height = window.innerHeight;
+    /** HUD 快捷栏与左侧副手格的布局（屏幕像素）。副手格占据快捷栏左边的一个整格位。 */
+    private hudHotbarLayout(): {slot: number; box: number; barX: number; barWidth: number; top: number; offhandX: number} {
         const slot = 48;
+        const box = 42;
         const barWidth = slot * this.hotbar.length;
-        const x = (width - barWidth) / 2;
-        if (clientY < height - 60 || clientY > height - 18) return -1;
-        const index = Math.floor((clientX - x) / slot);
+        const barX = (window.innerWidth - barWidth) / 2;
+        // 副手格画在快捷栏左侧（面板左内边距 8px 之外再加一个格位），与快捷栏格垂直对齐。
+        return {
+            slot,
+            box,
+            barX,
+            barWidth,
+            top: window.innerHeight - 60,
+            offhandX: barX - 8 - slot + (slot - box) / 2,
+        };
+    }
+
+    private hotbarSlotAt(clientX: number, clientY: number): number {
+        const {slot, box, barX, top} = this.hudHotbarLayout();
+        if (clientY < top || clientY > top + box) return -1;
+        const index = Math.floor((clientX - barX) / slot);
         return index >= 0 && index < this.hotbar.length ? index : -1;
+    }
+
+    /** 鼠标是否悬停在 HUD 左侧的副手格上。 */
+    private offhandSlotHovered(clientX: number, clientY: number): boolean {
+        const {box, top, offhandX} = this.hudHotbarLayout();
+        return clientX >= offhandX && clientX <= offhandX + box && clientY >= top && clientY <= top + box;
     }
 
     private place(mouseX: number, mouseY: number): void {
@@ -1695,6 +1779,8 @@ class GameSession {
                 onBlockBroken: (x, y, type) => {
                     plugins.notifyBlockBroken({...this.pluginContext(), x, y, type});
                     storage.log("Block broken", {world: this.meta.name, x, y, type});
+                    // 生存模式掉落被破坏的方块自身。支撑消失而级联掉落的地物（花/草/仙人掌）
+                    // 也会走到这里（每次回调一格），因此同样会掉落自身而不是凭空消失。
                     if (this.modeName === "survival") {
                         this.drops.spawn({id: type, count: 1}, x + 0.5, y + 0.3, (Math.random() - 0.5) * 1.5, 3.2);
                     }
@@ -1940,12 +2026,6 @@ class GameSession {
         const image = new Image();
         image.src = bust ? `${src}?t=${Date.now()}` : src;
         this.guiImages.set(key, image);
-    }
-
-    private loadImage(src: string): HTMLImageElement {
-        const image = new Image();
-        image.src = src;
-        return image;
     }
 
     private pluginContext(): PluginGameContext {
@@ -2278,14 +2358,14 @@ class GameSession {
     /** 背包打开时按 Q：创造模式销毁悬停格整堆物品；生存模式不摧毁，改为整堆丢到世界中。 */
     private destroyHoveredItem(): void {
         const slot = this.inventorySlotAt(this.lastMouseX, this.lastMouseY);
-        if (!slot) return;
-        const slots = slot.kind === "hotbar" ? this.hotbar : this.inventorySlots;
-        const stack = slots[slot.index];
+        // 销毁格本身不存物品，红色 X 靠鼠标点击（放上去即销毁）生效。
+        if (!slot || slot.kind === "destroy") return;
+        const stack = this.slotStack(slot);
         if (!stack) return;
         if (this.modeName === "survival") {
             this.drops.spawn(stack, this.player.x + this.player.facing * 0.45, this.player.y + 0.7, this.player.facing * 1.5, 2.5);
         }
-        slots[slot.index] = null;
+        this.setSlotStack(slot, null);
         this.save();
     }
 
@@ -2321,62 +2401,98 @@ class GameSession {
         if (changed) this.save();
     }
 
+    /** 当前模式使用的物品栏面板（创造=创造背包图，其余=生存物品栏图）。 */
+    private inventoryPanel(): InventoryGuiPanel {
+        return this.modeName === "creative" ? INVENTORY_PANELS.creative : INVENTORY_PANELS.survival;
+    }
+
     private inventoryLayout(): {
         panelX: number;
         panelY: number;
-        gridX: number;
-        gridY: number;
-        hotbarX: number;
-        hotbarY: number;
-        slot: number
+        panelSize: number;
+        slot: number;
+        grid: { x: number; y: number };
+        hotbar: { x: number; y: number };
+        offhand: { x: number; y: number };
+        destroy: { x: number; y: number } | null;
     } {
-        const scale = Math.min(window.innerWidth, window.innerHeight) / 512;
-        const slot = CREATIVE_INVENTORY_GUI.slotSize * scale;
-        const panelW = 512 * scale;
-        const panelH = 512 * scale;
-        // 让「图片内容中心」与屏幕中心吻合（图片本身 512x512 居中，但内容偏左上）
-        const panelX = (window.innerWidth - panelW) / 2 + (256 - CREATIVE_INVENTORY_GUI.contentCenterX) * scale;
-        const panelY = (window.innerHeight - panelH) / 2 + (256 - CREATIVE_INVENTORY_GUI.contentCenterY) * scale;
+        const panel = this.inventoryPanel();
+        const scale = Math.min(window.innerWidth, window.innerHeight) / INVENTORY_GUI_SIZE;
+        const panelSize = INVENTORY_GUI_SIZE * scale;
+        // 让「图片内容中心」与屏幕中心吻合（图片本身 512×512 居中，但内容偏左上）
+        const panelX = (window.innerWidth - panelSize) / 2 + (INVENTORY_GUI_SIZE / 2 - panel.contentCenterX) * scale;
+        const panelY = (window.innerHeight - panelSize) / 2 + (INVENTORY_GUI_SIZE / 2 - panel.contentCenterY) * scale;
+        const at = (x: number, y: number) => ({x: panelX + x * scale, y: panelY + y * scale});
         return {
             panelX,
             panelY,
-            gridX: panelX + CREATIVE_INVENTORY_GUI.gridOffsetX * scale,
-            gridY: panelY + CREATIVE_INVENTORY_GUI.gridOffsetY * scale,
-            hotbarX: panelX + CREATIVE_INVENTORY_GUI.hotbarOffsetX * scale,
-            hotbarY: panelY + CREATIVE_INVENTORY_GUI.hotbarOffsetY * scale,
-            slot,
+            panelSize,
+            slot: panel.slotSize * scale,
+            grid: at(panel.gridX, panel.gridY),
+            hotbar: at(panel.hotbarX, panel.hotbarY),
+            offhand: at(panel.offhandX, panel.offhandY),
+            destroy: panel.destroyX === undefined || panel.destroyY === undefined ? null : at(panel.destroyX, panel.destroyY),
         };
     }
 
-    private inventorySlotAt(clientX: number, clientY: number): { kind: "inventory" | "hotbar"; index: number } | null {
+    private inventorySlotAt(clientX: number, clientY: number): InventorySlotRef | null {
         const layout = this.inventoryLayout();
-        const column = Math.floor((clientX - layout.gridX) / layout.slot);
-        const row = Math.floor((clientY - layout.gridY) / layout.slot);
-        if (column >= 0 && column < 9 && row >= 0 && row < 3) return {kind: "inventory", index: row * 9 + column};
-        const hotbarColumn = Math.floor((clientX - layout.hotbarX) / layout.slot);
-        const hotbarRow = Math.floor((clientY - layout.hotbarY) / layout.slot);
-        if (hotbarColumn >= 0 && hotbarColumn < 9 && hotbarRow === 0) return {kind: "hotbar", index: hotbarColumn};
+        const inside = (box: { x: number; y: number }): boolean =>
+            clientX >= box.x && clientX < box.x + layout.slot && clientY >= box.y && clientY < box.y + layout.slot;
+        if (layout.destroy && inside(layout.destroy)) return {kind: "destroy", index: 0};
+        if (inside(layout.offhand)) return {kind: "offhand", index: 0};
+        const column = Math.floor((clientX - layout.grid.x) / layout.slot);
+        const row = Math.floor((clientY - layout.grid.y) / layout.slot);
+        if (column >= 0 && column < INVENTORY_GRID_COLUMNS && row >= 0 && row < INVENTORY_GRID_ROWS) {
+            return {kind: "inventory", index: row * INVENTORY_GRID_COLUMNS + column};
+        }
+        const hotbarColumn = Math.floor((clientX - layout.hotbar.x) / layout.slot);
+        const hotbarRow = Math.floor((clientY - layout.hotbar.y) / layout.slot);
+        if (hotbarColumn >= 0 && hotbarColumn < HOTBAR_SLOT_COUNT && hotbarRow === 0) return {kind: "hotbar", index: hotbarColumn};
         return null;
+    }
+
+    /** 读某格的堆叠（销毁格恒为空）。 */
+    private slotStack(slot: InventorySlotRef): ItemStack | null {
+        if (slot.kind === "hotbar") return this.hotbar[slot.index] ?? null;
+        if (slot.kind === "inventory") return this.inventorySlots[slot.index] ?? null;
+        if (slot.kind === "offhand") return this.offhand;
+        return null;
+    }
+
+    /** 写某格（销毁格不存储）。 */
+    private setSlotStack(slot: InventorySlotRef, stack: ItemStack | null): void {
+        if (slot.kind === "hotbar") this.hotbar[slot.index] = stack;
+        else if (slot.kind === "inventory") this.inventorySlots[slot.index] = stack;
+        else if (slot.kind === "offhand") this.offhand = stack;
     }
 
     private handleInventoryClick(clientX: number, clientY: number): void {
         const slot = this.inventorySlotAt(clientX, clientY);
         if (!slot) return;
-        const slots = slot.kind === "hotbar" ? this.hotbar : this.inventorySlots;
-        const slotItem = slots[slot.index];
+        // 创造模式右下角的红色销毁格：把手上的整堆放进去即销毁。
+        if (slot.kind === "destroy") {
+            const held = this.heldInventoryItem;
+            if (!held) return;
+            storage.log("Creative item destroyed", {world: this.meta.name, item: held.id, count: held.count});
+            this.heldInventoryItem = null;
+            this.save();
+            return;
+        }
+        const slotItem = this.slotStack(slot);
         const held = this.heldInventoryItem;
         if (!held) {
             // 空手时拿起当前格整堆
             this.heldInventoryItem = slotItem;
-            slots[slot.index] = null;
+            this.setSlotStack(slot, null);
         } else if (slotItem && slotItem.id === held.id) {
             // 同 id 堆叠合并，超出上限的部分留在手上
             const total = slotItem.count + held.count;
-            slots[slot.index] = {id: held.id, count: Math.min(MAX_STACK_SIZE, total)};
+            this.setSlotStack(slot, {id: held.id, count: Math.min(MAX_STACK_SIZE, total)});
             this.heldInventoryItem = total > MAX_STACK_SIZE ? {id: held.id, count: total - MAX_STACK_SIZE} : null;
         } else {
             // 不同物品交换
-            slots[slot.index] = held;
+            this.setSlotStack(slot, held);
             this.heldInventoryItem = slotItem;
         }
         if (slot.kind === "hotbar") this.selected = slot.index;
@@ -2387,6 +2503,27 @@ class GameSession {
             row: slot.kind,
             heldItem: this.heldInventoryItem
         });
+    }
+
+    /** F 键：把副手格与当前选中的快捷栏格互换（两边都空时不做事）。 */
+    private swapOffhand(): void {
+        const current = this.hotbar[this.selected] ?? null;
+        if (!current && !this.offhand) return;
+        this.hotbar[this.selected] = this.offhand;
+        this.offhand = current;
+        this.notice = text("已与副手交换", "Swapped with offhand");
+        this.noticeTimer = 1.2;
+        storage.log("Offhand swapped", {world: this.meta.name, slot: this.selected});
+        this.save();
+    }
+
+    /** 左右手物品贴图：left=副手（itemL），right=当前快捷栏格（itemR）；空手为 null（不绘制）。 */
+    private heldItemImages(): HeldItemImages {
+        const main = this.hotbar[this.selected] ?? null;
+        return {
+            left: this.offhand ? this.iconFor(this.offhand.id) ?? null : null,
+            right: main ? this.iconFor(main.id) ?? null : null,
+        };
     }
 
     private handleMenuClick(clientX: number, clientY: number): void {
@@ -2400,7 +2537,7 @@ class GameSession {
             return;
         }
         const index = Math.floor((clientY - (y + (this.menu === "bindings" ? 82 : 92))) / (this.menu === "bindings" ? 55 : 66));
-        if (index < 0 || index > (this.menu === "bindings" ? 9 : this.menu === "settings" ? 6 : this.menu === "display" ? (this.colorEditing ? 4 : 7) : this.menu === "pause" ? 3 : 2)) return;
+        if (index < 0 || index > (this.menu === "bindings" ? Object.keys(settings.keyBindings).length : this.menu === "settings" ? 6 : this.menu === "display" ? (this.colorEditing ? 4 : 7) : this.menu === "pause" ? 3 : 2)) return;
         const rowY = y + (this.menu === "bindings" ? 82 : 92) + index * (this.menu === "bindings" ? 55 : 66);
         const rowH = this.menu === "bindings" ? 42 : 44;
         if (clientY < rowY || clientY > rowY + rowH) return;
@@ -2476,7 +2613,8 @@ class GameSession {
             if (index === 7) this.menu = "settings";
             return;
         }
-        if (index === 9) {
+        // 绑定行数之后的那一行是「返回」。
+        if (index === Object.keys(settings.keyBindings).length) {
             this.menu = "settings";
             return;
         }
@@ -2520,6 +2658,7 @@ class GameSession {
             ...(this.spawnPoint ? {spawnX: this.spawnPoint.x, spawnY: this.spawnPoint.y, spawnFacing: this.spawnPoint.facing} : {}),
             inventorySlots: this.inventorySlots,
             hotbar: this.hotbar,
+            offhand: this.offhand,
             mobs: this.mobs.serialize(),
             droppedItems: this.drops.serialize(),
             idTable: changes.idTable,
@@ -2680,7 +2819,8 @@ class GameSession {
             blockSize: this.blockSize,
             dt: 0,
             textures: this.blockImages,
-            blockTextureAt: (type, x) => this.blockImageFor(type, x)
+            blockTextureAt: (type, x) => this.blockImageFor(type, x),
+            itemImages: this.heldItemImages()
         };
         const drawables: Array<{ depth: number; draw: () => void }> = [];
         for (const mob of this.mobs.mobsNear(this.player, MOB_RENDER_RADIUS)) {
@@ -2777,6 +2917,7 @@ class GameSession {
                 cameraY,
                 alpha: settings.spectateAlpha,
                 brightness: settings.spectateBrightness,
+                itemImages: this.heldItemImages(),
             });
         }
         if (this.showHitboxes) this.renderHitboxes(ctx, cameraX, cameraY, width, height);
@@ -2950,23 +3091,34 @@ class GameSession {
         // 背包打开时不画 HUD 物品栏：会透过面板底部的透明区域显示出来（第一格草方块
         // 变成一个「不明绿色物体」），背包里已有自己的物品栏行。
         if (!this.inventoryOpen) {
-            const slot = 48;
-            const barWidth = slot * this.hotbar.length;
+            const {slot, box, barX, barWidth, top, offhandX} = this.hudHotbarLayout();
+            const iconInset = (box - 28) / 2;
             ctx.fillStyle = "rgba(9,17,24,.88)";
-            ctx.fillRect((width - barWidth) / 2 - 8, height - 68, barWidth + 16, 56);
+            // 背景板向左多留一个格位，容纳副手格。
+            ctx.fillRect(barX - 8 - slot, top - 8, barWidth + 16 + slot, box + 14);
+            // 副手格：显示副手物品，位置在快捷栏左侧（F 键与当前快捷栏格交换）。
+            ctx.strokeStyle = "#52666a";
+            ctx.lineWidth = 1;
+            ctx.strokeRect(offhandX, top, box, box);
+            const offhandImage = this.offhand ? this.iconFor(this.offhand.id) : undefined;
+            if (offhandImage && (!("naturalWidth" in offhandImage) || (offhandImage.complete && offhandImage.naturalWidth))) {
+                ctx.drawImage(offhandImage, offhandX + iconInset, top + iconInset, 28, 28);
+            }
+            if (this.offhand && this.offhand.count > 1) this.drawStackCount(ctx, String(this.offhand.count), offhandX + 34, top + 35);
             this.hotbar.forEach((stack, index) => {
-                const x = (width - barWidth) / 2 + index * slot;
+                const x = barX + index * slot;
                 ctx.strokeStyle = index === this.selected ? "#f2d67b" : "#52666a";
                 ctx.lineWidth = index === this.selected ? 3 : 1;
-                ctx.strokeRect(x, height - 60, 42, 42);
+                ctx.strokeRect(x, top, box, box);
                 const image = stack ? this.iconFor(stack.id) : undefined;
-                if (image && (!("naturalWidth" in image) || (image.complete && image.naturalWidth))) ctx.drawImage(image, x + 7, height - 53, 28, 28);
-                if (stack && stack.count > 1) this.drawStackCount(ctx, String(stack.count), x + 34, height - 25);
+                if (image && (!("naturalWidth" in image) || (image.complete && image.naturalWidth))) ctx.drawImage(image, x + iconInset, top + iconInset, 28, 28);
+                if (stack && stack.count > 1) this.drawStackCount(ctx, String(stack.count), x + 34, top + 35);
             });
             if (!this.paused && !this.chatOpen) {
                 const hoveredIndex = this.hotbarSlotAt(this.lastMouseX, this.lastMouseY);
                 const hoveredStack = hoveredIndex >= 0 ? this.hotbar[hoveredIndex] : null;
                 if (hoveredStack) this.drawItemTooltip(ctx, this.stackLabel(hoveredStack));
+                else if (this.offhand && this.offhandSlotHovered(this.lastMouseX, this.lastMouseY)) this.drawItemTooltip(ctx, this.stackLabel(this.offhand));
             }
         }
         if (this.debug) {
@@ -3086,36 +3238,50 @@ class GameSession {
         const layout = this.inventoryLayout();
         ctx.fillStyle = "rgba(0, 0, 0, .58)";
         ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
-        const background = this.inventoryBackground;
-        if (background.complete && background.naturalWidth) {
-            ctx.drawImage(background, layout.panelX, layout.panelY, 512 * (Math.min(window.innerWidth, window.innerHeight) / 512), 512 * (Math.min(window.innerWidth, window.innerHeight) / 512));
+        const background = this.guiImages.get(this.inventoryPanel().key);
+        if (background?.complete && background.naturalWidth) {
+            ctx.drawImage(background, layout.panelX, layout.panelY, layout.panelSize, layout.panelSize);
         } else {
             ctx.fillStyle = "#13252d";
-            ctx.fillRect(layout.panelX, layout.panelY, 512 * (Math.min(window.innerWidth, window.innerHeight) / 512), 512 * (Math.min(window.innerWidth, window.innerHeight) / 512));
+            ctx.fillRect(layout.panelX, layout.panelY, layout.panelSize, layout.panelSize);
         }
         ctx.font = "12px ui-monospace";
         ctx.textAlign = "left";
         const hovered = this.inventorySlotAt(this.lastMouseX, this.lastMouseY);
-        const drawSlot = (slots: ReadonlyArray<ItemStack | null>, gridX: number, gridY: number, kind: "inventory" | "hotbar"): void => {
+        const isHovered = (kind: InventorySlotKind, index = 0): boolean => hovered?.kind === kind && hovered.index === index;
+        const strokeSlot = (x: number, y: number, hoveredHere: boolean): void => {
+            ctx.strokeStyle = hoveredHere ? "#f2d67b" : "#3f5860";
+            ctx.lineWidth = hoveredHere ? 2 : 1;
+            ctx.strokeRect(x, y, layout.slot, layout.slot);
+        };
+        const drawStack = (stack: ItemStack | null, x: number, y: number): void => {
+            if (!stack) return;
+            const image = this.iconFor(stack.id);
+            if (image && (!("naturalWidth" in image) || (image.complete && image.naturalWidth))) {
+                const inset = layout.slot * 0.2;
+                ctx.drawImage(image, x + inset, y + inset, layout.slot - inset * 2, layout.slot - inset * 2);
+            }
+            if (stack.count > 1) this.drawStackCount(ctx, String(stack.count), x + layout.slot - 2, y + layout.slot - 2);
+        };
+        const drawSlot = (slots: ReadonlyArray<ItemStack | null>, box: { x: number; y: number }, kind: "inventory" | "hotbar"): void => {
             slots.forEach((stack, index) => {
-                const x = gridX + (index % 9) * layout.slot;
-                const y = gridY + Math.floor(index / 9) * layout.slot;
-                const isHovered = hovered?.kind === kind && hovered.index === index;
-                ctx.strokeStyle = isHovered ? "#f2d67b" : "#3f5860";
-                ctx.lineWidth = isHovered ? 2 : 1;
-                ctx.strokeRect(x, y, layout.slot, layout.slot);
-                if (stack) {
-                    const image = this.iconFor(stack.id);
-                    if (image && (!("naturalWidth" in image) || (image.complete && image.naturalWidth))) {
-                        const inset = layout.slot * 0.2;
-                        ctx.drawImage(image, x + inset, y + inset, layout.slot - inset * 2, layout.slot - inset * 2);
-                    }
-                    if (stack.count > 1) this.drawStackCount(ctx, String(stack.count), x + layout.slot - 2, y + layout.slot - 2);
-                }
+                const x = box.x + (index % INVENTORY_GRID_COLUMNS) * layout.slot;
+                const y = box.y + Math.floor(index / INVENTORY_GRID_COLUMNS) * layout.slot;
+                strokeSlot(x, y, isHovered(kind, index));
+                drawStack(stack, x, y);
             });
         };
-        drawSlot(this.inventorySlots, layout.gridX, layout.gridY, "inventory");
-        drawSlot(this.hotbar, layout.hotbarX, layout.hotbarY, "hotbar");
+        drawSlot(this.inventorySlots, layout.grid, "inventory");
+        drawSlot(this.hotbar, layout.hotbar, "hotbar");
+        // 副手格：F 键交换来的物品显示在这里。
+        strokeSlot(layout.offhand.x, layout.offhand.y, isHovered("offhand"));
+        drawStack(this.offhand, layout.offhand.x, layout.offhand.y);
+        // 创造模式右下角的红色销毁格：只在悬停时描边（图案本身已有红叉）。
+        if (layout.destroy && isHovered("destroy")) {
+            ctx.strokeStyle = "#f2d67b";
+            ctx.lineWidth = 2;
+            ctx.strokeRect(layout.destroy.x, layout.destroy.y, layout.slot, layout.slot);
+        }
         if (this.heldInventoryItem) {
             const image = this.iconFor(this.heldInventoryItem.id);
             if (image && (!("naturalWidth" in image) || (image.complete && image.naturalWidth))) {
@@ -3127,8 +3293,7 @@ class GameSession {
             if (this.heldInventoryItem.count > 1) this.drawStackCount(ctx, String(this.heldInventoryItem.count), this.lastMouseX + layout.slot / 2 - 2, this.lastMouseY + layout.slot / 2 - 2);
         }
         if (hovered) {
-            const slots = hovered.kind === "hotbar" ? this.hotbar : this.inventorySlots;
-            const stack = slots[hovered.index];
+            const stack = this.slotStack(hovered);
             if (stack) this.drawItemTooltip(ctx, this.stackLabel(stack));
         }
     }

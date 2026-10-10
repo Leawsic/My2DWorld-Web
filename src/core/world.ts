@@ -25,8 +25,10 @@ export const POPPY = Blocks.MY2DWORLD.POPPY.id;
 export const DANDELION = Blocks.MY2DWORLD.DANDELION.id;
 export const CACTUS = Blocks.MY2DWORLD.CACTUS.id;
 export const WATER = Blocks.MY2DWORLD.WATER.id;
-/** 海平面：海洋群系地表以上填充水（水源）至此高度。 */
+/** 海平面：地表以上填充水（水源）至此高度。 */
 export const SEA_LEVEL = 62;
+/** 地表以上注水至海平面的群系：海洋与河流（河床已低于海平面，河道不会干涸）。 */
+const FLOODED_BIOME_IDS: ReadonlySet<string> = new Set(["ocean", "river"]);
 
 /** Rock type below this depth becomes deepslate (aligned with 1.18: stone above y=0, deepslate below). */
 const DEEPSLATE_TOP = 0;
@@ -131,9 +133,9 @@ const OCEAN: Biome = {
     grass: "#82c34d", foliage: "#5a9424",
 };
 
-/** 河流：小型群系，跨度约 50-100 格，略低于周围地形的沙质河床。 */
+/** 河流：小型群系，跨度约 50-100 格，河床低于海平面（河道内不会出现干涸的断口）。 */
 const RIVER: Biome = {
-    id: "river", base: 60, amplitude: 2, detail: 1.5,
+    id: "river", base: 58, amplitude: 2, detail: 1.5,
     surface: SAND, surfaceDepth: 2, subSurface: DIRT, subDepth: 4,
     stone: STONE, stoneVariant: COBBLESTONE, variantChance: 0.1,
     grass: "#82c34d", foliage: "#5a9424",
@@ -228,10 +230,10 @@ export class Chunk {
             spawnX: spawnX(seed),
             seed,
         });
-        // 海洋群系：地表（海床）以上填充水源至海平面（level 0，非下落）。
+        // 海洋/河流群系：地表（海床/河床）以上填充水源至海平面（level 0，非下落）。
         for (let local = 0; local < CHUNK_SIZE; local += 1) {
             const worldX = this.start + local;
-            if (biomeAt(worldX, seed).id !== "ocean") continue;
+            if (!FLOODED_BIOME_IDS.has(biomeAt(worldX, seed).id)) continue;
             const surface = this.surfaces[local];
             const column = local * WORLD_HEIGHT;
             for (let y = surface + 1; y <= SEA_LEVEL; y += 1) {
@@ -468,19 +470,26 @@ export class World {
         return this.isSolid(x, y - 1);
     }
 
-    breakBlock(x: number, y: number): Block | null {
+    /**
+     * 破坏一格方块并返回它（空格子/未加载返回 null）。
+     * 破坏后会级联清除正上方失去支撑的地物（花/草/仙人掌）。
+     * `onBroken` 对每一格**真正被破坏**的方块回调一次（先目标格，再逐层向上级联的地物），
+     * 调用方据此掉落物品、通知插件——被级联清掉的地物也要掉落自身。
+     */
+    breakBlock(x: number, y: number, onBroken?: (x: number, y: number, block: Block) => void): Block | null {
         const block = this.getBlock(x, y);
         if (!block) return null;
         const chunk = this.chunks.get(Math.floor(x / CHUNK_SIZE));
         if (!chunk) return null;
         chunk.setBlock(x - chunk.start, y, 0);
         this.blockNbt.delete(World.cell(x, y));
+        onBroken?.(x, y, block);
         // 级联破坏：若正上方方块是地物（花/草/仙人掌），其支撑已消失，一同破坏（递归向上）。
         // 只级联 feature 方块，普通方块/树干/树叶不随之掉落。
         const above = this.getBlockId(x, y + 1);
         if (above) {
             const def = blockRegistry.get(above);
-            if (def?.feature) this.breakBlock(x, y + 1);
+            if (def?.feature) this.breakBlock(x, y + 1, onBroken);
         }
         this.markEdited(Math.floor(x / CHUNK_SIZE));
         return block;

@@ -1,5 +1,5 @@
 import {MOB_KINDS, type MobKind} from "./entity";
-import {Animation, type AnimDrawOptions, type AnimTransform} from "./anim";
+import {Animation, animImageReady, type AnimDrawOptions, type AnimImage, type AnimTransform} from "./anim";
 import {loadCharacterAnimations, loadAnimationUrl} from "./animations";
 
 export type CharacterKind = "player" | MobKind;
@@ -7,6 +7,12 @@ export type CharacterPose = "idle" | "walk" | "attack" | "dig";
 /** 动画模板家族：插件按家族+姿态注册，覆盖该家族所有变体。 */
 export type AnimationFamily = "player" | "zombie" | "cow" | "pig";
 export type AnimationPose = CharacterPose;
+
+/** 左右手物品贴图（left=左手/副手，right=右手/主手）；null 表示空手。 */
+export interface HeldItemImages {
+    left: AnimImage | null;
+    right: AnimImage | null;
+}
 
 export interface CharacterRenderOptions {
     kind: CharacterKind;
@@ -24,6 +30,8 @@ export interface CharacterRenderOptions {
     tintAmount?: number;
     /** 姿态混合标识：同一实体（player/mob 对象）切换姿态时用 0.1s 平滑过渡；缺省则不混合。 */
     blendKey?: object;
+    /** 左右手物品贴图：覆盖 .myanim 里 itemL/itemR 节点的占位贴图；缺省时保持占位贴图。 */
+    itemImages?: HeldItemImages;
 }
 
 const images = new Map<string, HTMLImageElement>();
@@ -158,28 +166,35 @@ function triangleWave(time: number): number {
     return phase <= 0.5 ? phase * 2 : 2 - phase * 2;
 }
 
-function dimensions(image: HTMLImageElement, fallback: readonly [number, number]): readonly [number, number] {
-    return image.naturalWidth ? [image.naturalWidth, image.naturalHeight] : fallback;
+/** 图片像素尺寸：canvas 用自身尺寸，<img> 用解码后的原始尺寸。 */
+function imageSize(image: AnimImage): readonly [number, number] {
+    return image instanceof HTMLCanvasElement ? [image.width, image.height] : [image.naturalWidth, image.naturalHeight];
 }
 
-function drawPart(ctx: CanvasRenderingContext2D, image: HTMLImageElement, x: number, y: number, pivotX: number, pivotY: number, angle: number, brightness: number, tint?: string, tintAmount = 0): void {
-    if (!image.complete || !image.naturalWidth) return;
+function dimensions(image: AnimImage, fallback: readonly [number, number]): readonly [number, number] {
+    const [w, h] = imageSize(image);
+    return w ? [w, h] : fallback;
+}
+
+function drawPart(ctx: CanvasRenderingContext2D, image: AnimImage, x: number, y: number, pivotX: number, pivotY: number, angle: number, brightness: number, tint?: string, tintAmount = 0): void {
+    if (!animImageReady(image)) return;
+    const [imageW, imageH] = imageSize(image);
     ctx.save();
     ctx.translate(x, y);
     ctx.scale(1, -1); // Source PNGs have .myanim's local y-down orientation.
     ctx.rotate(angle);
-    ctx.drawImage(image, -pivotX * image.naturalWidth, -pivotY * image.naturalHeight);
+    ctx.drawImage(image, -pivotX * imageW, -pivotY * imageH);
     if (brightness < 1) {
         ctx.globalCompositeOperation = "source-atop";
         ctx.globalAlpha = 1 - Math.max(0, brightness);
         ctx.fillStyle = "#000";
-        ctx.fillRect(-pivotX * image.naturalWidth, -pivotY * image.naturalHeight, image.naturalWidth, image.naturalHeight);
+        ctx.fillRect(-pivotX * imageW, -pivotY * imageH, imageW, imageH);
     }
     if (tint && tintAmount > 0) {
         ctx.globalCompositeOperation = "source-atop";
         ctx.globalAlpha = Math.max(0, Math.min(1, tintAmount));
         ctx.fillStyle = tint;
-        ctx.fillRect(-pivotX * image.naturalWidth, -pivotY * image.naturalHeight, image.naturalWidth, image.naturalHeight);
+        ctx.fillRect(-pivotX * imageW, -pivotY * imageH, imageW, imageH);
     }
     ctx.restore();
 }
@@ -191,8 +206,13 @@ function renderHumanoid(ctx: CanvasRenderingContext2D, asset: string, opt: Chara
     const armR = imageFor(asset, "armR");
     const legL = imageFor(asset, "legL");
     const legR = imageFor(asset, "legR");
-    const itemL = imageFor(asset, "itemL");
-    const itemR = imageFor(asset, "itemR");
+    // 指定了手持物品贴图时用它（null=空手，不绘制），否则用骨架里的占位贴图。
+    const handItem = (side: "left" | "right", part: string): AnimImage | null => {
+        if (!opt.itemImages) return imageFor(asset, part);
+        return (side === "left" ? opt.itemImages.left : opt.itemImages.right) ?? null;
+    };
+    const itemL = handItem("left", "itemL");
+    const itemR = handItem("right", "itemR");
     const [, torsoH] = dimensions(torso, asset.endsWith("_baby") ? [4, 10] : [8, 24]);
     const [, legH] = dimensions(legL, asset.endsWith("_baby") ? [4, 8] : [8, 24]);
     const bodyY = torsoH / 2 + legH;
@@ -218,12 +238,12 @@ function renderHumanoid(ctx: CanvasRenderingContext2D, asset: string, opt: Chara
 
     ctx.scale(SKELETON_PIXEL_BLOCK, SKELETON_PIXEL_BLOCK);
     drawPart(ctx, armL, 0, shoulderY, 0.5, 0.1667, armLeftAngle, brightness, opt.tint, opt.tintAmount);
-    drawPart(ctx, itemL, leftHand.x, shoulderY + leftHand.y, 0.5, 0.5, armLeftAngle, brightness, opt.tint, opt.tintAmount);
+    if (itemL) drawPart(ctx, itemL, leftHand.x, shoulderY + leftHand.y, 0.5, 0.5, armLeftAngle, brightness, opt.tint, opt.tintAmount);
     drawPart(ctx, legL, 0, hipY, 0.5, 0, legLeftAngle, brightness, opt.tint, opt.tintAmount);
     drawPart(ctx, torso, 0, bodyY, 0.5, 0.5, 0, brightness, opt.tint, opt.tintAmount);
     drawPart(ctx, head, 0, headY, 0.5, 1, 0, brightness, opt.tint, opt.tintAmount);
     drawPart(ctx, legR, 0, hipY, 0.5, 0, legRightAngle, brightness, opt.tint, opt.tintAmount);
-    drawPart(ctx, itemR, rightHand.x, shoulderY + rightHand.y, 0.5, 0.5, armRightAngle, brightness, opt.tint, opt.tintAmount);
+    if (itemR) drawPart(ctx, itemR, rightHand.x, shoulderY + rightHand.y, 0.5, 0.5, armRightAngle, brightness, opt.tint, opt.tintAmount);
     drawPart(ctx, armR, 0, shoulderY, 0.5, 0.1667, armRightAngle, brightness, opt.tint, opt.tintAmount);
 }
 
@@ -314,6 +334,16 @@ function unitScaleFor(animation: Animation): number {
     return scale;
 }
 
+/** 把左右手物品贴图整理成对象 id → 贴图 的覆盖表（itemL=左手/副手，itemR=右手/主手）。
+ *  未指定 itemImages（如生物）时返回 undefined，保持 .myanim 里的占位贴图。 */
+function itemImageOverrides(opt: CharacterRenderOptions): ReadonlyMap<string, AnimImage | null> | undefined {
+    if (!opt.itemImages) return undefined;
+    const overrides = new Map<string, AnimImage | null>();
+    overrides.set("itemL", opt.itemImages.left);
+    overrides.set("itemR", opt.itemImages.right);
+    return overrides;
+}
+
 /** 用 .myanim 文件绘制角色，锚点在世界坐标（x,y）（角色脚底），坐标单位为游戏方块；
  * 渲染比例统一为源图 1 像素 = 1/4 方块。 */
 function renderCharacterFromAnimation(ctx: CanvasRenderingContext2D, animation: Animation, opt: CharacterRenderOptions): void {
@@ -329,6 +359,7 @@ function renderCharacterFromAnimation(ctx: CanvasRenderingContext2D, animation: 
         brightness: opt.brightness,
         tint: opt.tint,
         tintAmount: opt.tintAmount,
+        imageOverrides: itemImageOverrides(opt),
     });
     ctx.restore();
 }
@@ -400,6 +431,7 @@ function renderCharacterBlend(
         brightness: opt.brightness,
         tint: opt.tint,
         tintAmount: opt.tintAmount,
+        imageOverrides: itemImageOverrides(opt),
     };
     ctx.save();
     ctx.imageSmoothingEnabled = false;

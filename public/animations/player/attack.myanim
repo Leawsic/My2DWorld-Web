@@ -35,7 +35,7 @@
       "image": "/assets/skeleton/players/hitler/itemL.png",
       "layer": 1,
       "attach": { "target": "armL", "node": "item" },
-      "w": 0.25, "h": 0.25,
+      "w": 0.4, "h": 0.4,
       "pivot": [0.5, 0.5],
       "inheritAngle": "armL"
     },
@@ -61,7 +61,7 @@
       "image": "/assets/skeleton/players/hitler/itemR.png",
       "layer": 6,
       "attach": { "target": "armR", "node": "item" },
-      "w": 0.25, "h": 0.25,
+      "w": 0.4, "h": 0.4,
       "pivot": [0.5, 0.5],
       "inheritAngle": "armR"
     },

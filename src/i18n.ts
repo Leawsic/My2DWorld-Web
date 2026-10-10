@@ -62,6 +62,7 @@ const entries: Record<string, Translation> = {
     bind_mode: {zh: "切换模式", en: "Switch mode"},
     bind_hitbox: {zh: "碰撞箱/破坏范围", en: "Hitboxes / reach"},
     bind_chat: {zh: "打开聊天", en: "Open chat"},
+    bind_offhand: {zh: "副手交换", en: "Swap offhand"},
     debug_fps: {zh: "帧率", en: "FPS"},
     debug_mode: {zh: "模式", en: "MODE"},
     debug_world: {zh: "世界", en: "WORLD"},

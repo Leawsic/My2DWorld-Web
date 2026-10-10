@@ -21,9 +21,12 @@ export class CreativeMode extends GameMode {
             } else if (context.hovered) {
                 const [x, y, type] = context.hovered;
                 // 流体等不可携带（cannot_give）方块不因点击被破坏（无法变成物品）。
-                if (!blockRegistry.get(type)?.nbt?.cannot_give && context.world.breakBlock(x, y)) {
+                // 支撑消失而被级联破坏的地物同样通过 onBlockBroken 上报。
+                const broken = blockRegistry.get(type)?.nbt?.cannot_give
+                    ? null
+                    : context.world.breakBlock(x, y, (bx, by, block) => context.onBlockBroken?.(bx, by, block.id));
+                if (broken) {
                     this.particles.spawn(x, y, context.blockTextureAt?.(type, x) ?? context.textures.get(type));
-                    context.onBlockBroken?.(x, y, type);
                 }
                 this.breakCooldown = 8;
             }
@@ -43,6 +46,7 @@ export class CreativeMode extends GameMode {
             blockSize,
             cameraX,
             cameraY,
+            itemImages: context.itemImages,
         });
     }
 

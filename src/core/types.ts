@@ -68,6 +68,8 @@ export interface WorldSave {
     inventorySlots?: ItemStackSlot[];
     /** 物品栏（快捷栏 9 格）内容；缺省时物品栏为空。 */
     hotbar?: ItemStackSlot[];
+    /** 副手格内容；缺省时副手为空。 */
+    offhand?: ItemStackSlot;
     /** 活着的生物状态；缺省时按区块生成决定论重新生成。 */
     mobs?: SavedMob[];
     /** 世界中的掉落物实体；缺省时为空。 */
@@ -110,6 +112,8 @@ export interface KeyBindings {
     mode: string;
     hitbox: string;
     chat: string;
+    /** 副手交换：把副手格与当前选中的快捷栏格互换。 */
+    offhand: string;
 }
 
 export const DEFAULT_KEY_BINDINGS: KeyBindings = {
@@ -122,6 +126,7 @@ export const DEFAULT_KEY_BINDINGS: KeyBindings = {
     mode: "F4",
     hitbox: "F5",
     chat: "KeyT",
+    offhand: "KeyF",
 };
 
 export const DEFAULT_MOVEMENT: MovementSettings = {

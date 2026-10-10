@@ -85,6 +85,16 @@ export interface AnimDrawOptions {
     brightness?: number;
     tint?: string;
     tintAmount?: number;
+    /** 按对象 id 覆盖贴图（如 itemL/itemR 显示玩家手持物品）；值为 null 表示该对象不绘制（空手）。 */
+    imageOverrides?: ReadonlyMap<string, HTMLImageElement | HTMLCanvasElement | null>;
+}
+
+/** 可作为对象贴图的图片类型（PNG 或程序生成的 canvas）。 */
+export type AnimImage = HTMLImageElement | HTMLCanvasElement;
+
+/** 图片是否已可绘制：canvas 立即可用，img 需解码完成。 */
+export function animImageReady(image: AnimImage): boolean {
+    return image instanceof HTMLCanvasElement ? image.width > 0 : image.complete && image.naturalWidth > 0;
 }
 
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
@@ -443,8 +453,10 @@ export class Animation {
                 break;
             }
             case "image": {
-                const img = obj.id ? this.images.get(obj.id) : undefined;
-                if (img && img.complete && img.naturalWidth) {
+                // 覆盖贴图优先（如玩家手持物品）；null 表示显式隐藏该对象。
+                const override = obj.id ? options.imageOverrides?.get(obj.id) : undefined;
+                const img = override === null ? undefined : (override ?? (obj.id ? this.images.get(obj.id) : undefined));
+                if (img && animImageReady(img)) {
                     ctx.drawImage(img, 0, 0, w, h);
                     if (overlay) this.overlay(ctx, 0, 0, w, h, brightness, tint, tintAmount);
                 }

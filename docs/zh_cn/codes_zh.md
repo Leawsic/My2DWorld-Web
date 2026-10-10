@@ -13,7 +13,10 @@
 
 **关键模块**：
 - `GameSession` 类：游戏会话核心，管理世界、玩家、实体、HUD 等
-- 背包系统：3×9 网格 + 9 格快捷栏，支持拖拽、交换、关闭时物品处理
+- 背包系统：3×9 网格 + 9 格快捷栏 + 1 格副手，支持拖拽、交换、关闭时物品处理
+- 物品栏面板按模式切换：`INVENTORY_PANELS`（创造=`gui/creative_inventory/tab_inventory.png`，生存=`gui/container/inventory.png`），
+  槽位坐标为源图像素，另含副手槽与创造模式的销毁格（红色 `×`，放入即销毁）；`F` 键交换副手与当前快捷栏格
+- 手持物品渲染：`renderCharacter` 的 `itemImages` 覆盖 `.myanim` 里 `itemL`（左手/副手）与 `itemR`（右手/主手）节点贴图
 - 聊天系统：支持命令补全、历史记录、滚轮滚动、语法高亮
 - 插件系统：支持动态加载 `.mjs` 插件（API 注册方块、游戏事件等）
 - 游戏循环：`requestAnimationFrame` 驱动的 `tick` 函数
@@ -24,8 +27,18 @@
 **主要接口**：
 - `MovementSettings`：行走/飞行/跳跃/重力设置
 - `PlayerSettings`：全局玩家设置（语言、快捷键、自动保存等）
-- `WorldMeta` / `WorldSave`：世界元数据与存档格式（含物品栏、背包、坐标、模式等）
+- `KeyBindings`：按键绑定，含 `offhand`（副手交换，默认 `KeyF`）
+- `WorldMeta` / `WorldSave`：世界元数据与存档格式（含物品栏、背包、副手 `offhand`、坐标、模式等）
 - 默认值 `DEFAULT_MOVEMENT`、`DEFAULT_SETTINGS`（已更新飞行速度为 7）
+
+### `src/core/world.ts`
+**功能**：地形高度/群系、区块生成与流送、方块读写、存档序列化。
+
+**要点**：
+- 群系：海洋/河流/平原/森林/沙漠/雪原/山地；**海洋与河流**的地表以上都会注水到 `SEA_LEVEL = 62`
+  （河床 base 58，低于海平面，河道内不会出现干涸断口）
+- `breakBlock(x, y, onBroken?)`：破坏目标格后向上级联清除失去支撑的地物（`feature: true`），
+  `onBroken(x, y, block)` 对每一格真正被破坏的方块回调一次，调用方据此掉落物品
 
 ### `src/core/entity.ts`
 **功能**：生物（Mob）管理与物理交互模块。
@@ -105,6 +118,9 @@ npm run build
 - 挤压伤害改为真正碰撞箱重叠才扣血
 - 碰撞箱与物理挤压彻底分离：碰撞箱(`public/hitboxes/`)、挤压箱几何(`public/squeeze/`，结构与碰撞箱一致)、挤压参数(`run/config/squeeze.json`，全局生效)三份独立配置，见 `docs/zh_cn/entity_config_zh.md`
 - 聊天栏滑动条方向修复（顶部=最早消息，向下拖动看最新）
+- 生存模式物品栏改用 `public/assets/gui/container/inventory.png`；创造模式物品栏右下角红叉格可销毁手持堆叠
+- 新增副手格（`F` 交换），副手物品显示在快捷栏左侧与物品栏副手槽，左右手物品显示在骨骼动画的 `itemL` / `itemR` 节点
+- 河流群系注水（河床下沉到海平面以下）；地物（花/草/仙人掌）在支撑被破坏后级联掉落自身
 - 文档已生成
 
 **文件列表已全部覆盖**（共约 30 个主要源文件）。如需某具体文件更详细说明或修改，请随时告知。

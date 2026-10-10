@@ -46,7 +46,8 @@ npm run build          # tsc --noEmit && vite build（生产构建验证）
 
 ### 3.2 地物（花/草/仙人掌，`feature: true`）
 - 放置必须有实心支撑：`placeBlock` / `getPlacementTarget` 用 `world.hasSupport(x, y)`（= 正下方 `isSolid`）拒绝悬空。
-- **破坏级联**：`World.breakBlock` 删除目标格子后，若其**正上方**是地物（`feature: true`，如短草/花/仙人掌），会递归一并破坏——支撑消失、地物掉落。只级联 feature 方块，树干/树叶/普通方块不随之掉落。改动时保留这个级联，不要退回「只破坏单格」。
+- **破坏级联**：`World.breakBlock(x, y, onBroken?)` 删除目标格子后，若其**正上方**是地物（`feature: true`，如短草/花/仙人掌），会递归一并破坏——支撑消失、地物掉落。只级联 feature 方块，树干/树叶/普通方块不随之掉落。改动时保留这个级联，不要退回「只破坏单格」。
+- **级联上报**：`onBroken(x, y, block)` 对每一格真正被破坏的方块回调一次（先目标格，再逐层向上的地物）。modes 把它接到 `ModeContext.onBlockBroken`，`main.ts` 据此为**每一格**生成掉落物/通知插件——所以挖掉花草底下的泥土时花草也会掉落自身，而不是凭空消失。新增破坏入口（命令、爆炸等）时要么走 `breakBlock` 带上该回调，要么自己处理级联掉落。
 
 ### 3.3 命中箱 / 挤压箱的采样存储单位
 - `public/hitboxes/*.json` 与 `public/squeeze/*.json` 里的长度（`halfWidth`/`height`/`centerX`/`centerY`/`boxes`/`left`/`right`）是 **32×整数**（即「块单位 × 32 后四舍五入」）。
