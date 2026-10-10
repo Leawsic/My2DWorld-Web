@@ -1,0 +1,13 @@
+{
+  "playerDamage": 2,
+  "playerAttackCooldownFrames": 8,
+  "mobDamageScale": 0.5,
+  "mobs": {
+    "zombie": 1.5,
+    "zombie_baby": 1,
+    "husk": 1.5,
+    "husk_baby": 1,
+    "drowned": 1.5,
+    "drowned_baby": 1
+  }
+}

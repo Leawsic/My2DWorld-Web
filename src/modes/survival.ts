@@ -2,6 +2,7 @@ import {ParticleSystem} from "../core/particles";
 import {GameMode, type ModeContext} from "./base";
 import {Blocks, blockRegistry, GameModes} from "../core/registry";
 import {renderCharacter} from "../core/skeleton";
+import {playerAttackCooldownFrames, playerAttackDamage} from "../core/attackConfig";
 
 /** 空手挖掘速度系数（未来工具可放大；硬度 / 速度 = 挖掘耗时秒）。 */
 const HAND_MINING_SPEED = 1;
@@ -40,8 +41,8 @@ export class SurvivalMode extends GameMode {
             this.mineProgress = 0;
             this.mineTimer = 0.3;
             if (this.mobHitCooldown <= 0) {
-                hit.hurt(5, context.player.x);
-                this.mobHitCooldown = 8;
+                hit.hurt(playerAttackDamage(), context.player.x);
+                this.mobHitCooldown = playerAttackCooldownFrames();
             }
             return;
         }
@@ -53,8 +54,9 @@ export class SurvivalMode extends GameMode {
         }
 
         const [x, y, type] = hovered;
-        // 生存模式不可破坏基岩。
-        if (type === Blocks.MY2DWORLD.BEDROCK.id) {
+        const definition = blockRegistry.get(type);
+        // 生存模式不可破坏基岩，也不可挖掘流体等不可携带（cannot_give）方块。
+        if (type === Blocks.MY2DWORLD.BEDROCK.id || definition?.nbt?.cannot_give) {
             this.mineProgress = 0;
             return;
         }
@@ -63,7 +65,7 @@ export class SurvivalMode extends GameMode {
             this.mineY = y;
             this.mineProgress = 0;
         }
-        const hardness = Math.max(0.05, blockRegistry.get(type)?.hardness ?? 1);
+        const hardness = Math.max(0.05, definition?.hardness ?? 1);
         this.mineProgress += context.dt / (hardness / HAND_MINING_SPEED);
         this.mineTimer = 0.15;
 

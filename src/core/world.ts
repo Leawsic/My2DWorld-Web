@@ -24,6 +24,9 @@ export const SHORT_GRASS = Blocks.MY2DWORLD.SHORT_GRASS.id;
 export const POPPY = Blocks.MY2DWORLD.POPPY.id;
 export const DANDELION = Blocks.MY2DWORLD.DANDELION.id;
 export const CACTUS = Blocks.MY2DWORLD.CACTUS.id;
+export const WATER = Blocks.MY2DWORLD.WATER.id;
+/** 海平面：海洋群系地表以上填充水（水源）至此高度。 */
+export const SEA_LEVEL = 62;
 
 /** Rock type below this depth becomes deepslate (aligned with 1.18: stone above y=0, deepslate below). */
 const DEEPSLATE_TOP = 0;
@@ -225,6 +228,16 @@ export class Chunk {
             spawnX: spawnX(seed),
             seed,
         });
+        // 海洋群系：地表（海床）以上填充水源至海平面（level 0，非下落）。
+        for (let local = 0; local < CHUNK_SIZE; local += 1) {
+            const worldX = this.start + local;
+            if (biomeAt(worldX, seed).id !== "ocean") continue;
+            const surface = this.surfaces[local];
+            const column = local * WORLD_HEIGHT;
+            for (let y = surface + 1; y <= SEA_LEVEL; y += 1) {
+                this.blocks[column + columnOf(y)] = numFor(WATER);
+            }
+        }
     }
 
     blockAt(localX: number, y: number): number {

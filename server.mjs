@@ -262,6 +262,10 @@ const api = async (req, res) => {
             const blocks = (data && typeof data === "object") ? data : {};
             return send(res, 200, {blocks});
         }
+        if (url.pathname === "/api/entitiesattack" && req.method === "GET") {
+            // 玩家/生物攻击力：public/entitiesattack.json。透传原始对象给客户端。
+            return send(res, 200, readJson(join(root, "public", "entitiesattack.json"), {}));
+        }
         if (url.pathname === "/api/squeeze" && req.method === "GET") {
             // 挤压箱几何：public/squeeze/*.json，结构与碰撞箱一致（halfWidth/height/centerX/centerY、
             // boxes、left/right）。整份透传，由客户端归一化校验。

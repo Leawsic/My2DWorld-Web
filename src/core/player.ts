@@ -1,6 +1,7 @@
 import {World} from "./world";
 import type {MovementSettings} from "./types";
 import {moveBody, type PhysicsBody} from "./physics";
+import {FLUID_FLOW_SPEED, FLUID_GRAVITY_SCALE, FLUID_MAX_FALL, FLUID_RISE_SPEED, fluidOverlap} from "./fluid";
 
 export const BODY_HALF_WIDTH = 0.25;
 export const BODY_HEIGHT = 1.9;
@@ -77,12 +78,26 @@ export class Player implements PhysicsBody {
             const down = keys.down || keys.sneak;
             this.velocityY = up === down ? 0 : up ? this.movement.flySpeed * slow : -this.movement.flySpeed * slow;
         } else {
-            if (pressed && this.jumpsUsed < MAX_JUMPS) {
-                this.velocityY = this.movement.jumpVelocity;
-                this.jumpsUsed += 1;
-                this.onGround = false;
+            // 水体/岩浆浮力与流动推力（幽灵无碰撞，不受流体影响）。
+            const fluid = this.ghost ? null : fluidOverlap(world, this.halfWidth, this.height, this.x, this.y);
+            if (fluid && fluid.submerged) {
+                // 按住跳跃（空格）上浮；否则重力大幅降低（浮力：降低下落速度），并受水平流力推动。
+                if (keys.jump) {
+                    this.velocityY = FLUID_RISE_SPEED;
+                } else {
+                    this.velocityY -= this.movement.gravity * FLUID_GRAVITY_SCALE * seconds;
+                    this.velocityY = Math.max(this.velocityY, -FLUID_MAX_FALL);
+                }
+                this.velocityX += fluid.flowX * FLUID_FLOW_SPEED;
+                this.jumpsUsed = 0;
+            } else {
+                if (pressed && this.jumpsUsed < MAX_JUMPS) {
+                    this.velocityY = this.movement.jumpVelocity;
+                    this.jumpsUsed += 1;
+                    this.onGround = false;
+                }
+                this.velocityY -= this.movement.gravity * seconds;
             }
-            this.velocityY -= this.movement.gravity * seconds;
         }
         const wasOnGround = this.onGround;
         moveBody(this, world, seconds);

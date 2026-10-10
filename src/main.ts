@@ -9,6 +9,7 @@ import {characterParticleTexture, preloadCharacterAnimations, reloadCharacterAni
 import {loadHitboxes} from "./core/hitboxes";
 import {loadBlockHitboxes} from "./core/blockHitboxes";
 import {FluidSimulator, fluidColor, isFluid} from "./core/fluid";
+import {loadAttackConfig} from "./core/attackConfig";
 import {loadBlockConfigs} from "./core/blockconfig";
 import {DroppedItemManager, DROP_PICKUP_RADIUS} from "./core/itemdrop";
 import {loadSqueeze} from "./core/squeeze";
@@ -423,6 +424,7 @@ class GameSession {
         void loadHitboxes().then(() => this.mobs.refreshHitboxes());
         void loadSqueeze().then(() => this.mobs.refreshHitboxes());
         void loadBlockHitboxes();
+        void loadAttackConfig();
         requestAnimationFrame(this.tick);
     }
 
@@ -1095,14 +1097,16 @@ class GameSession {
                 blockArg = first;
                 countArg = parts[2];
             }
-            const definition = blockArg ? blockRegistry.get(blockArg) ?? plugins.blocks.get(blockArg) : undefined;
-            if (!definition) {
+            const id = blockArg ? this.resolveBlockId(blockArg) : undefined;
+            if (!id) {
                 this.addChat(`${text("未知方块", "Unknown block")} "${blockArg}"`);
+            } else if (this.blockCannotGive(id)) {
+                this.addChat(`${text("该方块无法拿在手中", "This block cannot be given")} "${this.blockName(id)}"`);
             } else {
                 const count = countArg !== undefined && Number.isFinite(Number(countArg))
                     ? Math.max(1, Math.min(MAX_STACK_SIZE, Math.floor(Number(countArg))))
                     : 1;
-                this.giveItems(definition.id, count, target);
+                this.giveItems(id, count, target);
             }
         } else if (command === "kill") {
             const target = (parts[1] ?? "@p").toLowerCase();
@@ -1465,8 +1469,11 @@ class GameSession {
         // /give：目标选择器 + 方块 id 列表（含插件方块）。
         if (command === "give") {
             const prefix = trailing ? "" : parts.at(-1)?.toLowerCase() || "";
-            const ids = ["@p", "@a", "@r", username, ...blockRegistry.list().map((block) => block.id), ...plugins.blocks.keys()];
-            return [...new Set(ids.filter((id): id is string => typeof id === "string"))].filter((id) => id.startsWith(prefix));
+            const ids = ["@p", "@a", "@r", username,
+                ...blockRegistry.list().filter((block) => !block.nbt?.cannot_give).map((block) => block.id),
+                ...[...plugins.blocks.values()].filter((block) => !block.nbt?.cannot_give).map((block) => block.id),
+            ];
+            return [...new Set(ids)].filter((id) => id.startsWith(prefix));
         }
         // /kill：目标选择器 + 全部生物种类 + items。
         if (command === "kill") {
@@ -2047,6 +2054,11 @@ class GameSession {
         return (blockRegistry.get(id) ?? plugins.blocks.get(id))?.id;
     }
 
+    /** 该方块是否被 cannot_give 标记为不可拿在手中 / 掉落 / 给予（例如水、岩浆）。 */
+    private blockCannotGive(id: string): boolean {
+        return (blockRegistry.get(id) ?? plugins.blocks.get(id))?.nbt?.cannot_give === true;
+    }
+
     /**
      * /fill <x1> <y1> <x2> <y2> <方块> [方块状态] [模式]
      * 带替换过滤：/fill <x1> <y1> <x2> <y2> <方块> [方块状态] replace [被替换方块] [被替换方块状态]
@@ -2240,8 +2252,9 @@ class GameSession {
         return true;
     }
 
-    /** destroy 填充模式：被替换的方块以掉落物释放（空气与流体不产生掉落物）。 */
+    /** destroy 填充模式：被替换的方块以掉落物释放（空气与 cannot_give 方块不产生掉落物）。 */
     private spawnFillDrop(wx: number, wy: number, id: string): void {
+        if (this.blockCannotGive(id)) return;
         this.drops.spawn({id, count: 1}, wx + 0.5, wy - 0.5, (Math.random() - 0.5) * 1.2, 2.5);
     }
 
@@ -2281,6 +2294,8 @@ class GameSession {
         const target = this.pointedBlock();
         if (!target) return;
         const id = target[2];
+        // 流体等不可携带（cannot_give）方块不复制到手中。
+        if (this.blockCannotGive(id)) return;
         this.hotbar[this.selected] = {id, count: 1};
         this.notice = `${text("已选取", "Picked")} ${this.blockName(id)}`;
         this.noticeTimer = 1.2;

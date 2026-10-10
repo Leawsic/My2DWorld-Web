@@ -10,6 +10,14 @@ export const LAVA_ID = "my2dworld:lava";
 export const WATER_MAX_LEVEL = 7;
 /** 两次流体传播之间的间隔（秒），对应「每 N 帧传播一次」。 */
 export const FLUID_TICK_INTERVAL = 0.2;
+/** 流体中重力的缩放（浮力：降低下落速度）。 */
+export const FLUID_GRAVITY_SCALE = 0.3;
+/** 在水/岩浆中按住跳跃（空格）时的上浮速度（方块/秒）。 */
+export const FLUID_RISE_SPEED = 3.5;
+/** 水平流动对实体的推力（方块/秒，随 flowX 方向）。 */
+export const FLUID_FLOW_SPEED = 1.5;
+/** 流体中的最大下落速度（方块/秒）。 */
+export const FLUID_MAX_FALL = 4;
 
 /** 是否为流体方块（水或岩浆）。 */
 export function isFluid(id: string | null | undefined): boolean {
@@ -24,6 +32,8 @@ export function fluidColor(id: string): string {
 export interface FluidState {
     level: number;
     falling: boolean;
+    /** 水平流动方向：-1 向左、0 无、1 向右。 */
+    flowX: number;
 }
 
 /** 读取某格流体的状态；非流体返回 null。 */
@@ -32,7 +42,33 @@ export function fluidStateAt(world: World, x: number, y: number): FluidState | n
     if (!id || !isFluid(id)) return null;
     const nbt = world.nbtAt(x, y);
     const level = typeof nbt.level === "number" ? Math.max(0, Math.min(WATER_MAX_LEVEL, Math.floor(nbt.level))) : 0;
-    return {level, falling: nbt.falling === true};
+    const flowX = typeof nbt.flowX === "number" ? (nbt.flowX < 0 ? -1 : nbt.flowX > 0 ? 1 : 0) : 0;
+    return {level, falling: nbt.falling === true, flowX};
+}
+
+/** 实体身体与流体的重叠：返回是否浸没，以及重叠格的平均水平流力方向（-1..1）。 */
+export function fluidOverlap(world: World, halfWidth: number, height: number, x: number, y: number): {submerged: boolean; flowX: number} {
+    let flowX = 0;
+    let count = 0;
+    const left = Math.floor(x - halfWidth);
+    const right = Math.floor(x + halfWidth);
+    const bottom = Math.floor(y) + 1;
+    const top = Math.floor(y + height);
+    for (let cx = left; cx <= right; cx += 1) {
+        for (let cy = bottom; cy <= top; cy += 1) {
+            const state = fluidStateAt(world, cx, cy);
+            if (!state) continue;
+            flowX += state.flowX;
+            count += 1;
+        }
+    }
+    return count > 0 ? {submerged: true, flowX: flowX / count} : {submerged: false, flowX: 0};
+}
+
+/** 某世界坐标所在格是否为流体（用于掉落物等单点查询）。 */
+export function fluidMotionAt(world: World, x: number, y: number): {inFluid: boolean; flowX: number} {
+    const state = fluidStateAt(world, Math.floor(x), Math.ceil(y));
+    return state ? {inFluid: true, flowX: state.flowX} : {inFluid: false, flowX: 0};
 }
 
 /**
@@ -74,57 +110,61 @@ export class FluidSimulator {
             if (state && (state.level > 0 || state.falling)) world.clearBlock(x, y);
         }
         // 3. 从每个源重新推导；先写入临时计划，避免遍历与写入互相干扰。
-        const planned = new Map<string, {type: string; level: number; falling: boolean}>();
-        const plan = (x: number, y: number, type: string, level: number, falling: boolean): void => {
+        const planned = new Map<string, {type: string; level: number; falling: boolean; flowX: number}>();
+        const plan = (x: number, y: number, type: string, level: number, falling: boolean, flowX: number): void => {
             const key = `${x},${y}`;
             const existing = planned.get(key);
             if (existing && existing.type !== type) return; // 水×岩浆相遇：交给后续转换
             if (!existing || level < existing.level || (level === existing.level && falling && !existing.falling)) {
-                planned.set(key, {type, level, falling});
+                planned.set(key, {type, level, falling, flowX});
             }
         };
         for (const [sx, sy, type] of sources) this.propagate(world, sx, sy, type, plan);
         // 4. 应用计划写入。
         for (const [cell, fluid] of planned) {
             const [x, y] = World.parseCell(cell);
-            this.setFluid(world, x, y, fluid.type, fluid.level, fluid.falling);
+            this.setFluid(world, x, y, fluid.type, fluid.level, fluid.falling, fluid.flowX);
         }
         // 5. 水×岩浆交互：岩浆遇水转成黑曜石（岩浆源）或圆石（流动岩浆）。
         this.resolveWaterLava(world);
     }
 
     /** 从源向下找落点，补下落水柱，并在落点液面做水平扩散。 */
-    private propagate(world: World, sx: number, sy: number, type: string, plan: (x: number, y: number, type: string, level: number, falling: boolean) => void): void {
+    private propagate(world: World, sx: number, sy: number, type: string, plan: (x: number, y: number, type: string, level: number, falling: boolean, flowX: number) => void): void {
         let restY = sy;
         while (true) {
             const below = restY - 1;
             if (below < WORLD_MIN_Y || world.getBlockId(sx, below) !== null) break;
             restY = below;
         }
-        // 源下方直到落点（含落点）都是派生下落水（level 0，falling=true）。
-        for (let y = sy - 1; y >= restY; y -= 1) plan(sx, y, type, 0, true);
+        // 源下方直到落点（含落点）都是派生下落水（level 0，falling=true，垂直下落无水平流力）。
+        for (let y = sy - 1; y >= restY; y -= 1) plan(sx, y, type, 0, true, 0);
         this.spread(world, sx, restY, type, plan);
     }
 
-    /** 从液面 (sx, sy) 左右各传播最多 7 格，level 递增；要求目标格下方有支撑。 */
-    private spread(world: World, sx: number, sy: number, type: string, plan: (x: number, y: number, type: string, level: number, falling: boolean) => void): void {
+    /** 从液面 (sx, sy) 左右各传播最多 7 格，level 递增，flowX 记录水平流动方向；要求目标格下方有支撑。 */
+    private spread(world: World, sx: number, sy: number, type: string, plan: (x: number, y: number, type: string, level: number, falling: boolean, flowX: number) => void): void {
         for (const dir of [-1, 1]) {
             let level = 1;
             let x = sx + dir;
             while (level <= WATER_MAX_LEVEL) {
                 if (world.getBlockId(x, sy) !== null) break;
                 if (world.getBlockId(x, sy - 1) === null) break;
-                plan(x, sy, type, level, false);
+                plan(x, sy, type, level, false, dir);
                 level += 1;
                 x += dir;
             }
         }
     }
 
-    private setFluid(world: World, x: number, y: number, type: string, level: number, falling: boolean): void {
+    private setFluid(world: World, x: number, y: number, type: string, level: number, falling: boolean, flowX: number): void {
         const definition = blockRegistry.get(type);
         if (!definition) return;
-        const block = new Block(definition, x, y, {level: Math.max(0, Math.min(WATER_MAX_LEVEL, Math.floor(level))), falling});
+        const block = new Block(definition, x, y, {
+            level: Math.max(0, Math.min(WATER_MAX_LEVEL, Math.floor(level))),
+            falling,
+            flowX: flowX < 0 ? -1 : flowX > 0 ? 1 : 0,
+        });
         world.setBlock(x, y, block);
     }
 

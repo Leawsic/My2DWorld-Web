@@ -10,6 +10,14 @@ import type {BlockType, Language} from "./types";
 export interface BlockNbt {
     /** 层级（1/2/3），缺省为 1。 */
     layer?: 1 | 2 | 3;
+    /** 流体状态：0 为水源/最高液面，7 为最低。 */
+    level?: number;
+    /** 流体是否处于下落状态。 */
+    falling?: boolean;
+    /** 水平流动方向：-1 向左、0 无、1 向右。 */
+    flowX?: number;
+    /** 不可作为物品拿在手中 / 掉落 / 给予（例如水、岩浆）。 */
+    cannot_give?: boolean;
     [key: string]: unknown;
 }
 

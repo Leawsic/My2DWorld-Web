@@ -1,6 +1,7 @@
 import {moveBody, type PhysicsBody} from "./physics";
 import {MAX_STACK_SIZE, type ItemStack, type SavedDroppedItem} from "./types";
 import {WORLD_MIN_Y, type World} from "./world";
+import {FLUID_FLOW_SPEED, FLUID_GRAVITY_SCALE, FLUID_MAX_FALL, fluidMotionAt} from "./fluid";
 
 /** 玩家捡起掉落物的水平+竖直距离（世界坐标）。 */
 export const DROP_PICKUP_RADIUS = 1.25;
@@ -87,7 +88,15 @@ export class DroppedItemManager {
             item.age += seconds;
             item.pickupDelay -= seconds;
             if (Math.hypot(item.x - playerX, item.centerY - playerY) > DROP_UPDATE_RADIUS) continue;
-            item.velocityY -= DROP_GRAVITY * seconds;
+            // 流体浮力：水/岩浆中重力降低（缓慢下沉）并受水平流动推力。
+            const fluid = fluidMotionAt(world, item.x, item.centerY);
+            if (fluid.inFluid) {
+                item.velocityY -= DROP_GRAVITY * FLUID_GRAVITY_SCALE * seconds;
+                item.velocityY = Math.max(item.velocityY, -FLUID_MAX_FALL);
+                item.velocityX += fluid.flowX * FLUID_FLOW_SPEED * seconds;
+            } else {
+                item.velocityY -= DROP_GRAVITY * seconds;
+            }
             if (item.onGround) {
                 // 落地后轻微摩擦，避免永远滑动。
                 item.velocityX -= item.velocityX * Math.min(1, seconds * 10);

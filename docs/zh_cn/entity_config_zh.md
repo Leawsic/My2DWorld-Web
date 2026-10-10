@@ -191,3 +191,34 @@
 - **挤压参数**（服务器通过 `/api/squeeze-config` 读取）：`run/config/squeeze.json`，不在 `public/` 下，不会被打包进 `dist/`。
 - 执行 `npm run build` 后，`public/` 下的文件会被**复制**到 `dist/`，因此 `dist/hitboxes/*.json`、`dist/squeeze/*.json` 与源文件内容一致。若你看到/部署的是 `dist/` 目录，请**以 `public/` 为修改源**，改完重新构建；直接改 `dist/` 会在下次构建时被覆盖。
 - 无需重启服务器：改完源/参数文件后，游戏内 `/reload hitboxes` 或 `/reload squeeze` 立即生效。
+
+---
+
+## 6. 攻击力配置（`public/entitiesattack.json`）
+
+玩家与生物的**攻击伤害**配置化在 `public/entitiesattack.json`（服务器通过 `/api/entitiesattack` 读取，页面加载时生效）。字段全部可省略，省略时回退到内置默认值。
+
+```json
+{
+  "playerDamage": 2,
+  "playerAttackCooldownFrames": 8,
+  "mobDamageScale": 0.5,
+  "mobs": {
+    "zombie": 1.5,
+    "zombie_baby": 1,
+    "husk": 1.5,
+    "husk_baby": 1,
+    "drowned": 1.5,
+    "drowned_baby": 1
+  }
+}
+```
+
+| 字段 | 默认 | 含义 |
+| --- | --- | --- |
+| `playerDamage` | 2 | 玩家每次攻击造成的伤害 |
+| `playerAttackCooldownFrames` | 8 | 玩家攻击冷却（帧，60fps 计） |
+| `mobDamageScale` | 0.5 | 未单独配置伤害的生物使用的缩放系数（乘在其内置伤害上） |
+| `mobs` | 空 | 按生物 kind 精确覆盖伤害；未列出的生物用内置伤害 × `mobDamageScale` |
+
+修改后刷新页面即可生效（`/reload` 不刷新攻击配置）。把 `playerDamage` 或生物伤害设为 `0` 可禁用对应攻击。

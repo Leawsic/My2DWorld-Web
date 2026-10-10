@@ -40,7 +40,7 @@
   "my2dworld:nether_gold_ore": {"color": "#a98738", "label": {"zh": "下界金矿石", "en": "Nether Gold Ore"}, "hardness": 5},
   "my2dworld:iron_bars": {"color": "#8d9696", "label": {"zh": "铁栏杆", "en": "Iron Bars"}, "hardness": 4},
   "my2dworld:iron_chain": {"color": "#777c7c", "label": {"zh": "铁链", "en": "Iron Chain"}, "hardness": 4},
-  "my2dworld:water": {"color": "#3a76d2", "label": {"zh": "水", "en": "Water"}, "solid": false, "transparent": true, "nbt": {"level": 0, "falling": false}, "hardness": 0.05},
-  "my2dworld:lava": {"color": "#d4551f", "label": {"zh": "岩浆", "en": "Lava"}, "solid": false, "transparent": true, "nbt": {"level": 0, "falling": false}, "hardness": 0.05},
+  "my2dworld:water": {"color": "#3a76d2", "label": {"zh": "水", "en": "Water"}, "solid": false, "transparent": true, "nbt": {"level": 0, "falling": false, "flowX": 0, "cannot_give": true}, "hardness": 0.05},
+  "my2dworld:lava": {"color": "#d4551f", "label": {"zh": "岩浆", "en": "Lava"}, "solid": false, "transparent": true, "nbt": {"level": 0, "falling": false, "flowX": 0, "cannot_give": true}, "hardness": 0.05},
   "my2dworld:obsidian": {"color": "#1b1520", "label": {"zh": "黑曜石", "en": "Obsidian"}, "hardness": 50}
 }

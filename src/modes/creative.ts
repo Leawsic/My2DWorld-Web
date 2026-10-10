@@ -1,7 +1,8 @@
 import {ParticleSystem} from "../core/particles";
 import {GameMode, type ModeContext} from "./base";
-import {GameModes} from "../core/registry";
+import {blockRegistry, GameModes} from "../core/registry";
 import {renderCharacter} from "../core/skeleton";
+import {playerAttackDamage} from "../core/attackConfig";
 
 export class CreativeMode extends GameMode {
     readonly name = GameModes.CREATIVE.id;
@@ -15,11 +16,12 @@ export class CreativeMode extends GameMode {
         if (context.mouseDown && this.breakCooldown <= 0) {
             const hit = context.mobs.hitMob(context.mouseWorld, context.player);
             if (hit) {
-                hit.hurt(5, context.player.x);
+                hit.hurt(playerAttackDamage(), context.player.x);
                 this.breakCooldown = 8;
             } else if (context.hovered) {
                 const [x, y, type] = context.hovered;
-                if (context.world.breakBlock(x, y)) {
+                // 流体等不可携带（cannot_give）方块不因点击被破坏（无法变成物品）。
+                if (!blockRegistry.get(type)?.nbt?.cannot_give && context.world.breakBlock(x, y)) {
                     this.particles.spawn(x, y, context.blockTextureAt?.(type, x) ?? context.textures.get(type));
                     context.onBlockBroken?.(x, y, type);
                 }

@@ -189,9 +189,10 @@ const BLOCK_FLAGS: Record<string, {solid?: boolean; transparent?: boolean; nbt?:
     poppy: {solid: false, transparent: true, feature: true},
     dandelion: {solid: false, transparent: true, feature: true},
     cactus: {feature: true},
-    // 流体：非实心、半透明，方块状态 level（液面高度 0-7）与 falling（是否下落）。
-    water: {solid: false, transparent: true, nbt: {level: 0, falling: false}},
-    lava: {solid: false, transparent: true, nbt: {level: 0, falling: false}},
+    // 流体：非实心、半透明，方块状态 level（液面高度 0-7）、falling（是否下落）、
+    // flowX（水平流动方向）；cannot_give=true 表示不可作为物品拿在手中/给予/掉落。
+    water: {solid: false, transparent: true, nbt: {level: 0, falling: false, flowX: 0, cannot_give: true}},
+    lava: {solid: false, transparent: true, nbt: {level: 0, falling: false, flowX: 0, cannot_give: true}},
 };
 
 builtinBlocks.forEach(([id, color, zh, en]) => blockRegistry.register({id, color, label: {zh, en}, ...BLOCK_FLAGS[id]}));

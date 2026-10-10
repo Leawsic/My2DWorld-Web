@@ -6,6 +6,7 @@ import {mulberry32} from "./noise";
 import {structuresNear} from "./structures";
 import {hitboxFor, rectsForFacing, type HitboxRect} from "./hitboxes";
 import {squeezeBoxFor, squeezeParams, SQUEEZE_DEFAULTS, SQUEEZE_SHRINK_HALF_WIDTH, SQUEEZE_SHRINK_HEIGHT, SQUEEZE_MIN_HALF_WIDTH, SQUEEZE_MIN_HEIGHT, type ResolvedSqueeze} from "./squeeze";
+import {mobAttackDamage} from "./attackConfig";
 
 export type MobKind =
     | "zombie" | "zombie_baby" | "husk" | "husk_baby" | "drowned" | "drowned_baby"
@@ -339,7 +340,7 @@ export class Mob implements PhysicsBody {
                 this.velocityX = 0;
                 if (this.attackCooldown <= 0) {
                     this.attackCooldown = config.attackCooldown;
-                    onPlayerDamage(config.damage);
+                    onPlayerDamage(mobAttackDamage(this.kind, config.damage));
                 }
                 break;
             case "walk":
