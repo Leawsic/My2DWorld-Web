@@ -1,7 +1,7 @@
 import {World} from "./world";
 import type {MovementSettings} from "./types";
 import {moveBody, type PhysicsBody} from "./physics";
-import {FLUID_FLOW_SPEED, FLUID_GRAVITY_SCALE, FLUID_MAX_FALL, FLUID_RISE_SPEED, fluidOverlap} from "./fluid";
+import {FLUID_FLOW_SPEED, FLUID_GRAVITY_SCALE, FLUID_MAX_FALL, FLUID_RISE_SPEED, fluidOverlap, isFluid} from "./fluid";
 
 export const BODY_HALF_WIDTH = 0.25;
 export const BODY_HEIGHT = 1.9;
@@ -11,6 +11,23 @@ export const PLAYER_SQUEEZE_HALF_WIDTH = BODY_HALF_WIDTH - 0.1;
 export const PLAYER_SQUEEZE_HEIGHT = BODY_HEIGHT - 0.1;
 const MAX_JUMPS = 2;
 const DOUBLE_SPACE_WINDOW = 0.35;
+/** 脚下找水面的扫描格数（含脚底那一格）：浮出水面后水面最多在脚下 1~2 格。 */
+const WATER_SURFACE_SCAN = 3;
+
+/**
+ * 玩家所在列「脚下水柱」的液面高度（该列这一串水最上面那一格的顶面 y）。
+ * 从脚底那一格向下最多找 WATER_SURFACE_SCAN 格：身体沉在水里时脚底格就是水，
+ * 浮出水面时水面就在脚下 1~2 格。该列脚下没有水（例如站在岸上）返回 null。
+ */
+function waterSurfaceUnder(world: World, x: number, feetY: number): number | null {
+    const column = Math.floor(x);
+    const top = Math.floor(feetY);
+    for (let y = top; y > top - WATER_SURFACE_SCAN; y -= 1) {
+        const id = world.getBlockId(column, y);
+        if (id !== null && isFluid(id)) return y;
+    }
+    return null;
+}
 
 export interface KeyState {
     left: boolean;
@@ -45,6 +62,8 @@ export class Player implements PhysicsBody {
     get noclip(): boolean {
         return this.ghost;
     }
+    /** 是否允许在水里/水面处起跳（生存模式禁止：水面不是跳板，只能靠浮力上浮后再起跳）。 */
+    waterJump = true;
     private jumpWasDown = false;
     private doubleSpaceTimer = 0;
     private animationTime = 0;
@@ -91,7 +110,11 @@ export class Player implements PhysicsBody {
                 this.velocityX += fluid.flowX * FLUID_FLOW_SPEED;
                 this.jumpsUsed = 0;
             } else {
-                if (pressed && this.jumpsUsed < MAX_JUMPS) {
+                // 生存模式（waterJump=false）：脚底已经在水面或水面以下时不能起跳——水面不是跳板。
+                // 玩家可以先靠浮力浮出水面（此时脚底高于液面），再正常起跳离开水面。
+                const surface = this.waterJump || this.ghost ? null : waterSurfaceUnder(world, this.x, this.y);
+                const atWaterSurface = surface !== null && this.y <= surface;
+                if (pressed && !atWaterSurface && this.jumpsUsed < MAX_JUMPS) {
                     this.velocityY = this.movement.jumpVelocity;
                     this.jumpsUsed += 1;
                     this.onGround = false;

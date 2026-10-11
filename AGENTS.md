@@ -28,9 +28,10 @@ npm run build          # tsc --noEmit && vite build（生产构建验证）
   - `block.ts`：`BlockDefinition` / 运行时 `Block` / `BlockNbt`。
   - `registry.ts`：`Blocks`、`GameModes`、`blockRegistry`，以及 `BLOCK_FLAGS`（solid/transparent/nbt/feature）。
   - `entity.ts`：`MobManager`/`Mob`/`MOB_KINDS`，AI（索敌/追击/攻击）、召唤、碰撞/挤压。
-  - `player.ts`：`Player`（位置/物理/二段跳/飞行/`ghost`）。
+  - `player.ts`：`Player`（位置/物理/二段跳/飞行/`ghost`/`waterJump`）。
   - `features.ts` / `structures.ts`：地表特征（草/花/树/仙人掌/岩石）与建筑生成。
   - `hitboxes.ts` / `squeeze.ts`：碰撞箱 / 挤压箱配置加载与插件覆盖。
+  - `inventory.ts`：背包纯规则（左键拖动「均分」`distributeStack`），不依赖 DOM、可单独验证。
   - `storage.ts`：同步本地 API 客户端；`types.ts`：稳定数据结构。
 - `src/modes/`：`creative.ts`（创造）、`spectator.ts`（旁观）两个 `GameMode` 实现。
 - `src/plugins/api.ts`：插件扩展注册表与生命周期 API。
@@ -64,6 +65,11 @@ npm run build          # tsc --noEmit && vite build（生产构建验证）
 - 缩放到 **25%（`blockSize <= 8`）** 时，可见方块数激增。渲染循环会**按列合并连续相同方块**为一次 `drawImage`（最近邻竖向拉伸），避免逐格绘制卡顿。改动方块渲染时保留这个 `mergeColumns` 分支；`>= 16`（>25%）仍逐格绘制以保纹理平铺精度。
 - `blockImageFor` 里的草/树叶/草丛通过 `biomeAtCached(x)` 按整数列缓存 `biomeAt`，不要改回每帧每块重复算噪声。
 - F3 的 FPS 是**真实帧率**（`this.fps` EMA），不是写死的 60。
+
+### 3.6 水面不能起跳（`player.waterJump`）
+- `Player.waterJump` 由 `main.ts` 的 `applyModeFlags()` 设置：**生存模式为 false**（创造/旁观为 true，行为与旧版一致）。
+- `waterJump === false` 时，脚底在「所在列脚下水柱的液面」或更低 → 按空格只走上浮/浮力分支，**拿不到起跳速度**；脚底高于液面（浮出水面后）才允许正常起跳。判据是 `player.ts` 的 `waterSurfaceUnder()`（脚下向下 3 格内找水，返回该水柱最高一格的顶面 y），不要换成「脚下一格是水就不许跳」——玩家上浮只能到液面以上约 0.4 格，那样会把人永久困在水里（实测跳不出、也爬不上岸）。
+- 水面跳跃曾经是**无限上升漏洞**：在水面反复点空格可以一路升到几百格高（`jumpsUsed` 被水重置 + 水面可跳）。改动后同样场景上限约 7 格（实测 278 → 67），真实河边/海边仍能在 6~8 秒内爬上岸。改这段时务必同时验证「不能在水面跳」和「还能上岸」两件事。
 
 ## 4. 常见任务指引
 

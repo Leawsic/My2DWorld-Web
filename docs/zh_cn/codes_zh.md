@@ -14,12 +14,29 @@
 **关键模块**：
 - `GameSession` 类：游戏会话核心，管理世界、玩家、实体、HUD 等
 - 背包系统：3×9 网格 + 9 格快捷栏 + 1 格副手，支持拖拽、交换、关闭时物品处理
+- 背包左键拖动：`inventoryDrag` 记录按下格与拖过的格子，`mouseup` 时调 `distributeStack`（`src/core/inventory.ts`）**均分**到这些格子
+- 中键复制：`pickBlock` 直接把指向的方块按 `MAX_STACK_SIZE`（64）放进当前快捷栏格
 - 物品栏面板按模式切换：`INVENTORY_PANELS`（创造=`gui/creative_inventory/tab_inventory.png`，生存=`gui/container/inventory.png`），
   槽位坐标为源图像素，另含副手槽与创造模式的销毁格（红色 `×`，放入即销毁）；`F` 键交换副手与当前快捷栏格
 - 手持物品渲染：`renderCharacter` 的 `itemImages` 覆盖 `.myanim` 里 `itemL`（左手/副手）与 `itemR`（右手/主手）节点贴图
 - 聊天系统：支持命令补全、历史记录、滚轮滚动、语法高亮
 - 插件系统：支持动态加载 `.mjs` 插件（API 注册方块、游戏事件等）
 - 游戏循环：`requestAnimationFrame` 驱动的 `tick` 函数
+
+### `src/core/player.ts`
+**功能**：玩家物理与状态（位置、速度、跳跃/二段跳、飞行、游泳）。
+
+**要点**：
+- 生存模式 `waterJump = false`：脚底在所在列水柱的液面或更低时按空格只能上浮/受浮力，
+  **水面不能当跳板**；浮出液面后才可起跳（`waterSurfaceUnder()` 负责找液面高度）
+- 水面上反复点空格曾经能一路升到几百格（无限上升漏洞），现已限制在约「液面 + 两次跳跃」
+
+### `src/core/inventory.ts`
+**功能**：背包纯规则（不依赖 DOM）。
+
+**要点**：
+- `distributeStack(count, rooms)`：把一堆物品尽量均分到各目标格，每格先分 `floor(count/n)`，
+  余数从前面的格子开始各多 1（64 分 3 格 → 22/21/21）；每格受自身剩余容量限制，放不下的留在手上
 
 ### `src/core/types.ts`
 **功能**：定义所有游戏核心数据类型和默认配置。
@@ -119,8 +136,10 @@ npm run build
 - 碰撞箱与物理挤压彻底分离：碰撞箱(`public/hitboxes/`)、挤压箱几何(`public/squeeze/`，结构与碰撞箱一致)、挤压参数(`run/config/squeeze.json`，全局生效)三份独立配置，见 `docs/zh_cn/entity_config_zh.md`
 - 聊天栏滑动条方向修复（顶部=最早消息，向下拖动看最新）
 - 生存模式物品栏改用 `public/assets/gui/container/inventory.png`；创造模式物品栏右下角红叉格可销毁手持堆叠
-- 新增副手格（`F` 交换），副手物品显示在快捷栏左侧与物品栏副手槽，左右手物品显示在骨骼动画的 `itemL` / `itemR` 节点
+- 新增副手格（`F` 交换），副手物品显示在快捷栏左侧的独立面板与物品栏副手槽，左右手物品显示在骨骼动画的 `itemL` / `itemR` 节点
 - 河流群系注水（河床下沉到海平面以下）；地物（花/草/仙人掌）在支撑被破坏后级联掉落自身
+- 背包左键拖动均分整堆到拖过的格子；中键复制改为复制一整组（64）
+- 生存模式不能在水面/水下起跳（修掉「水面反复点空格一路飞天」的漏洞，同时保留上岸能力）
 - 文档已生成
 
 **文件列表已全部覆盖**（共约 30 个主要源文件）。如需某具体文件更详细说明或修改，请随时告知。

@@ -13,6 +13,7 @@ import {loadAttackConfig} from "./core/attackConfig";
 import {loadBlockConfigs} from "./core/blockconfig";
 import {DroppedItemManager, DROP_PICKUP_RADIUS} from "./core/itemdrop";
 import {loadSqueeze} from "./core/squeeze";
+import {distributeStack} from "./core/inventory";
 import {
     DEFAULT_SETTINGS,
     MAX_STACK_SIZE,
@@ -390,6 +391,8 @@ class GameSession {
     private colorDrag: {target: "hitbox" | "squeeze"; channel: "r" | "g" | "b"} | null = null;
     private inventoryOpen = false;
     private heldInventoryItem: ItemStack | null = null;
+    /** 背包内的左键拖动：记录按下时的格子与拖过的格子，松开时把手上的堆叠均分到这些格子。 */
+    private inventoryDrag: {origin: InventorySlotRef; slots: InventorySlotRef[]; pickedUp: boolean} | null = null;
     private bindingCapture: keyof KeyBindings | null = null;
     private readonly blockImages = new Map<string, HTMLImageElement | HTMLCanvasElement>();
     private readonly biomeImages = new Map<string, HTMLCanvasElement>();
@@ -671,6 +674,10 @@ class GameSession {
             const rect = this.canvas.getBoundingClientRect();
             this.lastMouseX = event.clientX - rect.left;
             this.lastMouseY = event.clientY - rect.top;
+            if (this.inventoryDrag) {
+                this.trackInventoryDrag(this.lastMouseX, this.lastMouseY);
+                return;
+            }
             if (this.colorDrag) {
                 this.setColorFromPointer(event.clientX);
                 return;
@@ -693,11 +700,12 @@ class GameSession {
                 }
             }
         });
-        window.addEventListener("mouseup", () => {
+        window.addEventListener("mouseup", (event) => {
             this.mouseDown = false;
             this.dragging = false;
             this.chatScrollbarDragging = false;
             this.colorDrag = null;
+            if (event.button === 0) this.finishInventoryDrag();
         });
         this.canvas.addEventListener("contextmenu", (event) => event.preventDefault());
         this.canvas.addEventListener("wheel", (event) => {
@@ -716,12 +724,15 @@ class GameSession {
 
     /** 按当前模式应用角色能力（生存/旁观禁止飞行）。 */
     private applyModeFlags(): void {
-        if (this.modeName === "survival" || this.modeName === "spectator") {
+        const survival = this.modeName === "survival";
+        if (survival || this.modeName === "spectator") {
             this.player.allowFlying = false;
             this.player.setFlying(false);
         } else {
             this.player.allowFlying = true;
         }
+        // 生存模式：水面不是跳板——在水里/水面只能靠浮力上浮，浮出液面后才起跳。
+        this.player.waterJump = !survival;
     }
 
     /** 设置游戏模式并重置视角拖拽/出窍等状态。 */
@@ -1682,25 +1693,39 @@ class GameSession {
         return snapped;
     }
 
-    /** HUD 快捷栏与左侧副手格的布局（屏幕像素）。副手格占据快捷栏左边的一个整格位。 */
-    private hudHotbarLayout(): {slot: number; box: number; barX: number; barWidth: number; top: number; offhandX: number} {
+    /** HUD 快捷栏与左侧副手格的布局（屏幕像素）。副手格有独立面板，与快捷栏分开一段距离。 */
+    private hudHotbarLayout(): {
+        slot: number;
+        box: number;
+        top: number;
+        barPanel: {x: number; y: number; w: number; h: number};
+        offhandPanel: {x: number; y: number; w: number; h: number};
+        offhandX: number;
+    } {
         const slot = 48;
         const box = 42;
         const barWidth = slot * this.hotbar.length;
         const barX = (window.innerWidth - barWidth) / 2;
-        // 副手格画在快捷栏左侧（面板左内边距 8px 之外再加一个格位），与快捷栏格垂直对齐。
+        const top = window.innerHeight - 60;
+        // 快捷栏面板：与改动前完全一致（左右各 8px、上 8px、下 6px 内边距）。
+        const barPanel = {x: barX - 8, y: top - 8, w: barWidth + 16, h: box + 14};
+        // 副手格单独一块面板，放在快捷栏左侧并留出 12px 空隙（与快捷栏明显分离）。
+        const panelW = box + 14;
+        const gap = 12;
+        const offhandPanel = {x: barPanel.x - gap - panelW, y: top - 8, w: panelW, h: box + 14};
         return {
             slot,
             box,
-            barX,
-            barWidth,
-            top: window.innerHeight - 60,
-            offhandX: barX - 8 - slot + (slot - box) / 2,
+            top,
+            barPanel,
+            offhandPanel,
+            offhandX: offhandPanel.x + (panelW - box) / 2,
         };
     }
 
     private hotbarSlotAt(clientX: number, clientY: number): number {
-        const {slot, box, barX, top} = this.hudHotbarLayout();
+        const {slot, box, barPanel, top} = this.hudHotbarLayout();
+        const barX = barPanel.x + 8;
         if (clientY < top || clientY > top + box) return -1;
         const index = Math.floor((clientX - barX) / slot);
         return index >= 0 && index < this.hotbar.length ? index : -1;
@@ -2053,6 +2078,7 @@ class GameSession {
     private toggleInventory(): void {
         this.inventoryOpen = !this.inventoryOpen;
         if (this.inventoryOpen) return;
+        this.inventoryDrag = null;
         if (this.heldInventoryItem) {
             this.stashHeldItem();
             this.save();
@@ -2369,15 +2395,15 @@ class GameSession {
         this.save();
     }
 
-    /** 鼠标中键：把指向的方块复制到当前选中的快捷栏格（数量 1）。 */
+    /** 鼠标中键：把指向的方块复制一整组到当前选中的快捷栏格。 */
     private pickBlock(): void {
         const target = this.pointedBlock();
         if (!target) return;
         const id = target[2];
         // 流体等不可携带（cannot_give）方块不复制到手中。
         if (this.blockCannotGive(id)) return;
-        this.hotbar[this.selected] = {id, count: 1};
-        this.notice = `${text("已选取", "Picked")} ${this.blockName(id)}`;
+        this.hotbar[this.selected] = {id, count: MAX_STACK_SIZE};
+        this.notice = `${text("已选取", "Picked")} ${this.blockName(id)} ×${MAX_STACK_SIZE}`;
         this.noticeTimer = 1.2;
         this.save();
     }
@@ -2470,7 +2496,7 @@ class GameSession {
     private handleInventoryClick(clientX: number, clientY: number): void {
         const slot = this.inventorySlotAt(clientX, clientY);
         if (!slot) return;
-        // 创造模式右下角的红色销毁格：把手上的整堆放进去即销毁。
+        // 创造模式右下角的红色销毁格：把手上的整堆放进去即销毁（不参与拖动均分）。
         if (slot.kind === "destroy") {
             const held = this.heldInventoryItem;
             if (!held) return;
@@ -2479,19 +2505,101 @@ class GameSession {
             this.save();
             return;
         }
-        const slotItem = this.slotStack(slot);
-        const held = this.heldInventoryItem;
-        if (!held) {
-            // 空手时拿起当前格整堆
-            this.heldInventoryItem = slotItem;
+        // 空手时先把整堆拿到鼠标上（这一步同时开始一次可拖动的搬运）。
+        // 已经拿着东西时先不放置：等松开左键——没拖到别的格子就是普通单击放置，拖过多个格子则均分。
+        const pickedUp = !this.heldInventoryItem;
+        if (pickedUp) {
+            this.heldInventoryItem = this.slotStack(slot);
             this.setSlotStack(slot, null);
-        } else if (slotItem && slotItem.id === held.id) {
-            // 同 id 堆叠合并，超出上限的部分留在手上
+            if (slot.kind === "hotbar") this.selected = slot.index;
+            this.save();
+            storage.log("Creative inventory slot changed", {
+                world: this.meta.name,
+                slot: slot.index,
+                row: slot.kind,
+                heldItem: this.heldInventoryItem
+            });
+        }
+        this.inventoryDrag = {origin: slot, slots: [], pickedUp};
+    }
+
+    /** 左键拖动中：把鼠标经过的新格子记进拖动列表（松开时按这个列表均分）。 */
+    private trackInventoryDrag(clientX: number, clientY: number): void {
+        const drag = this.inventoryDrag;
+        if (!drag) return;
+        const slot = this.inventorySlotAt(clientX, clientY);
+        // 销毁格不参与均分；同一格只记一次。
+        if (!slot || slot.kind === "destroy") return;
+        if (drag.slots.some((other) => other.kind === slot.kind && other.index === slot.index)) return;
+        drag.slots.push(slot);
+    }
+
+    /** 松开左键：结束拖动。拖过多个格子 → 均分；只落在一格（或原地单击）→ 放置/合并/交换。 */
+    private finishInventoryDrag(): void {
+        const drag = this.inventoryDrag;
+        this.inventoryDrag = null;
+        if (!drag) return;
+        const held = this.heldInventoryItem;
+        if (!held) return;
+        // 松手时停在红色销毁格上：直接销毁（一路拖过去也算）。
+        if (this.inventorySlotAt(this.lastMouseX, this.lastMouseY)?.kind === "destroy") {
+            storage.log("Creative item destroyed", {world: this.meta.name, item: held.id, count: held.count});
+            this.heldInventoryItem = null;
+            this.save();
+            return;
+        }
+        // 从某格拿起时该格已被清空，算「拖动起点」而不算目标（想分回去就把鼠标拖回它上面）。
+        const candidates = drag.pickedUp ? drag.slots : [drag.origin, ...drag.slots];
+        const targets = candidates.filter((slot, index) =>
+            candidates.findIndex((other) => other.kind === slot.kind && other.index === slot.index) === index);
+        if (targets.length >= 2) {
+            this.distributeHeldStack(targets, held);
+            return;
+        }
+        const target = targets[0];
+        if (target) this.placeHeldIntoSlot(target);
+    }
+
+    /** 把鼠标上的堆叠均分到拖过的格子：每格尽量一样多，余数从前面的格子开始加；
+     *  只放进空格或同 id 未满的格子（不同 id 的格子不交换、保持原样），放不下的留在手上。 */
+    private distributeHeldStack(targets: InventorySlotRef[], stack: ItemStack): void {
+        const usable = targets.filter((slot) => {
+            const current = this.slotStack(slot);
+            return !current || (current.id === stack.id && current.count < MAX_STACK_SIZE);
+        });
+        if (!usable.length) return;
+        const shares = distributeStack(stack.count, usable.map((slot) => {
+            const current = this.slotStack(slot);
+            return current ? MAX_STACK_SIZE - current.count : MAX_STACK_SIZE;
+        }));
+        let remaining = stack.count;
+        usable.forEach((slot, index) => {
+            const give = shares[index];
+            if (give <= 0) return;
+            const current = this.slotStack(slot);
+            this.setSlotStack(slot, current ? {id: stack.id, count: current.count + give} : {id: stack.id, count: give});
+            remaining -= give;
+        });
+        this.heldInventoryItem = remaining > 0 ? {id: stack.id, count: remaining} : null;
+        this.save();
+        storage.log("Inventory drag distributed", {
+            world: this.meta.name,
+            slots: usable.length,
+            item: stack.id,
+            leftover: remaining
+        });
+    }
+
+    /** 把鼠标上的堆叠放到某一格：同 id 合并（超出上限的部分留在手上），不同 id 交换。 */
+    private placeHeldIntoSlot(slot: InventorySlotRef): void {
+        const held = this.heldInventoryItem;
+        if (!held) return;
+        const slotItem = this.slotStack(slot);
+        if (slotItem && slotItem.id === held.id) {
             const total = slotItem.count + held.count;
             this.setSlotStack(slot, {id: held.id, count: Math.min(MAX_STACK_SIZE, total)});
             this.heldInventoryItem = total > MAX_STACK_SIZE ? {id: held.id, count: total - MAX_STACK_SIZE} : null;
         } else {
-            // 不同物品交换
             this.setSlotStack(slot, held);
             this.heldInventoryItem = slotItem;
         }
@@ -3091,12 +3199,12 @@ class GameSession {
         // 背包打开时不画 HUD 物品栏：会透过面板底部的透明区域显示出来（第一格草方块
         // 变成一个「不明绿色物体」），背包里已有自己的物品栏行。
         if (!this.inventoryOpen) {
-            const {slot, box, barX, barWidth, top, offhandX} = this.hudHotbarLayout();
+            const {slot, box, barPanel, offhandPanel, top, offhandX} = this.hudHotbarLayout();
             const iconInset = (box - 28) / 2;
             ctx.fillStyle = "rgba(9,17,24,.88)";
-            // 背景板向左多留一个格位，容纳副手格。
-            ctx.fillRect(barX - 8 - slot, top - 8, barWidth + 16 + slot, box + 14);
-            // 副手格：显示副手物品，位置在快捷栏左侧（F 键与当前快捷栏格交换）。
+            ctx.fillRect(barPanel.x, barPanel.y, barPanel.w, barPanel.h);
+            // 副手格：独立面板，显示副手物品（F 键与当前快捷栏格交换）。
+            ctx.fillRect(offhandPanel.x, offhandPanel.y, offhandPanel.w, offhandPanel.h);
             ctx.strokeStyle = "#52666a";
             ctx.lineWidth = 1;
             ctx.strokeRect(offhandX, top, box, box);
@@ -3106,7 +3214,7 @@ class GameSession {
             }
             if (this.offhand && this.offhand.count > 1) this.drawStackCount(ctx, String(this.offhand.count), offhandX + 34, top + 35);
             this.hotbar.forEach((stack, index) => {
-                const x = barX + index * slot;
+                const x = barPanel.x + 8 + index * slot;
                 ctx.strokeStyle = index === this.selected ? "#f2d67b" : "#52666a";
                 ctx.lineWidth = index === this.selected ? 3 : 1;
                 ctx.strokeRect(x, top, box, box);
