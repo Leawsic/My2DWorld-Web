@@ -380,6 +380,8 @@ export class World {
     private readonly blockNbt = new Map<string, BlockNbt>();
     private readonly typeToNum = new Map<BlockType, number>();
     private readonly numToType = new Map<number, BlockType>();
+    /** 每列最高挡光方块的 y 缓存（环境光照用）；null 表示该列没有挡光方块。 */
+    private readonly skyTopCache = new Map<number, number | null>();
     private centerChunk = 0;
     private loaded = false;
 
@@ -410,6 +412,33 @@ export class World {
         return this.chunks.get(Math.floor(x / CHUNK_SIZE)) ?? null;
     }
 
+    /**
+     * 该列最高的**非空气**方块的 y（该列整列是空气时返回 null）。环境光照用它当明暗分界：
+     * y > columnTop(x) 的格子是露天的天空，columnTop 那一格起往下越深越暗
+     * （所以洞穴、深水、树荫下面都会变暗）。含水与花草：水面就是该列的分界，
+     * 水下按深度逐格变暗。结果按列缓存，改方块 / 换区块时失效。
+     */
+    columnTop(x: number): number | null {
+        if (this.skyTopCache.has(x)) return this.skyTopCache.get(x) ?? null;
+        const chunk = this.chunks.get(Math.floor(x / CHUNK_SIZE));
+        if (!chunk) return null;
+        const local = x - chunk.start;
+        let top: number | null = null;
+        for (let y = WORLD_MAX_Y; y >= WORLD_MIN_Y; y -= 1) {
+            if (chunk.blockAt(local, y)) {
+                top = y;
+                break;
+            }
+        }
+        this.skyTopCache.set(x, top);
+        return top;
+    }
+
+    /** 清掉某列的环境光照缓存（该列方块被改动时调用）。 */
+    private invalidateSkyTop(x: number): void {
+        this.skyTopCache.delete(x);
+    }
+
     updateView(cameraX: number): void {
         const center = Math.floor(cameraX / CHUNK_SIZE);
         if (center === this.centerChunk && this.loaded) return;
@@ -422,6 +451,8 @@ export class World {
                 const chunk = this.chunks.get(x);
                 if (chunk && (this.dirty.has(cell) || this.editedChunks.has(cell))) this.editedChunks.set(cell, chunk.blocks.slice());
                 this.chunks.delete(x);
+                // 区块卸载：顺手丢掉这些列的环境光照缓存，避免缓存无限增长。
+                for (let i = 0; i < CHUNK_SIZE; i += 1) this.skyTopCache.delete(x * CHUNK_SIZE + i);
             }
         }
     }
@@ -483,6 +514,7 @@ export class World {
         if (!chunk) return null;
         chunk.setBlock(x - chunk.start, y, 0);
         this.blockNbt.delete(World.cell(x, y));
+        this.invalidateSkyTop(x);
         onBroken?.(x, y, block);
         // 级联破坏：若正上方方块是地物（花/草/仙人掌），其支撑已消失，一同破坏（递归向上）。
         // 只级联 feature 方块，普通方块/树干/树叶不随之掉落。
@@ -517,6 +549,7 @@ export class World {
         if (!chunk) return false;
         chunk.setBlock(x - chunk.start, y, num);
         this.applyNbt(x, y, id, typeof type === "string" ? undefined : type.nbt);
+        this.invalidateSkyTop(x);
         this.markEdited(Math.floor(x / CHUNK_SIZE));
         return true;
     }
@@ -527,6 +560,7 @@ export class World {
         if (!chunk) return;
         chunk.setBlock(x - chunk.start, y, 0);
         this.blockNbt.delete(World.cell(x, y));
+        this.invalidateSkyTop(x);
         this.markEdited(Math.floor(x / CHUNK_SIZE));
     }
 
@@ -615,6 +649,8 @@ export class World {
                 }
             }
         }
+        // 方块被整块替换：环境光照的列缓存全部失效。
+        this.skyTopCache.clear();
     }
 
     private markEdited(cx: number): void {

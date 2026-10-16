@@ -32,6 +32,7 @@ npm run build          # tsc --noEmit && vite build（生产构建验证）
   - `features.ts` / `structures.ts`：地表特征（草/花/树/仙人掌/岩石）与建筑生成。
   - `hitboxes.ts` / `squeeze.ts`：碰撞箱 / 挤压箱配置加载与插件覆盖。
   - `inventory.ts`：背包纯规则（左键拖动「均分」`distributeStack`），不依赖 DOM、可单独验证。
+  - `daylight.ts`：昼夜与环境光照的纯计算（时刻 → 天空亮度/颜色、日月星空、格子光照、压暗带几何），不依赖 DOM、可单独验证。
   - `storage.ts`：同步本地 API 客户端；`types.ts`：稳定数据结构。
 - `src/modes/`：`creative.ts`（创造）、`spectator.ts`（旁观）两个 `GameMode` 实现。
 - `src/plugins/api.ts`：插件扩展注册表与生命周期 API。
@@ -70,6 +71,14 @@ npm run build          # tsc --noEmit && vite build（生产构建验证）
 - `Player.waterJump` 由 `main.ts` 的 `applyModeFlags()` 设置：**生存模式为 false**（创造/旁观为 true，行为与旧版一致）。
 - `waterJump === false` 时，脚底在「所在列脚下水柱的液面」或更低 → 按空格只走上浮/浮力分支，**拿不到起跳速度**；脚底高于液面（浮出水面后）才允许正常起跳。判据是 `player.ts` 的 `waterSurfaceUnder()`（脚下向下 3 格内找水，返回该水柱最高一格的顶面 y），不要换成「脚下一格是水就不许跳」——玩家上浮只能到液面以上约 0.4 格，那样会把人永久困在水里（实测跳不出、也爬不上岸）。
 - 水面跳跃曾经是**无限上升漏洞**：在水面反复点空格可以一路升到几百格高（`jumpsUsed` 被水重置 + 水面可跳）。改动后同样场景上限约 7 格（实测 278 → 67），真实河边/海边仍能在 6~8 秒内爬上岸。改这段时务必同时验证「不能在水面跳」和「还能上岸」两件事。
+
+### 3.7 昼夜与环境光照
+- 时间只有一份：`GameSession.time`（秒，0..`DAY_LENGTH_SECONDS`=1200s）。只在世界真正推进时前进（`tick` 里同一段 `!paused && !chatOpen && !inventoryOpen` 内、且 `settings.dayNightCycle` 为真），写入 `WorldSave.time`。
+- 天空亮度/颜色、日月位置、格子光照、压暗带的几何**全部**在 `src/core/daylight.ts` 里算，`main.ts` 只负责画。不要在 `main.ts` 里再写一套亮度公式（正午天空色 `rgb(130,201,215)` 就是原来的 `#82c9d7`，别改）。
+- 明暗分界是 `World.columnTop(x)`（该列最高**非空气**方块，含水与花草），按列缓存、改方块/卸载区块时失效。洞穴、深水、树荫靠它变暗；**不要**换成「最高实心方块」，那样水面与花丛会被漏掉。
+- 压暗只覆盖分界**以下**：分界以上是天空，由天空调色板自己变暗，再叠一层会变成双重压暗。
+- 实体（生物/玩家/掉落物）在压暗层之后绘制，必须自己按 `lightAt(x, y)` 压暗，否则夜里会是一堆亮块。`settings.ambientLight = 0` 表示关闭光照（全亮），改渲染时保留这个分支。
+- 若要改暗度：只动 `daylight.ts` 的 `MIN_SKY_LIGHT` / `MIN_CAVE_LIGHT` / `SHADOW_DEPTH`，并跑一遍「水面亮、河床暗、洞穴 = MIN_CAVE_LIGHT」的验证。
 
 ## 4. 常见任务指引
 

@@ -20,6 +20,8 @@ export interface ModeContext {
     blockTextureAt?: (type: BlockType, x: number) => HTMLImageElement | HTMLCanvasElement | undefined;
     /** 玩家左右手物品贴图（left=副手，right=主手选中格）；缺省时不覆盖 .myanim 的占位贴图。 */
     itemImages?: HeldItemImages;
+    /** 取某点（方块坐标）的环境光 0..1：把角色按所处深度压暗（夜晚 / 洞穴更暗）。 */
+    lightAt?: (x: number, y: number) => number;
     onBlockBroken?: (x: number, y: number, type: BlockType) => void;
     onPlayerDamage?: (amount: number) => void;
 }

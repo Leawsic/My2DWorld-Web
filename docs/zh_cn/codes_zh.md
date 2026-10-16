@@ -19,6 +19,8 @@
 - 物品栏面板按模式切换：`INVENTORY_PANELS`（创造=`gui/creative_inventory/tab_inventory.png`，生存=`gui/container/inventory.png`），
   槽位坐标为源图像素，另含副手槽与创造模式的销毁格（红色 `×`，放入即销毁）；`F` 键交换副手与当前快捷栏格
 - 手持物品渲染：`renderCharacter` 的 `itemImages` 覆盖 `.myanim` 里 `itemL`（左手/副手）与 `itemR`（右手/主手）节点贴图
+- 昼夜与环境光照：`time`（当天秒数）在 tick 里推进并写入存档；`renderSky` 画天空/霞光/星空/日月，
+  `renderAmbientLight` 按列（`World.columnTop`）压暗，实体用 `lightAt(x, y)` 压暗；`/time` 命令可设时刻
 - 聊天系统：支持命令补全、历史记录、滚轮滚动、语法高亮
 - 插件系统：支持动态加载 `.mjs` 插件（API 注册方块、游戏事件等）
 - 游戏循环：`requestAnimationFrame` 驱动的 `tick` 函数
@@ -37,6 +39,16 @@
 **要点**：
 - `distributeStack(count, rooms)`：把一堆物品尽量均分到各目标格，每格先分 `floor(count/n)`，
   余数从前面的格子开始各多 1（64 分 3 格 → 22/21/21）；每格受自身剩余容量限制，放不下的留在手上
+
+### `src/core/daylight.ts`
+**功能**：昼夜循环与环境光照的纯计算（不依赖 DOM）。
+
+**要点**：
+- `DAY_LENGTH_SECONDS = 1200`（现实 20 分钟一天）；时间轴 0=午夜、0.25=日出、0.5=正午、0.75=日落
+- `skyLight()` / `skyColor()`：天空亮度与调色板（正午仍是 `rgb(130,201,215)`）；`horizonGlow()` 霞光、`starOpacity()` + `starField()` 星空
+- `celestialBodies()`：日月沿弧线的位置；`clockLabel()` / `timeFromHours()`：24 小时制时钟
+- `cellLight(sky, depth)`：地表 = 天空亮度，向下 `SHADOW_DEPTH`(=6) 格衰减到 `MIN_CAVE_LIGHT`(=0.14)
+- `darknessAlpha()`、`ambientBands()` / `blockTopScreenY()`：压暗透明度与压暗带的屏幕几何
 
 ### `src/core/types.ts`
 **功能**：定义所有游戏核心数据类型和默认配置。
@@ -140,6 +152,8 @@ npm run build
 - 河流群系注水（河床下沉到海平面以下）；地物（花/草/仙人掌）在支撑被破坏后级联掉落自身
 - 背包左键拖动均分整堆到拖过的格子；中键复制改为复制一整组（64）
 - 生存模式不能在水面/水下起跳（修掉「水面反复点空格一路飞天」的漏洞，同时保留上岸能力）
+- 新增昼夜循环与环境光照：20 分钟一天，天空/霞光/星空/日月按时刻变化，洞穴、深水与夜晚变暗；
+  `/time` 指令与设置里的「昼夜循环 / 环境光照」可调
 - 文档已生成
 
 **文件列表已全部覆盖**（共约 30 个主要源文件）。如需某具体文件更详细说明或修改，请随时告知。

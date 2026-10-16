@@ -63,6 +63,8 @@ export const storage = {
             chatFontSize: typeof saved.chatFontSize === "number" && saved.chatFontSize >= 10 && saved.chatFontSize <= 28 ? saved.chatFontSize : DEFAULT_SETTINGS.chatFontSize,
             hitboxColor: isHexColor(saved.hitboxColor) ? saved.hitboxColor : DEFAULT_SETTINGS.hitboxColor,
             squeezeColor: isHexColor(saved.squeezeColor) ? saved.squeezeColor : DEFAULT_SETTINGS.squeezeColor,
+            dayNightCycle: typeof saved.dayNightCycle === "boolean" ? saved.dayNightCycle : DEFAULT_SETTINGS.dayNightCycle,
+            ambientLight: typeof saved.ambientLight === "number" && saved.ambientLight >= 0 && saved.ambientLight <= 1 ? saved.ambientLight : DEFAULT_SETTINGS.ambientLight,
         };
     },
     async saveSettings(settings: PlayerSettings): Promise<boolean> {

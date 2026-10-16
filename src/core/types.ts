@@ -74,6 +74,8 @@ export interface WorldSave {
     mobs?: SavedMob[];
     /** 世界中的掉落物实体；缺省时为空。 */
     droppedItems?: SavedDroppedItem[];
+    /** 当天时刻（秒，0..一天时长）；缺省时从清晨开始。 */
+    time?: number;
     idTable: string[];
     chunks: Record<string, string>;
     /** 每格方块的覆盖 NBT（cell "x,y" -> JSON 字符串）。 */
@@ -100,6 +102,10 @@ export interface PlayerSettings {
     hitboxColor: string;
     /** F5 调试：玩家与生物的物理挤压（挤压箱）颜色（可配置）。 */
     squeezeColor: string;
+    /** 昼夜循环：关闭后当天时刻冻结（天空与光照停在当前时刻）。 */
+    dayNightCycle: boolean;
+    /** 环境光照强度 0..1：0 = 关闭（全亮），越大夜晚与洞穴越暗。 */
+    ambientLight: number;
 }
 
 export interface KeyBindings {
@@ -152,4 +158,6 @@ export const DEFAULT_SETTINGS: PlayerSettings = {
     chatFontSize: 13,
     hitboxColor: "#ffe94d",
     squeezeColor: "#39e75f",
+    dayNightCycle: true,
+    ambientLight: 1,
 };

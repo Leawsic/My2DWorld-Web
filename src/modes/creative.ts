@@ -47,6 +47,8 @@ export class CreativeMode extends GameMode {
             cameraX,
             cameraY,
             itemImages: context.itemImages,
+            // 环境光照：玩家按身体中心所处深度压暗。
+            brightness: context.lightAt?.(player.x, player.y + player.height / 2) ?? 1,
         });
     }
 

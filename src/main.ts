@@ -15,6 +15,21 @@ import {DroppedItemManager, DROP_PICKUP_RADIUS} from "./core/itemdrop";
 import {loadSqueeze} from "./core/squeeze";
 import {distributeStack} from "./core/inventory";
 import {
+    DAY_LENGTH_SECONDS,
+    ambientBands,
+    cellLight,
+    celestialBodies,
+    clockLabel,
+    darknessAlpha,
+    horizonGlow,
+    skyColor,
+    skyLight,
+    starField,
+    starOpacity,
+    timeFromHours,
+    SHADOW_DEPTH,
+} from "./core/daylight";
+import {
     DEFAULT_SETTINGS,
     MAX_STACK_SIZE,
     type GameModeName,
@@ -48,7 +63,7 @@ const PLAYER_SQUEEZE_IFRAME = 1;
 const UNDEAD_SLOW_SECONDS = 5;
 
 /** 命令补全与语法高亮共用的命令表。 */
-const CHAT_COMMANDS = ["gamemode", "speed", "movespeed", "debug", "seed", "locate", "tp", "summon", "structure", "reload", "aggro", "clearchat", "spawnpoint", "give", "kill", "fill"];
+const CHAT_COMMANDS = ["gamemode", "speed", "movespeed", "debug", "seed", "locate", "tp", "summon", "structure", "reload", "aggro", "clearchat", "spawnpoint", "give", "kill", "fill", "time"];
 const CHAT_ARG_SUGGESTIONS: Record<string, string[]> = {
     gamemode: ["creative", "survival", "spectator"],
     debug: ["on", "off", "true", "false"],
@@ -58,10 +73,21 @@ const CHAT_ARG_SUGGESTIONS: Record<string, string[]> = {
     reload: ["images", "animations", "hitboxes", "squeeze", "plugins", "all"],
     spawnpoint: ["@p", "@a", "@r", "left", "right"],
     fill: ["replace", "keep", "destroy", "hollow", "outline", "air", "water", "lava"],
+    time: ["set", "add", "cycle", "day", "noon", "night", "midnight", "sunrise", "sunset"],
 };
 
 /** 补全命令后自动补一个空格（还有后续参数）。 */
-const COMMANDS_WITH_ARGS = ["/gamemode", "/debug", "/locate", "/tp", "/summon", "/reload", "/structure", "/aggro", "/spawnpoint", "/give", "/kill", "/fill"];
+const COMMANDS_WITH_ARGS = ["/gamemode", "/debug", "/locate", "/tp", "/summon", "/reload", "/structure", "/aggro", "/spawnpoint", "/give", "/kill", "/fill", "/time"];
+
+/** `/time set` 支持的具名时刻。 */
+const TIME_PRESETS: Record<string, number> = {
+    sunrise: 6,
+    day: 9,
+    noon: 12,
+    sunset: 18,
+    night: 21,
+    midnight: 0,
+};
 
 /** Region placed by the two-phase /structure export|load flow before confirm. */
 interface StructurePending {
@@ -286,6 +312,12 @@ function nextAutosave(seconds: number): number {
 const ALPHA_PRESETS = [0.3, 0.5, 0.7, 1];
 const BRIGHTNESS_PRESETS = [0.5, 0.75, 1];
 const CHAT_FONT_PRESETS = [12, 13, 14, 16, 18, 20, 24];
+/** 环境光照强度预设：0 = 关闭（全亮）、0.5 = 弱、0.75 = 中、1 = 强（默认）。 */
+const AMBIENT_PRESETS = [0, 0.5, 0.75, 1];
+/** 新世界的起始时刻（当天时刻 0..1）：清晨，玩家一进来就是白天。 */
+const DEFAULT_START_TIME = 0.3;
+/** 星空只画一次（确定性，不会跳）。 */
+const STARS = starField(70);
 
 function nextPreset(value: number, presets: number[]): number {
     const index = presets.indexOf(value);
@@ -375,6 +407,8 @@ class GameSession {
     /** 副手格：F 键与当前选中的快捷栏格互换，显示在物品栏的副手槽里。 */
     private offhand: ItemStack | null = null;
     private selected = 0;
+    /** 当天时刻（秒，0..DAY_LENGTH_SECONDS）；昼夜循环推进它，渲染据此取天空色与环境光。 */
+    private time = DEFAULT_START_TIME * DAY_LENGTH_SECONDS;
     private health = 20;
     private voidDamageTimer = 0;
     private squeezeTimer = 0;
@@ -451,6 +485,10 @@ class GameSession {
         if (this.initialSave?.offhand !== undefined) {
             this.offhand = normalizeStack(this.initialSave.offhand, MAX_STACK_SIZE);
         }
+        // 恢复当天时刻：存档里没有（旧档/新世界）就从清晨开始。
+        this.time = typeof this.initialSave?.time === "number" && Number.isFinite(this.initialSave.time)
+            ? this.initialSave.time
+            : DEFAULT_START_TIME * DAY_LENGTH_SECONDS;
         this.mode = createMode(this.modeName);
         this.applyModeFlags();
         [...new Set([...blockRegistry.list().map((block) => block.id), ...plugins.blocks.keys()].filter((type): type is string => type !== null))].forEach((type) => this.loadBlock(type));
@@ -1138,6 +1176,7 @@ class GameSession {
             storage.saveSettings(settings);
             this.addChat(`Aggro range set to ${range}`);
         } else if (command === "seed") this.addChat(`Seed: ${this.meta.seed ?? 0}`);
+        else if (command === "time") this.handleTimeCommand(parts);
         else if (command === "locate") {
             const target = (parts[1] ?? "").toLowerCase();
             if (!LOCATABLE_BIOMES.includes(target)) this.addChat(`Biomes: ${LOCATABLE_BIOMES.join(", ")}`);
@@ -1789,6 +1828,8 @@ class GameSession {
         this.squeezeIframe = Math.max(0, this.squeezeIframe - dt);
         this.player.ghost = this.spectate || this.modeName === "spectator";
         if (!this.paused && !this.chatOpen && !this.inventoryOpen) {
+            // 昼夜循环：世界在跑的时候才推进时刻（暂停/背包/聊天时冻结）。
+            if (settings.dayNightCycle) this.time += dt;
             if (!this.spectate) this.mode.update({
                 player: this.player,
                 world: this.world,
@@ -2153,6 +2194,65 @@ class GameSession {
     private killPlayer(): void {
         this.health = 0;
         this.respawn("command");
+    }
+
+    /**
+     * /time：查看当天时刻与环境光照状态，或设置时刻 / 切换昼夜循环。
+     * 用法：`/time`、`/time set <0-24|day|noon|night|midnight|sunrise|sunset>`、
+     * `/time add <小时>`、`/time cycle on|off`；`/time day` 是 `/time set day` 的简写。
+     */
+    private handleTimeCommand(parts: string[]): void {
+        const status = (): string =>
+            `${text("时间", "Time")} ${clockLabel(this.time)} · ${text("昼夜循环", "cycle")} ${settings.dayNightCycle ? "ON" : "OFF"} · ${text("环境光照", "ambient light")} ${Math.round(settings.ambientLight * 100)}%`;
+        const usage = (): void => {
+            this.addChat(`${text("用法", "Usage")}: /time | /time set <0-24|${Object.keys(TIME_PRESETS).join("|")}> | /time add <小时> | /time cycle on|off`);
+        };
+        const setHours = (hours: number): void => {
+            this.time = timeFromHours(hours) * DAY_LENGTH_SECONDS;
+            this.save();
+            storage.log("Time changed", {world: this.meta.name, hours, time: this.time});
+            this.addChat(`${text("时间设为", "Time set to")} ${clockLabel(this.time)}`);
+        };
+
+        const sub = (parts[1] ?? "").toLowerCase();
+        if (!sub) {
+            this.addChat(status());
+            return;
+        }
+        if (sub === "cycle") {
+            const value = (parts[2] ?? "").toLowerCase();
+            if (!["on", "off", "true", "false"].includes(value)) {
+                usage();
+                return;
+            }
+            settings.dayNightCycle = value === "on" || value === "true";
+            storage.saveSettings(settings);
+            this.addChat(`${text("昼夜循环", "Day/night cycle")} ${settings.dayNightCycle ? "ON" : "OFF"} · ${clockLabel(this.time)}`);
+            return;
+        }
+        // /time day 等价于 /time set day
+        const bare = TIME_PRESETS[sub];
+        if (bare !== undefined) {
+            setHours(bare);
+            return;
+        }
+        if (sub !== "set" && sub !== "add") {
+            usage();
+            return;
+        }
+        const raw = (parts[2] ?? "").toLowerCase();
+        const named = TIME_PRESETS[raw];
+        const value = raw === "" ? NaN : named !== undefined ? named : Number(raw);
+        if (!Number.isFinite(value)) {
+            usage();
+            return;
+        }
+        if (sub === "add") {
+            const hours = (this.time / DAY_LENGTH_SECONDS) * 24 + value;
+            setHours(hours);
+            return;
+        }
+        setHours(value);
     }
 
     /** 把命令参数里的方块 id 解析成规范 id（含命名空间）；未知 id 返回 undefined。 */
@@ -2637,7 +2737,7 @@ class GameSession {
     private handleMenuClick(clientX: number, clientY: number): void {
         const boxW = Math.min(460, window.innerWidth - 40);
         const x = (window.innerWidth - boxW) / 2;
-        const menuHeight = this.menu === "bindings" ? 680 : this.menu === "settings" ? 540 : this.menu === "plugins" ? Math.min(620, window.innerHeight - 40) : this.menu === "pause" ? 476 : this.menu === "display" ? (this.colorEditing ? 440 : 612) : 410;
+        const menuHeight = this.menu === "bindings" ? 680 : this.menu === "settings" ? 672 : this.menu === "plugins" ? Math.min(620, window.innerHeight - 40) : this.menu === "pause" ? 476 : this.menu === "display" ? (this.colorEditing ? 440 : 612) : 410;
         const y = (window.innerHeight - menuHeight) / 2;
         if (clientX < x + 52 || clientX > x + boxW - 52) return;
         if (this.menu === "plugins") {
@@ -2645,7 +2745,7 @@ class GameSession {
             return;
         }
         const index = Math.floor((clientY - (y + (this.menu === "bindings" ? 82 : 92))) / (this.menu === "bindings" ? 55 : 66));
-        if (index < 0 || index > (this.menu === "bindings" ? Object.keys(settings.keyBindings).length : this.menu === "settings" ? 6 : this.menu === "display" ? (this.colorEditing ? 4 : 7) : this.menu === "pause" ? 3 : 2)) return;
+        if (index < 0 || index > (this.menu === "bindings" ? Object.keys(settings.keyBindings).length : this.menu === "settings" ? 8 : this.menu === "display" ? (this.colorEditing ? 4 : 7) : this.menu === "pause" ? 3 : 2)) return;
         const rowY = y + (this.menu === "bindings" ? 82 : 92) + index * (this.menu === "bindings" ? 55 : 66);
         const rowH = this.menu === "bindings" ? 42 : 44;
         if (clientY < rowY || clientY > rowY + rowH) return;
@@ -2682,9 +2782,18 @@ class GameSession {
                 settings.cursorStyle = settings.cursorStyle === "crosshair" ? "default" : "crosshair";
                 storage.saveSettings(settings);
             }
-            if (index === 4) this.menu = "display";
-            if (index === 5) this.menu = "bindings";
-            if (index === 6) this.menu = "pause";
+            if (index === 4) {
+                settings.dayNightCycle = !settings.dayNightCycle;
+                storage.saveSettings(settings);
+                this.addChat(`${text("昼夜循环", "Day/night cycle")} ${settings.dayNightCycle ? "ON" : "OFF"}`);
+            }
+            if (index === 5) {
+                settings.ambientLight = nextPreset(settings.ambientLight, AMBIENT_PRESETS);
+                storage.saveSettings(settings);
+            }
+            if (index === 6) this.menu = "display";
+            if (index === 7) this.menu = "bindings";
+            if (index === 8) this.menu = "pause";
             return;
         }
         if (this.menu === "display") {
@@ -2767,6 +2876,7 @@ class GameSession {
             inventorySlots: this.inventorySlots,
             hotbar: this.hotbar,
             offhand: this.offhand,
+            time: this.time,
             mobs: this.mobs.serialize(),
             droppedItems: this.drops.serialize(),
             idTable: changes.idTable,
@@ -2776,6 +2886,120 @@ class GameSession {
         this.world.clearDirty();
     };
 
+    /** 天空：按当天时刻取色，叠加日出/日落霞光、星空与太阳/月亮。 */
+    private renderSky(ctx: CanvasRenderingContext2D, width: number, height: number): void {
+        const time = this.time;
+        ctx.fillStyle = skyColor(time);
+        ctx.fillRect(0, 0, width, height);
+        // 地平线：天空区域的下界（霞光与星空都在它之上）。
+        const horizon = Math.round(height * 0.62);
+        // 星空：夜里才可见；位置固定、亮度轻微闪烁。
+        const starAlpha = starOpacity(time);
+        if (starAlpha > 0.01) {
+            for (const star of STARS) {
+                const twinkle = 0.72 + 0.28 * Math.sin(time * 0.7 + star.phase);
+                ctx.fillStyle = `rgba(255,255,255,${(starAlpha * twinkle).toFixed(3)})`;
+                ctx.fillRect(Math.round(star.x * width), Math.round(star.y * horizon), star.size, star.size);
+            }
+        }
+        const {sun, moon} = celestialBodies(time);
+        const radius = Math.min(width, height);
+        if (sun) this.drawCelestialBody(ctx, sun, horizon, width, radius * 0.035, "#fff3b0", "#ffd75e");
+        if (moon) this.drawCelestialBody(ctx, moon, horizon, width, radius * 0.028, "#e9eef7", "#b9c8e8");
+        // 日出/日落霞光：地平线附近一段暖色渐变。
+        const glow = horizonGlow(time);
+        if (glow > 0.01) {
+            const bandTop = Math.max(0, horizon - height * 0.34);
+            const grad = ctx.createLinearGradient(0, bandTop, 0, horizon);
+            grad.addColorStop(0, "rgba(255,168,92,0)");
+            grad.addColorStop(1, `rgba(255,146,74,${(0.55 * glow).toFixed(3)})`);
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, bandTop, width, horizon - bandTop);
+        }
+    }
+
+    /** 画一个天体（外圈柔光 + 内圈实心圆）。 */
+    private drawCelestialBody(
+        ctx: CanvasRenderingContext2D,
+        body: {x: number; y: number},
+        horizon: number,
+        width: number,
+        radius: number,
+        core: string,
+        glow: string,
+    ): void {
+        const cx = body.x * width;
+        const cy = horizon - body.y * horizon * 0.82;
+        ctx.save();
+        ctx.globalAlpha = 0.32;
+        ctx.fillStyle = glow;
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius * 2.1, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = core;
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    }
+
+    /**
+     * 环境光照：按列把世界内容压暗。明暗分界是该列最高的非空气方块（`World.columnTop`）——
+     * 那一格往下 SHADOW_DEPTH 格用一条渐变过渡到「地下亮度」，再往下固定为地下亮度；
+     * 分界以上是天空，不压暗（天空颜色本身由时刻决定）。
+     * 整个屏幕的纵向渐变只建一次，逐列 translate 复用。
+     */
+    private renderAmbientLight(
+        ctx: CanvasRenderingContext2D,
+        left: number,
+        right: number,
+        cameraX: number,
+        cameraY: number,
+        width: number,
+        height: number,
+        bs: number,
+    ): void {
+        const strength = settings.ambientLight;
+        if (strength <= 0) return;
+        const sky = skyLight(this.time);
+        const surfaceAlpha = darknessAlpha(cellLight(sky, 0), strength);
+        const deepAlpha = darknessAlpha(cellLight(sky, SHADOW_DEPTH), strength);
+        if (surfaceAlpha <= 0.002 && deepAlpha <= 0.002) return;
+        const rampHeight = Math.max(1, SHADOW_DEPTH * bs);
+        const ramp = ctx.createLinearGradient(0, 0, 0, rampHeight);
+        ramp.addColorStop(0, `rgba(0,0,0,${surfaceAlpha.toFixed(4)})`);
+        ramp.addColorStop(1, `rgba(0,0,0,${deepAlpha.toFixed(4)})`);
+        const deepFill = `rgba(0,0,0,${deepAlpha.toFixed(4)})`;
+        for (let x = left; x <= right; x += 1) {
+            const sx = Math.round((x - cameraX) * bs + width / 2);
+            if (sx + bs < 0 || sx > width) continue;
+            const top = this.world.columnTop(x);
+            // 未加载 / 整列空气：整屏按天空处理，不压暗。
+            if (top === null) continue;
+            const {rampTop, rampBottom} = ambientBands(cameraY, top, bs, height);
+            if (rampBottom > 0 && rampTop < height) {
+                ctx.save();
+                ctx.translate(0, rampTop);
+                ctx.fillStyle = ramp;
+                ctx.fillRect(sx, 0, bs, rampHeight);
+                ctx.restore();
+            }
+            if (deepAlpha > 0.002 && rampBottom < height) {
+                const from = Math.max(0, rampBottom);
+                ctx.fillStyle = deepFill;
+                ctx.fillRect(sx, from, bs, height - from);
+            }
+        }
+    }
+
+    /** 某格的环境光 0..1（实体压暗、F3 显示用）：越靠近该列顶端越亮，地下最暗。 */
+    private lightAt(x: number, y: number): number {
+        const top = this.world.columnTop(Math.floor(x));
+        const depth = top === null ? 0 : Math.max(0, top - Math.floor(y));
+        return cellLight(skyLight(this.time), depth);
+    }
+
     private render(): void {
         const width = window.innerWidth;
         const height = window.innerHeight;
@@ -2784,8 +3008,7 @@ class GameSession {
         const ctx = this.ctx;
         // 所有绘制坐标保持 CSS 像素，此处统一放大到物理像素（画布后备存储已是 dpr 倍）。
         ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-        ctx.fillStyle = "#82c9d7";
-        ctx.fillRect(0, 0, width, height);
+        this.renderSky(ctx, width, height);
         const left = Math.floor(cameraX - width / this.blockSize / 2 - 1);
         const right = Math.ceil(cameraX + width / this.blockSize / 2 + 1);
         const bottom = Math.max(WORLD_MIN_Y, Math.floor(cameraY - height / this.blockSize / 2 - 1));
@@ -2916,6 +3139,8 @@ class GameSession {
         }
         this.mode.renderEffects(ctx, cameraX, cameraY, this.blockSize);
         this.fx.render(ctx, cameraX, cameraY, this.blockSize);
+        // 环境光照：世界内容（方块/预览/特效）画完后压暗，实体用 brightness 单独压暗。
+        this.renderAmbientLight(ctx, left, right, cameraX, cameraY, width, height, bs);
         const playerContext: ModeContext = {
             player: this.player,
             world: this.world,
@@ -2928,7 +3153,8 @@ class GameSession {
             dt: 0,
             textures: this.blockImages,
             blockTextureAt: (type, x) => this.blockImageFor(type, x),
-            itemImages: this.heldItemImages()
+            itemImages: this.heldItemImages(),
+            lightAt: (x, y) => this.lightAt(x, y)
         };
         const drawables: Array<{ depth: number; draw: () => void }> = [];
         for (const mob of this.mobs.mobsNear(this.player, MOB_RENDER_RADIUS)) {
@@ -2947,6 +3173,8 @@ class GameSession {
                         blockSize: this.blockSize,
                         cameraX,
                         cameraY,
+                        // 环境光照：生物按其所处深度压暗。
+                        brightness: this.lightAt(mob.x, mob.y + mob.height / 2),
                         tint: hurtT > 0 ? "#ff2d20" : undefined,
                         tintAmount: hurtT,
                     });
@@ -2961,12 +3189,17 @@ class GameSession {
                     const sy = (cameraY - item.centerY) * this.blockSize + height / 2;
                     const size = Math.max(6, this.blockSize * 0.5);
                     const image = this.iconFor(item.stack.id);
+                    // 环境光照：掉落物在暗处用低透明度融进暗背景（避免 source-atop 压暗到身后的方块）。
+                    const light = this.lightAt(item.x, item.centerY);
+                    ctx.save();
+                    ctx.globalAlpha = Math.max(0.18, light);
                     if (image && (!("naturalWidth" in image) || (image.complete && image.naturalWidth))) {
                         ctx.drawImage(image, sx - size / 2, sy - size / 2, size, size);
                     } else {
                         ctx.fillStyle = blockRegistry.get(item.stack.id)?.color ?? "#ffffff";
                         ctx.fillRect(sx - size / 2, sy - size / 2, size, size);
                     }
+                    ctx.restore();
                 }
             });
         }
@@ -3024,7 +3257,8 @@ class GameSession {
                 cameraX,
                 cameraY,
                 alpha: settings.spectateAlpha,
-                brightness: settings.spectateBrightness,
+                // 出窍玩家：设置里的亮度再乘上环境光照。
+                brightness: settings.spectateBrightness * this.lightAt(cameraX, cameraY),
                 itemImages: this.heldItemImages(),
             });
         }
@@ -3239,6 +3473,7 @@ class GameSession {
                 `${t(language, "debug_mode")} ${t(language, this.modeName === "creative" ? "mode_creative" : this.modeName === "survival" ? "mode_survival" : "mode_spectator")}`,
                 `${t(language, "debug_world")} ${this.meta.name}`,
                 `${t(language, "debug_seed")} ${this.meta.seed ?? 0}`,
+                `${t(language, "debug_time")} ${clockLabel(this.time)} · ${t(language, "settings_ambient")} ${Math.round(settings.ambientLight * 100)}% · ${this.lightAt(this.player.x, this.player.y + this.player.height / 2).toFixed(2)}`,
                 `${t(language, "debug_biome")} ${t(language, `biome_${biomeAt(Math.floor(this.player.x), this.meta.seed ?? 0).id}`)}`,
                 `${t(language, "debug_player")} ${this.player.x.toFixed(1)}, ${this.player.y.toFixed(1)}`,
                 `${t(language, "debug_velocity")} ${this.player.velocityX.toFixed(2)}, ${this.player.velocityY.toFixed(2)}`,
@@ -3451,7 +3686,7 @@ class GameSession {
         ctx.fillRect(0, 0, width, height);
         const bindingMode = this.menu === "bindings";
         const boxW = Math.min(460, width - 40);
-        const boxH = bindingMode ? 680 : this.menu === "settings" ? 540 : this.menu === "plugins" ? Math.min(620, height - 40) : this.menu === "pause" ? 476 : this.menu === "display" ? (this.colorEditing ? 440 : 612) : 410;
+        const boxH = bindingMode ? 680 : this.menu === "settings" ? 672 : this.menu === "plugins" ? Math.min(620, height - 40) : this.menu === "pause" ? 476 : this.menu === "display" ? (this.colorEditing ? 440 : 612) : 410;
         const x = (width - boxW) / 2;
         const y = (height - boxH) / 2;
         ctx.fillStyle = "#13252d";
@@ -3597,6 +3832,8 @@ class GameSession {
                     `${t(language, "settings_debug_default")}: ${this.debug ? text("开启", "ON") : text("关闭", "OFF")}`,
                     `${t(language, "settings_autosave")}: ${autosaveLabel(settings.autosaveInterval)}`,
                     `${t(language, "settings_cursor")}: ${settings.cursorStyle === "crosshair" ? t(language, "cursor_crosshair") : t(language, "cursor_default")}`,
+                    `${t(language, "settings_daynight")}: ${settings.dayNightCycle ? text("开启", "ON") : text("关闭", "OFF")}`,
+                    `${t(language, "settings_ambient")}: ${settings.ambientLight <= 0 ? text("关闭", "OFF") : `${Math.round(settings.ambientLight * 100)}%`}`,
                     t(language, "settings_display"),
                     t(language, "settings_keybindings"),
                     t(language, "settings_back"),
