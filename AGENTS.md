@@ -32,11 +32,15 @@ npm run build          # tsc --noEmit && vite build（生产构建验证）
   - `features.ts` / `structures.ts`：地表特征（草/花/树/仙人掌/岩石）与建筑生成。
   - `hitboxes.ts` / `squeeze.ts`：碰撞箱 / 挤压箱配置加载与插件覆盖。
   - `inventory.ts`：背包纯规则（左键拖动「均分」`distributeStack`），不依赖 DOM、可单独验证。
+  - `items.ts`：物品（工具）注册表与纯规则（`stackLimit` 堆叠上限、`miningSpeedFor`/`miningSeconds` 挖掘速度与耗时、`attackDamageFor` 攻击伤害、`maxDurabilityFor`/`normalizeDurability` 耐久、`loadItemConfigs()` 加载 `public/items/items.json`），不依赖 DOM、可单独验证。
+  - `tick.ts`：客户端 tick 速率（游戏速度）的纯计算（`NORMAL_TICK_RATE = 20`、`clampTickRate`、`tickScale`、`simulationSteps` 帧内子步拆分），不依赖 DOM、可单独验证。
   - `daylight.ts`：昼夜与环境光照的纯计算（时刻 → 天空亮度/颜色、日月星空、格子光照、压暗带几何），不依赖 DOM、可单独验证。
   - `storage.ts`：同步本地 API 客户端；`types.ts`：稳定数据结构。
-- `src/modes/`：`creative.ts`（创造）、`spectator.ts`（旁观）两个 `GameMode` 实现。
+- `src/modes/`：`creative.ts`（创造）、`survival.ts`（生存，含挖掘速度/工具耐久）、`spectator.ts`（旁观）三个 `GameMode` 实现。
 - `src/plugins/api.ts`：插件扩展注册表与生命周期 API。
 - `public/hitboxes/`、`public/squeeze/`：实体碰撞箱 / 挤压箱 JSON（走 `/api/hitboxes`、`/api/squeeze`）。
+- `public/items/items.json`：物品（工具）定义（挖掘速度/伤害/耐久/堆叠上限，走 `/api/items`），贴图在 `public/assets/items/`。
+- `public/blocks/blocks.json`：方块定义（`hardness` 硬度、`tool` 对口工具类别，走 `/api/blocks`）。
 
 ## 3. 关键不变量（改动前务必理解，不要破坏）
 
@@ -80,10 +84,27 @@ npm run build          # tsc --noEmit && vite build（生产构建验证）
 - 实体（生物/玩家/掉落物）在压暗层之后绘制，必须自己按 `lightAt(x, y)` 压暗，否则夜里会是一堆亮块。`settings.ambientLight = 0` 表示关闭光照（全亮），改渲染时保留这个分支。
 - 若要改暗度：只动 `daylight.ts` 的 `MIN_SKY_LIGHT` / `MIN_CAVE_LIGHT` / `SHADOW_DEPTH`，并跑一遍「水面亮、河床暗、洞穴 = MIN_CAVE_LIGHT」的验证。
 
+### 3.8 工具 / 物品（`src/core/items.ts` + `public/items/items.json`）
+- 物品定义只来自 `public/items/items.json`（经 `/api/items`，`loadItemConfigs()` 在 `startGame()` 里、`GameSession` 构造**之前**加载；游戏内 `/reload items` 重新读取）。贴图在 `public/assets/items/`，`texture` 字段=文件名。
+- 加载器对每条 id 单独 try/catch：一条非法 id（例如配置里写了注释键 `"//"`）只跳过自己，不能让整份配置加载失败——`Registry.get/upsert` 对语法非法的 id 会抛错。
+- **挖掘速度只有一个入口**：`miningSpeedFor(手持id, 方块tool)` + `miningSeconds(硬度, 速度)`（`survival.ts` 里 `mineProgress += dt / miningSeconds(...)`）。只有工具类别与方块 `tool` 一致才加速，否则=空手速度 1。不要在模式里另写一套硬度/时间换算。
+- 方块的 `tool` 字段在 `public/blocks/blocks.json`：石头/矿石/深板岩=镐、原木=斧、草方块/泥土/沙子/雪=锹、树叶=锄；草丛/花没有 `tool`（任何工具都不加速）。
+- **堆叠上限按物品区分**（`stackLimit(id)`：工具 1、其余 64）。`main.ts` 与 `itemdrop.ts` 里**不要**再用全局 `MAX_STACK_SIZE` 做单格上限；合并、均分、`/give`、中键复制、掉落物合并都要走 `stackLimit`，并且只在耐久一致时才合并。
+- **耐久**：`ItemStack.durability` = 剩余耐久（缺省=满）。生存模式挖掉一格/命中一次生物扣 1 点（`context.onToolUsed` → `damageTool`），创造模式**不**调用（不消耗）；归零损坏并清空该格。存档（`normalizeStack`）与掉落物（`DroppedItemManager.spawn/serialize/restore`）都必须带上耐久，否则丢出去捡回来会变成满耐久。工具不可堆叠，所以掉落物不合并。
+- 手持工具/物品**不能放置**：`getPlacementTarget()` 与 `place()` 都用 `isPlaceableBlock()` 拦住，避免把工具 id 写进世界当方块。
+
+### 3.9 游戏速度（`/tick`，`src/core/tick.ts`）
+- `GameSession.tickRate`（默认 20 = 正常速度）、`frozen`、`pendingSteps` 只在会话内，不写存档；`/tick` 命令是唯一入口。
+- 世界模拟已抽成 `stepWorld(dt)`：`tick()` 里正常路径用 `simulationSteps(dt, tickRate, MAX_STEPS_PER_FRAME)` 拆子步，冻结路径只补跑 `/tick step` 排队的 tick。**新增任何世界状态推进都要放进 `stepWorld`**，否则它不会随 `/tick` 变速/冻结（渲染与界面计时留在 `tick()` 里）。
+- 每个子步 ≤ `MAX_STEP_SECONDS`（1/20 秒）：20 tick 且 60fps 时就是「一帧一步、步长 = 帧时长」，与改动前的行为完全一致；倍速只改变每帧的步数，不改变单步物理（`Player.update`/`Mob.update` 内部都还有 `Math.min(dt, 0.05)` 上限）。改这里要保持这个性质，否则 10 倍速会穿墙。
+- 冻结时昼夜时刻、流体、生物、掉落物、自动保存一并停住（都在 `stepWorld` 里）。
+
 ## 4. 常见任务指引
 
 - 新增方块：纹理放 `public/assets/block/`，`src/registry.ts`（本体）或插件 `registerBlock`（插件），显示名在 `src/i18n.ts`。详见 `README.md`「扩展开发」。
 - 新增游戏模式：`src/modes/` 新建 `GameMode`，改 `createMode()`，加 i18n 名称。
+- 新增物品/工具：贴图放 `public/assets/items/`，配置加进 `public/items/items.json`（`label`/`texture`/`tool`/`tier`/`miningSpeed`/`damage`/`durability`/`stackSize`）；要让某方块被这类工具加速，给 `public/blocks/blocks.json` 里那个方块加 `tool`。游戏内 `/reload items` 生效，`/give <id>` 拿取。详见 `README.md`「工具与物品配置」。
+- 调游戏速度/加世界更新：只动 `core/tick.ts` 与 `stepWorld`（见 §3.9），并跑一遍「20 tick 且 60fps 时一帧一步、步长=帧时长」的验证。
 - 调碰撞箱/挤压箱：改 `public/hitboxes/`、`public/squeeze/`（32×整数），游戏内 `/reload hitboxes`、`/reload squeeze` 生效。挤压伤害「只按挤压箱结算」不要退回按碰撞箱结算。
 - 改存档格式：遵循「只存脏区块」模型（`World.serializeChanges` 只序列化 `dirty`，`restore` 用 `idTable` 重映射数字 ID）。
 
