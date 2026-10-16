@@ -1,0 +1,13 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "category": "redstone",
+  "key": {
+    "#": "my2dworld:stone"
+  },
+  "pattern": [
+    "##"
+  ],
+  "result": {
+    "id": "my2dworld:stone_pressure_plate"
+  }
+}

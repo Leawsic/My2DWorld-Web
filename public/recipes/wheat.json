@@ -1,0 +1,10 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "ingredients": [
+    "my2dworld:hay_block"
+  ],
+  "result": {
+    "count": 9,
+    "id": "my2dworld:wheat"
+  }
+}

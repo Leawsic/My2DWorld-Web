@@ -1,0 +1,9 @@
+{
+  "type": "my2dworld:smelting",
+  "category": "blocks",
+  "experience": 0.1,
+  "ingredient": "my2dworld:cobbled_deepslate",
+  "result": {
+    "id": "my2dworld:deepslate"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "key": {
+    "#": "#minecraft:logs",
+    "X": "my2dworld:furnace"
+  },
+  "pattern": [
+    " # ",
+    "#X#",
+    " # "
+  ],
+  "result": {
+    "id": "my2dworld:smoker"
+  }
+}

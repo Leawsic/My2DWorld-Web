@@ -1,0 +1,12 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "category": "building",
+  "group": "waxed_lightning_rod",
+  "ingredients": [
+    "my2dworld:lightning_rod",
+    "my2dworld:honeycomb"
+  ],
+  "result": {
+    "id": "my2dworld:waxed_lightning_rod"
+  }
+}

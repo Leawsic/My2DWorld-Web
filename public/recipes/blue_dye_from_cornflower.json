@@ -1,0 +1,10 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "group": "blue_dye",
+  "ingredients": [
+    "my2dworld:cornflower"
+  ],
+  "result": {
+    "id": "my2dworld:blue_dye"
+  }
+}

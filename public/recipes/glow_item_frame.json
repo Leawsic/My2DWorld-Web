@@ -1,0 +1,10 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "ingredients": [
+    "my2dworld:item_frame",
+    "my2dworld:glow_ink_sac"
+  ],
+  "result": {
+    "id": "my2dworld:glow_item_frame"
+  }
+}

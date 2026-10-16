@@ -1,0 +1,18 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "category": "redstone",
+  "key": {
+    "#": "my2dworld:cobblestone",
+    "R": "my2dworld:redstone",
+    "T": "#minecraft:planks",
+    "X": "my2dworld:iron_ingot"
+  },
+  "pattern": [
+    "TTT",
+    "#X#",
+    "#R#"
+  ],
+  "result": {
+    "id": "my2dworld:piston"
+  }
+}

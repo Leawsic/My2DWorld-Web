@@ -1,0 +1,8 @@
+{
+  "type": "my2dworld:crafting_special_shielddecoration",
+  "banner": "#minecraft:banners",
+  "result": {
+    "id": "my2dworld:shield"
+  },
+  "target": "my2dworld:shield"
+}

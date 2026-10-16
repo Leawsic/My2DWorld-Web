@@ -1,0 +1,8 @@
+{
+  "type": "my2dworld:smelting",
+  "experience": 2.0,
+  "ingredient": "my2dworld:ancient_debris",
+  "result": {
+    "id": "my2dworld:netherite_scrap"
+  }
+}

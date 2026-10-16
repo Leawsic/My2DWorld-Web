@@ -1,0 +1,8 @@
+{
+  "type": "my2dworld:smelting",
+  "experience": 1.0,
+  "ingredient": "my2dworld:cactus",
+  "result": {
+    "id": "my2dworld:green_dye"
+  }
+}

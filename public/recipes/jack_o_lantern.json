@@ -1,0 +1,15 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "category": "building",
+  "key": {
+    "A": "my2dworld:carved_pumpkin",
+    "B": "my2dworld:torch"
+  },
+  "pattern": [
+    "A",
+    "B"
+  ],
+  "result": {
+    "id": "my2dworld:jack_o_lantern"
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "type": "my2dworld:stonecutting",
+  "ingredient": "my2dworld:granite",
+  "result": {
+    "id": "my2dworld:polished_granite"
+  }
+}

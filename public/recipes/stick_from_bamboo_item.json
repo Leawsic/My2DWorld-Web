@@ -1,0 +1,14 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "group": "sticks",
+  "key": {
+    "#": "my2dworld:bamboo"
+  },
+  "pattern": [
+    "#",
+    "#"
+  ],
+  "result": {
+    "id": "my2dworld:stick"
+  }
+}

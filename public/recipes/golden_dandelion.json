@@ -1,0 +1,15 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "key": {
+    "#": "my2dworld:gold_nugget",
+    "I": "my2dworld:dandelion"
+  },
+  "pattern": [
+    "###",
+    "#I#",
+    "###"
+  ],
+  "result": {
+    "id": "my2dworld:golden_dandelion"
+  }
+}

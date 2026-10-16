@@ -1,0 +1,19 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "category": "building",
+  "key": {
+    "#": [
+      "my2dworld:purpur_block",
+      "my2dworld:purpur_pillar"
+    ]
+  },
+  "pattern": [
+    "#  ",
+    "## ",
+    "###"
+  ],
+  "result": {
+    "count": 4,
+    "id": "my2dworld:purpur_stairs"
+  }
+}

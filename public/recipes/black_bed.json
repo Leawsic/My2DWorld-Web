@@ -1,0 +1,15 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "group": "bed",
+  "key": {
+    "#": "my2dworld:black_wool",
+    "X": "#minecraft:planks"
+  },
+  "pattern": [
+    "###",
+    "XXX"
+  ],
+  "result": {
+    "id": "my2dworld:black_bed"
+  }
+}

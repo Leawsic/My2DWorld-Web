@@ -1,0 +1,15 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "category": "building",
+  "group": "waxed_exposed_chiseled_copper",
+  "key": {
+    "M": "my2dworld:waxed_exposed_cut_copper_slab"
+  },
+  "pattern": [
+    " M ",
+    " M "
+  ],
+  "result": {
+    "id": "my2dworld:waxed_exposed_chiseled_copper"
+  }
+}

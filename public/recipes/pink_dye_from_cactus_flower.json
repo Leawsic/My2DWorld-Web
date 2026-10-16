@@ -1,0 +1,10 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "group": "pink_dye",
+  "ingredients": [
+    "my2dworld:cactus_flower"
+  ],
+  "result": {
+    "id": "my2dworld:pink_dye"
+  }
+}

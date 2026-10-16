@@ -1,0 +1,11 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "category": "redstone",
+  "group": "wooden_button",
+  "ingredients": [
+    "my2dworld:warped_planks"
+  ],
+  "result": {
+    "id": "my2dworld:warped_button"
+  }
+}

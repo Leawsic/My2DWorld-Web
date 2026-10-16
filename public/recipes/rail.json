@@ -1,0 +1,16 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "key": {
+    "#": "my2dworld:stick",
+    "X": "my2dworld:iron_ingot"
+  },
+  "pattern": [
+    "X X",
+    "X#X",
+    "X X"
+  ],
+  "result": {
+    "count": 16,
+    "id": "my2dworld:rail"
+  }
+}

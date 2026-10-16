@@ -1,0 +1,10 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "ingredients": [
+    "my2dworld:paper",
+    "my2dworld:wither_skeleton_skull"
+  ],
+  "result": {
+    "id": "my2dworld:skull_banner_pattern"
+  }
+}

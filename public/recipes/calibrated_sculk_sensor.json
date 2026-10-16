@@ -1,0 +1,15 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "category": "redstone",
+  "key": {
+    "#": "my2dworld:amethyst_shard",
+    "X": "my2dworld:sculk_sensor"
+  },
+  "pattern": [
+    " # ",
+    "#X#"
+  ],
+  "result": {
+    "id": "my2dworld:calibrated_sculk_sensor"
+  }
+}

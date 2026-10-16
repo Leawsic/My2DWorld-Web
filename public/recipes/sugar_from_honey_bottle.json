@@ -1,0 +1,11 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "group": "sugar",
+  "ingredients": [
+    "my2dworld:honey_bottle"
+  ],
+  "result": {
+    "count": 3,
+    "id": "my2dworld:sugar"
+  }
+}

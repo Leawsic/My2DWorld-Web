@@ -1,0 +1,10 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "ingredients": [
+    "my2dworld:chest",
+    "my2dworld:minecart"
+  ],
+  "result": {
+    "id": "my2dworld:chest_minecart"
+  }
+}

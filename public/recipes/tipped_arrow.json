@@ -1,0 +1,9 @@
+{
+  "type": "my2dworld:crafting_imbue",
+  "material": "my2dworld:arrow",
+  "result": {
+    "count": 8,
+    "id": "my2dworld:tipped_arrow"
+  },
+  "source": "my2dworld:lingering_potion"
+}

@@ -1,0 +1,17 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "group": "netherite_ingot",
+  "ingredients": [
+    "my2dworld:netherite_scrap",
+    "my2dworld:netherite_scrap",
+    "my2dworld:netherite_scrap",
+    "my2dworld:netherite_scrap",
+    "my2dworld:gold_ingot",
+    "my2dworld:gold_ingot",
+    "my2dworld:gold_ingot",
+    "my2dworld:gold_ingot"
+  ],
+  "result": {
+    "id": "my2dworld:netherite_ingot"
+  }
+}

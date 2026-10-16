@@ -1,0 +1,16 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "category": "building",
+  "key": {
+    "C": "my2dworld:prismarine_crystals",
+    "S": "my2dworld:prismarine_shard"
+  },
+  "pattern": [
+    "SCS",
+    "CCC",
+    "SCS"
+  ],
+  "result": {
+    "id": "my2dworld:sea_lantern"
+  }
+}

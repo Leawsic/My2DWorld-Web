@@ -1,0 +1,11 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "ingredients": [
+    "my2dworld:pumpkin",
+    "my2dworld:sugar",
+    "#minecraft:eggs"
+  ],
+  "result": {
+    "id": "my2dworld:pumpkin_pie"
+  }
+}

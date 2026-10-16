@@ -1,0 +1,11 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "category": "equipment",
+  "ingredients": [
+    "my2dworld:iron_ingot",
+    "my2dworld:flint"
+  ],
+  "result": {
+    "id": "my2dworld:flint_and_steel"
+  }
+}

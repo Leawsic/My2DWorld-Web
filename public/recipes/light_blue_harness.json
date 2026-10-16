@@ -1,0 +1,17 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "category": "equipment",
+  "group": "harness",
+  "key": {
+    "#": "my2dworld:light_blue_wool",
+    "G": "my2dworld:glass",
+    "L": "my2dworld:leather"
+  },
+  "pattern": [
+    "LLL",
+    "G#G"
+  ],
+  "result": {
+    "id": "my2dworld:light_blue_harness"
+  }
+}

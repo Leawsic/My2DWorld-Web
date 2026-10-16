@@ -1,0 +1,15 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "group": "copper_ingot",
+  "key": {
+    "#": "my2dworld:copper_nugget"
+  },
+  "pattern": [
+    "###",
+    "###",
+    "###"
+  ],
+  "result": {
+    "id": "my2dworld:copper_ingot"
+  }
+}

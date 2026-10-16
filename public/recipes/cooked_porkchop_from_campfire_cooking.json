@@ -1,0 +1,10 @@
+{
+  "type": "my2dworld:campfire_cooking",
+  "category": "food",
+  "cookingtime": 600,
+  "experience": 0.35,
+  "ingredient": "my2dworld:porkchop",
+  "result": {
+    "id": "my2dworld:cooked_porkchop"
+  }
+}

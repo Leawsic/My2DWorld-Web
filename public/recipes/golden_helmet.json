@@ -1,0 +1,14 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "category": "equipment",
+  "key": {
+    "X": "my2dworld:gold_ingot"
+  },
+  "pattern": [
+    "XXX",
+    "X X"
+  ],
+  "result": {
+    "id": "my2dworld:golden_helmet"
+  }
+}

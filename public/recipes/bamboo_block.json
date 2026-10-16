@@ -1,0 +1,18 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "category": "building",
+  "ingredients": [
+    "my2dworld:bamboo",
+    "my2dworld:bamboo",
+    "my2dworld:bamboo",
+    "my2dworld:bamboo",
+    "my2dworld:bamboo",
+    "my2dworld:bamboo",
+    "my2dworld:bamboo",
+    "my2dworld:bamboo",
+    "my2dworld:bamboo"
+  ],
+  "result": {
+    "id": "my2dworld:bamboo_block"
+  }
+}

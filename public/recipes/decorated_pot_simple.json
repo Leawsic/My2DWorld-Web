@@ -1,0 +1,14 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "key": {
+    "#": "my2dworld:brick"
+  },
+  "pattern": [
+    " # ",
+    "# #",
+    " # "
+  ],
+  "result": {
+    "id": "my2dworld:decorated_pot"
+  }
+}

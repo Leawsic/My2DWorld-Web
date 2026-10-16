@@ -1,0 +1,10 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "group": "black_dye",
+  "ingredients": [
+    "my2dworld:ink_sac"
+  ],
+  "result": {
+    "id": "my2dworld:black_dye"
+  }
+}

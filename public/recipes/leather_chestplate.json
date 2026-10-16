@@ -1,0 +1,15 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "category": "equipment",
+  "key": {
+    "X": "my2dworld:leather"
+  },
+  "pattern": [
+    "X X",
+    "XXX",
+    "XXX"
+  ],
+  "result": {
+    "id": "my2dworld:leather_chestplate"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "key": {
+    "#": "my2dworld:stick",
+    "C": "my2dworld:copper_nugget",
+    "X": [
+      "my2dworld:coal",
+      "my2dworld:charcoal"
+    ]
+  },
+  "pattern": [
+    "C",
+    "X",
+    "#"
+  ],
+  "result": {
+    "count": 4,
+    "id": "my2dworld:copper_torch"
+  }
+}

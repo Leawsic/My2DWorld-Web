@@ -1,0 +1,9 @@
+{
+  "type": "my2dworld:smelting",
+  "category": "blocks",
+  "experience": 0.1,
+  "ingredient": "my2dworld:green_terracotta",
+  "result": {
+    "id": "my2dworld:green_glazed_terracotta"
+  }
+}

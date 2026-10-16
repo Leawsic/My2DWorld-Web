@@ -1,0 +1,11 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "category": "building",
+  "ingredients": [
+    "my2dworld:diorite",
+    "my2dworld:quartz"
+  ],
+  "result": {
+    "id": "my2dworld:granite"
+  }
+}

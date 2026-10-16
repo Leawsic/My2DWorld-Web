@@ -1,0 +1,15 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "key": {
+    "#": "my2dworld:paper",
+    "X": "my2dworld:compass"
+  },
+  "pattern": [
+    "###",
+    "#X#",
+    "###"
+  ],
+  "result": {
+    "id": "my2dworld:map"
+  }
+}

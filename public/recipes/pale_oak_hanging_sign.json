@@ -1,0 +1,17 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "group": "wooden_hanging_sign",
+  "key": {
+    "#": "my2dworld:stripped_pale_oak_log",
+    "X": "my2dworld:iron_chain"
+  },
+  "pattern": [
+    "X X",
+    "###",
+    "###"
+  ],
+  "result": {
+    "count": 6,
+    "id": "my2dworld:pale_oak_hanging_sign"
+  }
+}

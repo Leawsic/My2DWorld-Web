@@ -1,0 +1,17 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "category": "redstone",
+  "key": {
+    "#": "my2dworld:cobblestone",
+    "Q": "my2dworld:quartz",
+    "R": "my2dworld:redstone"
+  },
+  "pattern": [
+    "###",
+    "RRQ",
+    "###"
+  ],
+  "result": {
+    "id": "my2dworld:observer"
+  }
+}

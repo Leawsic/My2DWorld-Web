@@ -1,0 +1,15 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "group": "stained_glass_pane",
+  "key": {
+    "#": "my2dworld:pink_stained_glass"
+  },
+  "pattern": [
+    "###",
+    "###"
+  ],
+  "result": {
+    "count": 16,
+    "id": "my2dworld:pink_stained_glass_pane"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "key": {
+    "#": "my2dworld:fishing_rod",
+    "X": "my2dworld:warped_fungus"
+  },
+  "pattern": [
+    "# ",
+    " X"
+  ],
+  "result": {
+    "id": "my2dworld:warped_fungus_on_a_stick"
+  }
+}

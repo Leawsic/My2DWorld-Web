@@ -1,0 +1,15 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "category": "equipment",
+  "key": {
+    "#": "my2dworld:iron_ingot",
+    "X": "my2dworld:leather"
+  },
+  "pattern": [
+    " X ",
+    "X#X"
+  ],
+  "result": {
+    "id": "my2dworld:saddle"
+  }
+}

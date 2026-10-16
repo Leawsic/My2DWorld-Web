@@ -1,0 +1,15 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "group": "iron_ingot",
+  "key": {
+    "#": "my2dworld:iron_nugget"
+  },
+  "pattern": [
+    "###",
+    "###",
+    "###"
+  ],
+  "result": {
+    "id": "my2dworld:iron_ingot"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "type": "my2dworld:blasting",
+  "experience": 1.0,
+  "group": "emerald",
+  "ingredient": "my2dworld:deepslate_emerald_ore",
+  "result": {
+    "id": "my2dworld:emerald"
+  }
+}

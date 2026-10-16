@@ -1,0 +1,10 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "ingredients": [
+    "my2dworld:paper",
+    "my2dworld:creeper_head"
+  ],
+  "result": {
+    "id": "my2dworld:creeper_banner_pattern"
+  }
+}

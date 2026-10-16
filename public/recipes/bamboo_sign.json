@@ -1,0 +1,17 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "group": "wooden_sign",
+  "key": {
+    "#": "my2dworld:bamboo_planks",
+    "X": "my2dworld:stick"
+  },
+  "pattern": [
+    "###",
+    "###",
+    " X "
+  ],
+  "result": {
+    "count": 3,
+    "id": "my2dworld:bamboo_sign"
+  }
+}

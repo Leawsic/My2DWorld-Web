@@ -1,0 +1,7 @@
+{
+  "type": "my2dworld:smithing_trim",
+  "addition": "#minecraft:trim_materials",
+  "base": "#minecraft:trimmable_armor",
+  "pattern": "my2dworld:host",
+  "template": "my2dworld:host_armor_trim_smithing_template"
+}

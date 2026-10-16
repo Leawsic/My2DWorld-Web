@@ -1,0 +1,18 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "category": "equipment",
+  "key": {
+    "#": "my2dworld:stick",
+    "X": "my2dworld:flint",
+    "Y": "my2dworld:feather"
+  },
+  "pattern": [
+    "X",
+    "#",
+    "Y"
+  ],
+  "result": {
+    "count": 4,
+    "id": "my2dworld:arrow"
+  }
+}

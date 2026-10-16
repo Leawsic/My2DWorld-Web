@@ -1,0 +1,11 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "group": "copper_ingot",
+  "ingredients": [
+    "my2dworld:waxed_copper_block"
+  ],
+  "result": {
+    "count": 9,
+    "id": "my2dworld:copper_ingot"
+  }
+}

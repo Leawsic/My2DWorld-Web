@@ -1,0 +1,15 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "category": "building",
+  "key": {
+    "#": "my2dworld:deepslate_bricks"
+  },
+  "pattern": [
+    "##",
+    "##"
+  ],
+  "result": {
+    "count": 4,
+    "id": "my2dworld:deepslate_tiles"
+  }
+}

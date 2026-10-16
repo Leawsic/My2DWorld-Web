@@ -1,0 +1,8 @@
+{
+  "type": "my2dworld:stonecutting",
+  "ingredient": "my2dworld:exposed_copper",
+  "result": {
+    "count": 4,
+    "id": "my2dworld:exposed_copper_grate"
+  }
+}

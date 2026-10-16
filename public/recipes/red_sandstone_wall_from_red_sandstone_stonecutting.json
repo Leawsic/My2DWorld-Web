@@ -1,0 +1,7 @@
+{
+  "type": "my2dworld:stonecutting",
+  "ingredient": "my2dworld:red_sandstone",
+  "result": {
+    "id": "my2dworld:red_sandstone_wall"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "group": "wooden_fence",
+  "key": {
+    "#": "my2dworld:stick",
+    "W": "my2dworld:birch_planks"
+  },
+  "pattern": [
+    "W#W",
+    "W#W"
+  ],
+  "result": {
+    "count": 3,
+    "id": "my2dworld:birch_fence"
+  }
+}

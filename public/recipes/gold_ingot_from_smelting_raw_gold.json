@@ -1,0 +1,9 @@
+{
+  "type": "my2dworld:smelting",
+  "experience": 1.0,
+  "group": "gold_ingot",
+  "ingredient": "my2dworld:raw_gold",
+  "result": {
+    "id": "my2dworld:gold_ingot"
+  }
+}

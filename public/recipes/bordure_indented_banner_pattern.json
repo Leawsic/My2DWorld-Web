@@ -1,0 +1,10 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "ingredients": [
+    "my2dworld:paper",
+    "my2dworld:vine"
+  ],
+  "result": {
+    "id": "my2dworld:bordure_indented_banner_pattern"
+  }
+}

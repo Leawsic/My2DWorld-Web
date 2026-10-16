@@ -1,0 +1,9 @@
+{
+  "type": "my2dworld:blasting",
+  "experience": 0.1,
+  "group": "coal",
+  "ingredient": "my2dworld:coal_ore",
+  "result": {
+    "id": "my2dworld:coal"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "group": "sticks",
+  "key": {
+    "#": "#minecraft:planks"
+  },
+  "pattern": [
+    "#",
+    "#"
+  ],
+  "result": {
+    "count": 4,
+    "id": "my2dworld:stick"
+  }
+}

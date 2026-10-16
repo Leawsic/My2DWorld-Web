@@ -1,0 +1,15 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "category": "redstone",
+  "key": {
+    "P": "my2dworld:piston",
+    "S": "my2dworld:slime_ball"
+  },
+  "pattern": [
+    "S",
+    "P"
+  ],
+  "result": {
+    "id": "my2dworld:sticky_piston"
+  }
+}

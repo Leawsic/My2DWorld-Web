@@ -1,0 +1,14 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "ingredients": [
+    "my2dworld:honey_block",
+    "my2dworld:glass_bottle",
+    "my2dworld:glass_bottle",
+    "my2dworld:glass_bottle",
+    "my2dworld:glass_bottle"
+  ],
+  "result": {
+    "count": 4,
+    "id": "my2dworld:honey_bottle"
+  }
+}

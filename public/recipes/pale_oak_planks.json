@@ -1,0 +1,12 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "category": "building",
+  "group": "planks",
+  "ingredients": [
+    "#minecraft:pale_oak_logs"
+  ],
+  "result": {
+    "count": 4,
+    "id": "my2dworld:pale_oak_planks"
+  }
+}

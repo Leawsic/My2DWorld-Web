@@ -1,0 +1,14 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "key": {
+    "#": "#minecraft:stone_crafting_materials",
+    "B": "my2dworld:blaze_rod"
+  },
+  "pattern": [
+    " B ",
+    "###"
+  ],
+  "result": {
+    "id": "my2dworld:brewing_stand"
+  }
+}

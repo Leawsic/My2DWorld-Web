@@ -1,0 +1,11 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "ingredients": [
+    "my2dworld:book",
+    "my2dworld:ink_sac",
+    "my2dworld:feather"
+  ],
+  "result": {
+    "id": "my2dworld:writable_book"
+  }
+}

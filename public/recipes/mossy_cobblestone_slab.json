@@ -1,0 +1,14 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "category": "building",
+  "key": {
+    "#": "my2dworld:mossy_cobblestone"
+  },
+  "pattern": [
+    "###"
+  ],
+  "result": {
+    "count": 6,
+    "id": "my2dworld:mossy_cobblestone_slab"
+  }
+}

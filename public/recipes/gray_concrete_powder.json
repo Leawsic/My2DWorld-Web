@@ -1,0 +1,20 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "category": "building",
+  "group": "concrete_powder",
+  "ingredients": [
+    "my2dworld:gray_dye",
+    "my2dworld:sand",
+    "my2dworld:sand",
+    "my2dworld:sand",
+    "my2dworld:sand",
+    "my2dworld:gravel",
+    "my2dworld:gravel",
+    "my2dworld:gravel",
+    "my2dworld:gravel"
+  ],
+  "result": {
+    "count": 8,
+    "id": "my2dworld:gray_concrete_powder"
+  }
+}

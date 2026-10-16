@@ -1,0 +1,14 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "key": {
+    "#": "#minecraft:planks"
+  },
+  "pattern": [
+    "##",
+    "##"
+  ],
+  "result": {
+    "id": "my2dworld:crafting_table"
+  },
+  "show_notification": false
+}

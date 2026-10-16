@@ -1,0 +1,16 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "group": "shelf",
+  "key": {
+    "#": "my2dworld:stripped_warped_stem"
+  },
+  "pattern": [
+    "###",
+    "   ",
+    "###"
+  ],
+  "result": {
+    "count": 6,
+    "id": "my2dworld:warped_shelf"
+  }
+}

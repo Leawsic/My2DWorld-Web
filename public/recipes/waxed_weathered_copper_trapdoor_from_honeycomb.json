@@ -1,0 +1,12 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "category": "redstone",
+  "group": "waxed_copper_trapdoor",
+  "ingredients": [
+    "my2dworld:weathered_copper_trapdoor",
+    "my2dworld:honeycomb"
+  ],
+  "result": {
+    "id": "my2dworld:waxed_weathered_copper_trapdoor"
+  }
+}

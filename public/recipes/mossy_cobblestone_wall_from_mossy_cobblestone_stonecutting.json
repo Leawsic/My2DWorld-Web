@@ -1,0 +1,7 @@
+{
+  "type": "my2dworld:stonecutting",
+  "ingredient": "my2dworld:mossy_cobblestone",
+  "result": {
+    "id": "my2dworld:mossy_cobblestone_wall"
+  }
+}

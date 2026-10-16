@@ -1,0 +1,17 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "category": "equipment",
+  "key": {
+    "#": "my2dworld:copper_ingot",
+    "I": "my2dworld:stick",
+    "X": "my2dworld:feather"
+  },
+  "pattern": [
+    "X",
+    "#",
+    "I"
+  ],
+  "result": {
+    "id": "my2dworld:brush"
+  }
+}

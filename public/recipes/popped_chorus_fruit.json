@@ -1,0 +1,8 @@
+{
+  "type": "my2dworld:smelting",
+  "experience": 0.1,
+  "ingredient": "my2dworld:chorus_fruit",
+  "result": {
+    "id": "my2dworld:popped_chorus_fruit"
+  }
+}

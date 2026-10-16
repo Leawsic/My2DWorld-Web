@@ -1,0 +1,12 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "category": "building",
+  "group": "mossy_cobblestone",
+  "ingredients": [
+    "my2dworld:cobblestone",
+    "my2dworld:moss_block"
+  ],
+  "result": {
+    "id": "my2dworld:mossy_cobblestone"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "category": "building",
+  "group": "waxed_exposed_copper_grate",
+  "ingredients": [
+    "my2dworld:exposed_copper_grate",
+    "my2dworld:honeycomb"
+  ],
+  "result": {
+    "id": "my2dworld:waxed_exposed_copper_grate"
+  }
+}

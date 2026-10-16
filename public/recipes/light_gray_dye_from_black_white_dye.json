@@ -1,0 +1,13 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "group": "light_gray_dye",
+  "ingredients": [
+    "my2dworld:black_dye",
+    "my2dworld:white_dye",
+    "my2dworld:white_dye"
+  ],
+  "result": {
+    "count": 3,
+    "id": "my2dworld:light_gray_dye"
+  }
+}

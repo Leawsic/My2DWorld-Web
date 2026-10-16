@@ -1,0 +1,8 @@
+{
+  "type": "my2dworld:crafting_special_bookcloning",
+  "material": "#minecraft:book_cloning_target",
+  "result": {
+    "id": "my2dworld:written_book"
+  },
+  "source": "my2dworld:written_book"
+}

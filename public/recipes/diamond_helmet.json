@@ -1,0 +1,14 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "category": "equipment",
+  "key": {
+    "X": "my2dworld:diamond"
+  },
+  "pattern": [
+    "XXX",
+    "X X"
+  ],
+  "result": {
+    "id": "my2dworld:diamond_helmet"
+  }
+}

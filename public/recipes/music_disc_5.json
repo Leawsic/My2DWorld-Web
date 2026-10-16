@@ -1,0 +1,17 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "ingredients": [
+    "my2dworld:disc_fragment_5",
+    "my2dworld:disc_fragment_5",
+    "my2dworld:disc_fragment_5",
+    "my2dworld:disc_fragment_5",
+    "my2dworld:disc_fragment_5",
+    "my2dworld:disc_fragment_5",
+    "my2dworld:disc_fragment_5",
+    "my2dworld:disc_fragment_5",
+    "my2dworld:disc_fragment_5"
+  ],
+  "result": {
+    "id": "my2dworld:music_disc_5"
+  }
+}

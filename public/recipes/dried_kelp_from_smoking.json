@@ -1,0 +1,9 @@
+{
+  "type": "my2dworld:smoking",
+  "category": "food",
+  "experience": 0.1,
+  "ingredient": "my2dworld:kelp",
+  "result": {
+    "id": "my2dworld:dried_kelp"
+  }
+}

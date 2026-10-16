@@ -1,0 +1,18 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "category": "equipment",
+  "key": {
+    "#": "my2dworld:stick",
+    "$": "my2dworld:tripwire_hook",
+    "&": "my2dworld:iron_ingot",
+    "~": "my2dworld:string"
+  },
+  "pattern": [
+    "#&#",
+    "~$~",
+    " # "
+  ],
+  "result": {
+    "id": "my2dworld:crossbow"
+  }
+}

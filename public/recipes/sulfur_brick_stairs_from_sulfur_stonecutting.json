@@ -1,0 +1,7 @@
+{
+  "type": "my2dworld:stonecutting",
+  "ingredient": "my2dworld:sulfur",
+  "result": {
+    "id": "my2dworld:sulfur_brick_stairs"
+  }
+}

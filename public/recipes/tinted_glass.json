@@ -1,0 +1,17 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "category": "building",
+  "key": {
+    "G": "my2dworld:glass",
+    "S": "my2dworld:amethyst_shard"
+  },
+  "pattern": [
+    " S ",
+    "SGS",
+    " S "
+  ],
+  "result": {
+    "count": 2,
+    "id": "my2dworld:tinted_glass"
+  }
+}

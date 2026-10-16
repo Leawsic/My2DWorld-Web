@@ -1,0 +1,16 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "category": "building",
+  "key": {
+    "I": "my2dworld:black_dye",
+    "S": "my2dworld:prismarine_shard"
+  },
+  "pattern": [
+    "SSS",
+    "SIS",
+    "SSS"
+  ],
+  "result": {
+    "id": "my2dworld:dark_prismarine"
+  }
+}

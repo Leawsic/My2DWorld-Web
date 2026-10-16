@@ -1,0 +1,9 @@
+{
+  "type": "my2dworld:smelting",
+  "category": "blocks",
+  "experience": 0.1,
+  "ingredient": "my2dworld:nether_bricks",
+  "result": {
+    "id": "my2dworld:cracked_nether_bricks"
+  }
+}

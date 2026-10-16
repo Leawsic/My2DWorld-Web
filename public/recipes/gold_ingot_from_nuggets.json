@@ -1,0 +1,15 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "group": "gold_ingot",
+  "key": {
+    "#": "my2dworld:gold_nugget"
+  },
+  "pattern": [
+    "###",
+    "###",
+    "###"
+  ],
+  "result": {
+    "id": "my2dworld:gold_ingot"
+  }
+}

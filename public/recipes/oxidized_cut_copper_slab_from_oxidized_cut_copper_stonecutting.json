@@ -1,0 +1,8 @@
+{
+  "type": "my2dworld:stonecutting",
+  "ingredient": "my2dworld:oxidized_cut_copper",
+  "result": {
+    "count": 2,
+    "id": "my2dworld:oxidized_cut_copper_slab"
+  }
+}

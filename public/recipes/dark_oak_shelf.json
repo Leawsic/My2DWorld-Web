@@ -1,0 +1,16 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "group": "shelf",
+  "key": {
+    "#": "my2dworld:stripped_dark_oak_log"
+  },
+  "pattern": [
+    "###",
+    "   ",
+    "###"
+  ],
+  "result": {
+    "count": 6,
+    "id": "my2dworld:dark_oak_shelf"
+  }
+}

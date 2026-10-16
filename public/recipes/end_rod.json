@@ -1,0 +1,15 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "key": {
+    "#": "my2dworld:popped_chorus_fruit",
+    "/": "my2dworld:blaze_rod"
+  },
+  "pattern": [
+    "/",
+    "#"
+  ],
+  "result": {
+    "count": 4,
+    "id": "my2dworld:end_rod"
+  }
+}

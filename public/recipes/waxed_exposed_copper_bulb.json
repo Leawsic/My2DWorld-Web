@@ -1,0 +1,19 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "category": "redstone",
+  "group": "waxed_exposed_copper_bulb",
+  "key": {
+    "B": "my2dworld:blaze_rod",
+    "C": "my2dworld:waxed_exposed_copper",
+    "R": "my2dworld:redstone"
+  },
+  "pattern": [
+    " C ",
+    "CBC",
+    " R "
+  ],
+  "result": {
+    "count": 4,
+    "id": "my2dworld:waxed_exposed_copper_bulb"
+  }
+}

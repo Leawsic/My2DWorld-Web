@@ -1,0 +1,14 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "category": "building",
+  "key": {
+    "#": "my2dworld:polished_tuff"
+  },
+  "pattern": [
+    "###"
+  ],
+  "result": {
+    "count": 6,
+    "id": "my2dworld:polished_tuff_slab"
+  }
+}

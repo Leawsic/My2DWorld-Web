@@ -1,0 +1,10 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "ingredients": [
+    "my2dworld:blaze_powder",
+    "my2dworld:slime_ball"
+  ],
+  "result": {
+    "id": "my2dworld:magma_cream"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "key": {
+    "A": "my2dworld:milk_bucket",
+    "B": "my2dworld:sugar",
+    "C": "my2dworld:wheat",
+    "E": "#minecraft:eggs"
+  },
+  "pattern": [
+    "AAA",
+    "BEB",
+    "CCC"
+  ],
+  "result": {
+    "id": "my2dworld:cake"
+  }
+}

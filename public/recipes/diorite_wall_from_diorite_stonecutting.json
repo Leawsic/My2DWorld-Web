@@ -1,0 +1,7 @@
+{
+  "type": "my2dworld:stonecutting",
+  "ingredient": "my2dworld:diorite",
+  "result": {
+    "id": "my2dworld:diorite_wall"
+  }
+}

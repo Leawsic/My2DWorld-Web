@@ -1,0 +1,7 @@
+{
+  "type": "my2dworld:crafting_special_bannerduplicate",
+  "banner": "my2dworld:black_banner",
+  "result": {
+    "id": "my2dworld:black_banner"
+  }
+}

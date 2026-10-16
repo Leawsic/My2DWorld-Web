@@ -1,0 +1,10 @@
+{
+  "type": "my2dworld:crafting_transmute",
+  "category": "equipment",
+  "group": "bundle_dye",
+  "input": "#minecraft:bundles",
+  "material": "my2dworld:gray_dye",
+  "result": {
+    "id": "my2dworld:gray_bundle"
+  }
+}

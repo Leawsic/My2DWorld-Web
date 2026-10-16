@@ -1,0 +1,16 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "key": {
+    "#": "my2dworld:obsidian",
+    "B": "my2dworld:book",
+    "D": "my2dworld:diamond"
+  },
+  "pattern": [
+    " B ",
+    "D#D",
+    "###"
+  ],
+  "result": {
+    "id": "my2dworld:enchanting_table"
+  }
+}

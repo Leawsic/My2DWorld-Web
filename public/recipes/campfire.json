@@ -1,0 +1,16 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "key": {
+    "C": "#minecraft:coals",
+    "L": "#minecraft:logs",
+    "S": "my2dworld:stick"
+  },
+  "pattern": [
+    " S ",
+    "SCS",
+    "LLL"
+  ],
+  "result": {
+    "id": "my2dworld:campfire"
+  }
+}

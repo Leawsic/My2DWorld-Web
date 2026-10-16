@@ -1,0 +1,9 @@
+{
+  "type": "my2dworld:smelting",
+  "category": "blocks",
+  "experience": 0.35,
+  "ingredient": "my2dworld:clay",
+  "result": {
+    "id": "my2dworld:terracotta"
+  }
+}

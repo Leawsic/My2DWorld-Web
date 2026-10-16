@@ -1,0 +1,27 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "group": "bed_dye",
+  "ingredients": [
+    "my2dworld:lime_dye",
+    [
+      "my2dworld:white_bed",
+      "my2dworld:orange_bed",
+      "my2dworld:magenta_bed",
+      "my2dworld:light_blue_bed",
+      "my2dworld:yellow_bed",
+      "my2dworld:pink_bed",
+      "my2dworld:gray_bed",
+      "my2dworld:light_gray_bed",
+      "my2dworld:cyan_bed",
+      "my2dworld:purple_bed",
+      "my2dworld:blue_bed",
+      "my2dworld:brown_bed",
+      "my2dworld:green_bed",
+      "my2dworld:red_bed",
+      "my2dworld:black_bed"
+    ]
+  ],
+  "result": {
+    "id": "my2dworld:lime_bed"
+  }
+}

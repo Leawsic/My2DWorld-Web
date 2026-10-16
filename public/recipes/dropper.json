@@ -1,0 +1,16 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "category": "redstone",
+  "key": {
+    "#": "my2dworld:cobblestone",
+    "R": "my2dworld:redstone"
+  },
+  "pattern": [
+    "###",
+    "# #",
+    "#R#"
+  ],
+  "result": {
+    "id": "my2dworld:dropper"
+  }
+}

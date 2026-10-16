@@ -1,0 +1,7 @@
+{
+  "type": "my2dworld:stonecutting",
+  "ingredient": "my2dworld:deepslate",
+  "result": {
+    "id": "my2dworld:deepslate_tile_wall"
+  }
+}

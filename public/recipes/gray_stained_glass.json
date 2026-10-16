@@ -1,0 +1,18 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "category": "building",
+  "group": "stained_glass",
+  "key": {
+    "#": "my2dworld:glass",
+    "X": "my2dworld:gray_dye"
+  },
+  "pattern": [
+    "###",
+    "#X#",
+    "###"
+  ],
+  "result": {
+    "count": 8,
+    "id": "my2dworld:gray_stained_glass"
+  }
+}

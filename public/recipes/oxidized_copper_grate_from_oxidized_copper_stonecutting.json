@@ -1,0 +1,8 @@
+{
+  "type": "my2dworld:stonecutting",
+  "ingredient": "my2dworld:oxidized_copper",
+  "result": {
+    "count": 4,
+    "id": "my2dworld:oxidized_copper_grate"
+  }
+}

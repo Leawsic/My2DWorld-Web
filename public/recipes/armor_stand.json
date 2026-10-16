@@ -1,0 +1,15 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "key": {
+    "/": "my2dworld:stick",
+    "_": "my2dworld:smooth_stone_slab"
+  },
+  "pattern": [
+    "///",
+    " / ",
+    "/_/"
+  ],
+  "result": {
+    "id": "my2dworld:armor_stand"
+  }
+}

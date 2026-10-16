@@ -1,0 +1,7 @@
+{
+  "type": "my2dworld:stonecutting",
+  "ingredient": "my2dworld:cinnabar",
+  "result": {
+    "id": "my2dworld:cinnabar_brick_wall"
+  }
+}

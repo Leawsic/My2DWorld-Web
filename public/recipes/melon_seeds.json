@@ -1,0 +1,9 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "ingredients": [
+    "my2dworld:melon_slice"
+  ],
+  "result": {
+    "id": "my2dworld:melon_seeds"
+  }
+}

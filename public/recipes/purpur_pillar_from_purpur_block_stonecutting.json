@@ -1,0 +1,7 @@
+{
+  "type": "my2dworld:stonecutting",
+  "ingredient": "my2dworld:purpur_block",
+  "result": {
+    "id": "my2dworld:purpur_pillar"
+  }
+}

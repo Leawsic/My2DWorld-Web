@@ -1,0 +1,17 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "key": {
+    "#": "my2dworld:stone_pressure_plate",
+    "R": "my2dworld:redstone",
+    "X": "my2dworld:iron_ingot"
+  },
+  "pattern": [
+    "X X",
+    "X#X",
+    "XRX"
+  ],
+  "result": {
+    "count": 6,
+    "id": "my2dworld:detector_rail"
+  }
+}

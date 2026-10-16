@@ -1,0 +1,15 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "ingredients": [
+    "my2dworld:bowl",
+    "my2dworld:beetroot",
+    "my2dworld:beetroot",
+    "my2dworld:beetroot",
+    "my2dworld:beetroot",
+    "my2dworld:beetroot",
+    "my2dworld:beetroot"
+  ],
+  "result": {
+    "id": "my2dworld:beetroot_soup"
+  }
+}

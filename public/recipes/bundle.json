@@ -1,0 +1,15 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "category": "equipment",
+  "key": {
+    "#": "my2dworld:leather",
+    "-": "my2dworld:string"
+  },
+  "pattern": [
+    "-",
+    "#"
+  ],
+  "result": {
+    "id": "my2dworld:bundle"
+  }
+}

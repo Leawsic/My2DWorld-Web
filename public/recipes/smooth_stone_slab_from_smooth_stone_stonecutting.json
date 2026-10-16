@@ -1,0 +1,8 @@
+{
+  "type": "my2dworld:stonecutting",
+  "ingredient": "my2dworld:smooth_stone",
+  "result": {
+    "count": 2,
+    "id": "my2dworld:smooth_stone_slab"
+  }
+}

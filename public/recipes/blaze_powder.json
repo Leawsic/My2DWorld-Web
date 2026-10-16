@@ -1,0 +1,10 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "ingredients": [
+    "my2dworld:blaze_rod"
+  ],
+  "result": {
+    "count": 2,
+    "id": "my2dworld:blaze_powder"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "ingredients": [
+    "my2dworld:brown_mushroom",
+    "my2dworld:red_mushroom",
+    "my2dworld:bowl"
+  ],
+  "result": {
+    "id": "my2dworld:mushroom_stew"
+  }
+}

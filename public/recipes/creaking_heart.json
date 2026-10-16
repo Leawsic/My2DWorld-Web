@@ -1,0 +1,15 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "key": {
+    "L": "my2dworld:pale_oak_log",
+    "R": "my2dworld:resin_block"
+  },
+  "pattern": [
+    " L ",
+    " R ",
+    " L "
+  ],
+  "result": {
+    "id": "my2dworld:creaking_heart"
+  }
+}

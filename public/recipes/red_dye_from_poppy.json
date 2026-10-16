@@ -1,0 +1,10 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "group": "red_dye",
+  "ingredients": [
+    "my2dworld:poppy"
+  ],
+  "result": {
+    "id": "my2dworld:red_dye"
+  }
+}

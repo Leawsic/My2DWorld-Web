@@ -1,0 +1,15 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "category": "equipment",
+  "key": {
+    "X": "my2dworld:armadillo_scute"
+  },
+  "pattern": [
+    "X  ",
+    "XXX",
+    "X X"
+  ],
+  "result": {
+    "id": "my2dworld:wolf_armor"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "key": {
+    "#": "my2dworld:stick",
+    "R": "my2dworld:redstone",
+    "X": "my2dworld:gold_ingot"
+  },
+  "pattern": [
+    "X X",
+    "X#X",
+    "XRX"
+  ],
+  "result": {
+    "count": 6,
+    "id": "my2dworld:powered_rail"
+  }
+}

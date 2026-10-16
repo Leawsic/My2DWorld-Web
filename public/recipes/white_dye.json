@@ -1,0 +1,10 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "group": "white_dye",
+  "ingredients": [
+    "my2dworld:bone_meal"
+  ],
+  "result": {
+    "id": "my2dworld:white_dye"
+  }
+}

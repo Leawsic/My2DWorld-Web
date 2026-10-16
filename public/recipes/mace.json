@@ -1,0 +1,15 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "category": "equipment",
+  "key": {
+    "#": "my2dworld:heavy_core",
+    "I": "my2dworld:breeze_rod"
+  },
+  "pattern": [
+    " # ",
+    " I "
+  ],
+  "result": {
+    "id": "my2dworld:mace"
+  }
+}

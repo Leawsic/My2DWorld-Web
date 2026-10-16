@@ -1,0 +1,25 @@
+{
+  "type": "my2dworld:blasting",
+  "experience": 0.1,
+  "ingredient": [
+    "my2dworld:iron_pickaxe",
+    "my2dworld:iron_shovel",
+    "my2dworld:iron_axe",
+    "my2dworld:iron_hoe",
+    "my2dworld:iron_sword",
+    "my2dworld:iron_spear",
+    "my2dworld:iron_helmet",
+    "my2dworld:iron_chestplate",
+    "my2dworld:iron_leggings",
+    "my2dworld:iron_boots",
+    "my2dworld:iron_horse_armor",
+    "my2dworld:iron_nautilus_armor",
+    "my2dworld:chainmail_helmet",
+    "my2dworld:chainmail_chestplate",
+    "my2dworld:chainmail_leggings",
+    "my2dworld:chainmail_boots"
+  ],
+  "result": {
+    "id": "my2dworld:iron_nugget"
+  }
+}

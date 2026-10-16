@@ -1,0 +1,18 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "category": "building",
+  "ingredients": [
+    "my2dworld:wheat",
+    "my2dworld:wheat",
+    "my2dworld:wheat",
+    "my2dworld:wheat",
+    "my2dworld:wheat",
+    "my2dworld:wheat",
+    "my2dworld:wheat",
+    "my2dworld:wheat",
+    "my2dworld:wheat"
+  ],
+  "result": {
+    "id": "my2dworld:hay_block"
+  }
+}

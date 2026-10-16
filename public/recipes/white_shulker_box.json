@@ -1,0 +1,9 @@
+{
+  "type": "my2dworld:crafting_transmute",
+  "group": "shulker_box_dye",
+  "input": "#minecraft:shulker_boxes",
+  "material": "my2dworld:white_dye",
+  "result": {
+    "id": "my2dworld:white_shulker_box"
+  }
+}

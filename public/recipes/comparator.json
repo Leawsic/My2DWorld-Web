@@ -1,0 +1,17 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "category": "redstone",
+  "key": {
+    "#": "my2dworld:redstone_torch",
+    "I": "my2dworld:stone",
+    "X": "my2dworld:quartz"
+  },
+  "pattern": [
+    " # ",
+    "#X#",
+    "III"
+  ],
+  "result": {
+    "id": "my2dworld:comparator"
+  }
+}

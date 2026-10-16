@@ -1,0 +1,10 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "group": "yellow_dye",
+  "ingredients": [
+    "my2dworld:dandelion"
+  ],
+  "result": {
+    "id": "my2dworld:yellow_dye"
+  }
+}

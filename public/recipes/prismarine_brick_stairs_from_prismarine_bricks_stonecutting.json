@@ -1,0 +1,7 @@
+{
+  "type": "my2dworld:stonecutting",
+  "ingredient": "my2dworld:prismarine_bricks",
+  "result": {
+    "id": "my2dworld:prismarine_brick_stairs"
+  }
+}

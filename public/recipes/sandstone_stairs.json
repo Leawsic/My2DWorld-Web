@@ -1,0 +1,20 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "category": "building",
+  "key": {
+    "#": [
+      "my2dworld:sandstone",
+      "my2dworld:chiseled_sandstone",
+      "my2dworld:cut_sandstone"
+    ]
+  },
+  "pattern": [
+    "#  ",
+    "## ",
+    "###"
+  ],
+  "result": {
+    "count": 4,
+    "id": "my2dworld:sandstone_stairs"
+  }
+}

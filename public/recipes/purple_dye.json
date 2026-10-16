@@ -1,0 +1,11 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "ingredients": [
+    "my2dworld:blue_dye",
+    "my2dworld:red_dye"
+  ],
+  "result": {
+    "count": 2,
+    "id": "my2dworld:purple_dye"
+  }
+}

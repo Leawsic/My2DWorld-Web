@@ -1,0 +1,10 @@
+{
+  "type": "my2dworld:campfire_cooking",
+  "category": "food",
+  "cookingtime": 600,
+  "experience": 0.1,
+  "ingredient": "my2dworld:kelp",
+  "result": {
+    "id": "my2dworld:dried_kelp"
+  }
+}

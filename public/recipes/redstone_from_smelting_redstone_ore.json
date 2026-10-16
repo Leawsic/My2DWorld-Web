@@ -1,0 +1,10 @@
+{
+  "type": "my2dworld:smelting",
+  "category": "blocks",
+  "experience": 0.7,
+  "group": "redstone",
+  "ingredient": "my2dworld:redstone_ore",
+  "result": {
+    "id": "my2dworld:redstone"
+  }
+}

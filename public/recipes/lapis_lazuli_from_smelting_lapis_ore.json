@@ -1,0 +1,9 @@
+{
+  "type": "my2dworld:smelting",
+  "experience": 0.2,
+  "group": "lapis_lazuli",
+  "ingredient": "my2dworld:lapis_ore",
+  "result": {
+    "id": "my2dworld:lapis_lazuli"
+  }
+}

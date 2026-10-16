@@ -1,0 +1,9 @@
+{
+  "type": "my2dworld:smelting",
+  "category": "blocks",
+  "experience": 0.1,
+  "ingredient": "#minecraft:leaves",
+  "result": {
+    "id": "my2dworld:leaf_litter"
+  }
+}

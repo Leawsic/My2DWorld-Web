@@ -1,0 +1,9 @@
+{
+  "type": "my2dworld:smithing_transform",
+  "addition": "#minecraft:netherite_tool_materials",
+  "base": "my2dworld:diamond_boots",
+  "result": {
+    "id": "my2dworld:netherite_boots"
+  },
+  "template": "my2dworld:netherite_upgrade_smithing_template"
+}

@@ -1,0 +1,10 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "group": "light_blue_dye",
+  "ingredients": [
+    "my2dworld:blue_orchid"
+  ],
+  "result": {
+    "id": "my2dworld:light_blue_dye"
+  }
+}

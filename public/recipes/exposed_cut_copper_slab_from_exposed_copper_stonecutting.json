@@ -1,0 +1,8 @@
+{
+  "type": "my2dworld:stonecutting",
+  "ingredient": "my2dworld:exposed_copper",
+  "result": {
+    "count": 8,
+    "id": "my2dworld:exposed_cut_copper_slab"
+  }
+}

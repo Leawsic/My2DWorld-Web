@@ -1,0 +1,16 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "category": "redstone",
+  "key": {
+    "H": "my2dworld:hay_block",
+    "R": "my2dworld:redstone"
+  },
+  "pattern": [
+    " R ",
+    "RHR",
+    " R "
+  ],
+  "result": {
+    "id": "my2dworld:target"
+  }
+}

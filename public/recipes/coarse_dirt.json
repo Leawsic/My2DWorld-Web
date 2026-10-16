@@ -1,0 +1,16 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "category": "building",
+  "key": {
+    "D": "my2dworld:dirt",
+    "G": "my2dworld:gravel"
+  },
+  "pattern": [
+    "DG",
+    "GD"
+  ],
+  "result": {
+    "count": 4,
+    "id": "my2dworld:coarse_dirt"
+  }
+}

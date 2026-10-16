@@ -1,0 +1,14 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "key": {
+    "H": "my2dworld:honeycomb",
+    "S": "my2dworld:string"
+  },
+  "pattern": [
+    "S",
+    "H"
+  ],
+  "result": {
+    "id": "my2dworld:candle"
+  }
+}

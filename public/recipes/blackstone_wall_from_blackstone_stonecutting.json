@@ -1,0 +1,7 @@
+{
+  "type": "my2dworld:stonecutting",
+  "ingredient": "my2dworld:blackstone",
+  "result": {
+    "id": "my2dworld:blackstone_wall"
+  }
+}

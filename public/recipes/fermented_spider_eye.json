@@ -1,0 +1,11 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "ingredients": [
+    "my2dworld:spider_eye",
+    "my2dworld:brown_mushroom",
+    "my2dworld:sugar"
+  ],
+  "result": {
+    "id": "my2dworld:fermented_spider_eye"
+  }
+}

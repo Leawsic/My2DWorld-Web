@@ -1,0 +1,16 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "group": "banner",
+  "key": {
+    "#": "my2dworld:green_wool",
+    "|": "my2dworld:stick"
+  },
+  "pattern": [
+    "###",
+    "###",
+    " | "
+  ],
+  "result": {
+    "id": "my2dworld:green_banner"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "group": "dyed_candle",
+  "ingredients": [
+    "my2dworld:candle",
+    "my2dworld:light_gray_dye"
+  ],
+  "result": {
+    "id": "my2dworld:light_gray_candle"
+  }
+}

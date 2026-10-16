@@ -1,0 +1,10 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "group": "brown_dye",
+  "ingredients": [
+    "my2dworld:cocoa_beans"
+  ],
+  "result": {
+    "id": "my2dworld:brown_dye"
+  }
+}

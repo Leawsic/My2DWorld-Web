@@ -1,0 +1,28 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "category": "building",
+  "group": "wool",
+  "ingredients": [
+    "my2dworld:light_gray_dye",
+    [
+      "my2dworld:white_wool",
+      "my2dworld:orange_wool",
+      "my2dworld:magenta_wool",
+      "my2dworld:light_blue_wool",
+      "my2dworld:yellow_wool",
+      "my2dworld:lime_wool",
+      "my2dworld:pink_wool",
+      "my2dworld:gray_wool",
+      "my2dworld:cyan_wool",
+      "my2dworld:purple_wool",
+      "my2dworld:blue_wool",
+      "my2dworld:brown_wool",
+      "my2dworld:green_wool",
+      "my2dworld:red_wool",
+      "my2dworld:black_wool"
+    ]
+  ],
+  "result": {
+    "id": "my2dworld:light_gray_wool"
+  }
+}

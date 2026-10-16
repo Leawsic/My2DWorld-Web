@@ -1,0 +1,17 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "category": "building",
+  "group": "copper_grate",
+  "key": {
+    "M": "my2dworld:copper_block"
+  },
+  "pattern": [
+    " M ",
+    "M M",
+    " M "
+  ],
+  "result": {
+    "count": 4,
+    "id": "my2dworld:copper_grate"
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "type": "my2dworld:stonecutting",
+  "ingredient": "my2dworld:weathered_cut_copper",
+  "result": {
+    "id": "my2dworld:weathered_cut_copper_stairs"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "key": {
+    "#": "my2dworld:redstone_torch",
+    "S": "my2dworld:stick",
+    "X": "my2dworld:iron_ingot"
+  },
+  "pattern": [
+    "XSX",
+    "X#X",
+    "XSX"
+  ],
+  "result": {
+    "count": 6,
+    "id": "my2dworld:activator_rail"
+  }
+}

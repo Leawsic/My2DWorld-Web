@@ -1,0 +1,21 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "group": "suspicious_stew",
+  "ingredients": [
+    "my2dworld:bowl",
+    "my2dworld:brown_mushroom",
+    "my2dworld:red_mushroom",
+    "my2dworld:allium"
+  ],
+  "result": {
+    "components": {
+      "my2dworld:suspicious_stew_effects": [
+        {
+          "duration": 60,
+          "id": "my2dworld:fire_resistance"
+        }
+      ]
+    },
+    "id": "my2dworld:suspicious_stew"
+  }
+}

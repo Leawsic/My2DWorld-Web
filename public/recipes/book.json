@@ -1,0 +1,12 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "ingredients": [
+    "my2dworld:paper",
+    "my2dworld:paper",
+    "my2dworld:paper",
+    "my2dworld:leather"
+  ],
+  "result": {
+    "id": "my2dworld:book"
+  }
+}

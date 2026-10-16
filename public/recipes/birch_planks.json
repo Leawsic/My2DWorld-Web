@@ -1,0 +1,12 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "category": "building",
+  "group": "planks",
+  "ingredients": [
+    "#minecraft:birch_logs"
+  ],
+  "result": {
+    "count": 4,
+    "id": "my2dworld:birch_planks"
+  }
+}

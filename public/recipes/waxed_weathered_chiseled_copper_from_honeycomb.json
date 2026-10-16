@@ -1,0 +1,12 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "category": "building",
+  "group": "waxed_weathered_chiseled_copper",
+  "ingredients": [
+    "my2dworld:weathered_chiseled_copper",
+    "my2dworld:honeycomb"
+  ],
+  "result": {
+    "id": "my2dworld:waxed_weathered_chiseled_copper"
+  }
+}

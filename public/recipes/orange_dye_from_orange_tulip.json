@@ -1,0 +1,10 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "group": "orange_dye",
+  "ingredients": [
+    "my2dworld:orange_tulip"
+  ],
+  "result": {
+    "id": "my2dworld:orange_dye"
+  }
+}

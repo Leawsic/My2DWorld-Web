@@ -1,0 +1,17 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "key": {
+    "#": "my2dworld:diamond",
+    "C": "my2dworld:cobbled_deepslate",
+    "S": "my2dworld:ward_armor_trim_smithing_template"
+  },
+  "pattern": [
+    "#S#",
+    "#C#",
+    "###"
+  ],
+  "result": {
+    "count": 2,
+    "id": "my2dworld:ward_armor_trim_smithing_template"
+  }
+}

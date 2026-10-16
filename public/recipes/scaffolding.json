@@ -1,0 +1,16 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "key": {
+    "I": "my2dworld:bamboo",
+    "~": "my2dworld:string"
+  },
+  "pattern": [
+    "I~I",
+    "I I",
+    "I I"
+  ],
+  "result": {
+    "count": 6,
+    "id": "my2dworld:scaffolding"
+  }
+}

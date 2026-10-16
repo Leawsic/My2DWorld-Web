@@ -1,0 +1,16 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "key": {
+    "G": "my2dworld:glass",
+    "O": "my2dworld:obsidian",
+    "S": "my2dworld:nether_star"
+  },
+  "pattern": [
+    "GGG",
+    "GSG",
+    "OOO"
+  ],
+  "result": {
+    "id": "my2dworld:beacon"
+  }
+}

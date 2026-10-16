@@ -1,0 +1,10 @@
+{
+  "type": "my2dworld:crafting_special_firework_rocket",
+  "fuel": "my2dworld:gunpowder",
+  "result": {
+    "count": 3,
+    "id": "my2dworld:firework_rocket"
+  },
+  "shell": "my2dworld:paper",
+  "star": "my2dworld:firework_star"
+}

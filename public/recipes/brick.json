@@ -1,0 +1,8 @@
+{
+  "type": "my2dworld:smelting",
+  "experience": 0.3,
+  "ingredient": "my2dworld:clay_ball",
+  "result": {
+    "id": "my2dworld:brick"
+  }
+}

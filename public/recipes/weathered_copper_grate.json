@@ -1,0 +1,17 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "category": "building",
+  "group": "weathered_copper_grate",
+  "key": {
+    "M": "my2dworld:weathered_copper"
+  },
+  "pattern": [
+    " M ",
+    "M M",
+    " M "
+  ],
+  "result": {
+    "count": 4,
+    "id": "my2dworld:weathered_copper_grate"
+  }
+}

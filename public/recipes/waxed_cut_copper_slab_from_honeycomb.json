@@ -1,0 +1,12 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "category": "building",
+  "group": "waxed_cut_copper_slab",
+  "ingredients": [
+    "my2dworld:cut_copper_slab",
+    "my2dworld:honeycomb"
+  ],
+  "result": {
+    "id": "my2dworld:waxed_cut_copper_slab"
+  }
+}

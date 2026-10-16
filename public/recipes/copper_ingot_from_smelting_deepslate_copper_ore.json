@@ -1,0 +1,9 @@
+{
+  "type": "my2dworld:smelting",
+  "experience": 0.7,
+  "group": "copper_ingot",
+  "ingredient": "my2dworld:deepslate_copper_ore",
+  "result": {
+    "id": "my2dworld:copper_ingot"
+  }
+}

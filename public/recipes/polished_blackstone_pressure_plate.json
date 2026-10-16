@@ -1,0 +1,13 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "category": "redstone",
+  "key": {
+    "#": "my2dworld:polished_blackstone"
+  },
+  "pattern": [
+    "##"
+  ],
+  "result": {
+    "id": "my2dworld:polished_blackstone_pressure_plate"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "group": "boat",
+  "key": {
+    "#": "my2dworld:spruce_planks"
+  },
+  "pattern": [
+    "# #",
+    "###"
+  ],
+  "result": {
+    "id": "my2dworld:spruce_boat"
+  }
+}

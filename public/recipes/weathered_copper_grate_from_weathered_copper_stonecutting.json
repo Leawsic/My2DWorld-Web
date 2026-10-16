@@ -1,0 +1,8 @@
+{
+  "type": "my2dworld:stonecutting",
+  "ingredient": "my2dworld:weathered_copper",
+  "result": {
+    "count": 4,
+    "id": "my2dworld:weathered_copper_grate"
+  }
+}

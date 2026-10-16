@@ -1,0 +1,17 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "group": "stained_glass_pane",
+  "key": {
+    "#": "my2dworld:glass_pane",
+    "$": "my2dworld:cyan_dye"
+  },
+  "pattern": [
+    "###",
+    "#$#",
+    "###"
+  ],
+  "result": {
+    "count": 8,
+    "id": "my2dworld:cyan_stained_glass_pane"
+  }
+}

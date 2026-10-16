@@ -1,0 +1,10 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "ingredients": [
+    "my2dworld:iron_ingot"
+  ],
+  "result": {
+    "count": 9,
+    "id": "my2dworld:iron_nugget"
+  }
+}

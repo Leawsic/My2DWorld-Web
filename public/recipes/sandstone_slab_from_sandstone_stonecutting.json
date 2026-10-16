@@ -1,0 +1,8 @@
+{
+  "type": "my2dworld:stonecutting",
+  "ingredient": "my2dworld:sandstone",
+  "result": {
+    "count": 2,
+    "id": "my2dworld:sandstone_slab"
+  }
+}

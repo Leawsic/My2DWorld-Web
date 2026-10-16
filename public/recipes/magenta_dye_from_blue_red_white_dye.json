@@ -1,0 +1,14 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "group": "magenta_dye",
+  "ingredients": [
+    "my2dworld:blue_dye",
+    "my2dworld:red_dye",
+    "my2dworld:red_dye",
+    "my2dworld:white_dye"
+  ],
+  "result": {
+    "count": 4,
+    "id": "my2dworld:magenta_dye"
+  }
+}

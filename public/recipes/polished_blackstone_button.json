@@ -1,0 +1,10 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "category": "redstone",
+  "ingredients": [
+    "my2dworld:polished_blackstone"
+  ],
+  "result": {
+    "id": "my2dworld:polished_blackstone_button"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "category": "building",
+  "group": "planks",
+  "ingredients": [
+    "#minecraft:crimson_stems"
+  ],
+  "result": {
+    "count": 4,
+    "id": "my2dworld:crimson_planks"
+  }
+}

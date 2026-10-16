@@ -1,0 +1,19 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "category": "redstone",
+  "group": "weathered_copper_bulb",
+  "key": {
+    "B": "my2dworld:blaze_rod",
+    "C": "my2dworld:weathered_copper",
+    "R": "my2dworld:redstone"
+  },
+  "pattern": [
+    " C ",
+    "CBC",
+    " R "
+  ],
+  "result": {
+    "count": 4,
+    "id": "my2dworld:weathered_copper_bulb"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "group": "carpet",
+  "key": {
+    "#": "my2dworld:blue_wool"
+  },
+  "pattern": [
+    "##"
+  ],
+  "result": {
+    "count": 3,
+    "id": "my2dworld:blue_carpet"
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "type": "my2dworld:stonecutting",
+  "ingredient": "my2dworld:deepslate",
+  "result": {
+    "count": 2,
+    "id": "my2dworld:cobbled_deepslate_slab"
+  }
+}

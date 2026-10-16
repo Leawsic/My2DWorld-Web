@@ -1,0 +1,12 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "category": "building",
+  "group": "mossy_stone_bricks",
+  "ingredients": [
+    "my2dworld:stone_bricks",
+    "my2dworld:moss_block"
+  ],
+  "result": {
+    "id": "my2dworld:mossy_stone_bricks"
+  }
+}

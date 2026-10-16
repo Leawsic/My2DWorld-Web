@@ -1,0 +1,21 @@
+{
+  "type": "my2dworld:blasting",
+  "experience": 0.1,
+  "ingredient": [
+    "my2dworld:golden_pickaxe",
+    "my2dworld:golden_shovel",
+    "my2dworld:golden_axe",
+    "my2dworld:golden_hoe",
+    "my2dworld:golden_sword",
+    "my2dworld:golden_spear",
+    "my2dworld:golden_helmet",
+    "my2dworld:golden_chestplate",
+    "my2dworld:golden_leggings",
+    "my2dworld:golden_boots",
+    "my2dworld:golden_horse_armor",
+    "my2dworld:golden_nautilus_armor"
+  ],
+  "result": {
+    "id": "my2dworld:gold_nugget"
+  }
+}

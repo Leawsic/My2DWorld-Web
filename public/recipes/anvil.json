@@ -1,0 +1,15 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "key": {
+    "I": "my2dworld:iron_block",
+    "i": "my2dworld:iron_ingot"
+  },
+  "pattern": [
+    "III",
+    " i ",
+    "iii"
+  ],
+  "result": {
+    "id": "my2dworld:anvil"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "category": "building",
+  "group": "dry_ghast",
+  "key": {
+    "#": "my2dworld:ghast_tear",
+    "X": "my2dworld:soul_sand"
+  },
+  "pattern": [
+    "###",
+    "#X#",
+    "###"
+  ],
+  "result": {
+    "id": "my2dworld:dried_ghast"
+  }
+}

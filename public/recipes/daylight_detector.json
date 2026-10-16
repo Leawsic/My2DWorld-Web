@@ -1,0 +1,17 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "category": "redstone",
+  "key": {
+    "G": "my2dworld:glass",
+    "Q": "my2dworld:quartz",
+    "W": "#minecraft:wooden_slabs"
+  },
+  "pattern": [
+    "GGG",
+    "QQQ",
+    "WWW"
+  ],
+  "result": {
+    "id": "my2dworld:daylight_detector"
+  }
+}

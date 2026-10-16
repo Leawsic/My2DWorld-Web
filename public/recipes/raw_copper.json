@@ -1,0 +1,10 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "ingredients": [
+    "my2dworld:raw_copper_block"
+  ],
+  "result": {
+    "count": 9,
+    "id": "my2dworld:raw_copper"
+  }
+}

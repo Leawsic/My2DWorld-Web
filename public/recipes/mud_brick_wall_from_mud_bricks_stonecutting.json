@@ -1,0 +1,7 @@
+{
+  "type": "my2dworld:stonecutting",
+  "ingredient": "my2dworld:mud_bricks",
+  "result": {
+    "id": "my2dworld:mud_brick_wall"
+  }
+}

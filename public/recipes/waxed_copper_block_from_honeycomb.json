@@ -1,0 +1,12 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "category": "building",
+  "group": "waxed_copper_block",
+  "ingredients": [
+    "my2dworld:copper_block",
+    "my2dworld:honeycomb"
+  ],
+  "result": {
+    "id": "my2dworld:waxed_copper_block"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "key": {
+    "G": "my2dworld:glowstone",
+    "O": "my2dworld:crying_obsidian"
+  },
+  "pattern": [
+    "OOO",
+    "GGG",
+    "OOO"
+  ],
+  "result": {
+    "id": "my2dworld:respawn_anchor"
+  }
+}

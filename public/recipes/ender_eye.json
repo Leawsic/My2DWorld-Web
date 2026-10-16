@@ -1,0 +1,10 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "ingredients": [
+    "my2dworld:ender_pearl",
+    "my2dworld:blaze_powder"
+  ],
+  "result": {
+    "id": "my2dworld:ender_eye"
+  }
+}

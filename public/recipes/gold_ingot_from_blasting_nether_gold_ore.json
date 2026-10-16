@@ -1,0 +1,9 @@
+{
+  "type": "my2dworld:blasting",
+  "experience": 1.0,
+  "group": "gold_ingot",
+  "ingredient": "my2dworld:nether_gold_ore",
+  "result": {
+    "id": "my2dworld:gold_ingot"
+  }
+}

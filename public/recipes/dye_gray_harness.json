@@ -1,0 +1,28 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "category": "equipment",
+  "group": "harness_dye",
+  "ingredients": [
+    "my2dworld:gray_dye",
+    [
+      "my2dworld:white_harness",
+      "my2dworld:orange_harness",
+      "my2dworld:magenta_harness",
+      "my2dworld:light_blue_harness",
+      "my2dworld:yellow_harness",
+      "my2dworld:lime_harness",
+      "my2dworld:pink_harness",
+      "my2dworld:light_gray_harness",
+      "my2dworld:cyan_harness",
+      "my2dworld:purple_harness",
+      "my2dworld:blue_harness",
+      "my2dworld:brown_harness",
+      "my2dworld:green_harness",
+      "my2dworld:red_harness",
+      "my2dworld:black_harness"
+    ]
+  ],
+  "result": {
+    "id": "my2dworld:gray_harness"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "ingredients": [
+    "my2dworld:pumpkin"
+  ],
+  "result": {
+    "count": 4,
+    "id": "my2dworld:pumpkin_seeds"
+  }
+}

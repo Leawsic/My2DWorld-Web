@@ -1,0 +1,9 @@
+{
+  "type": "my2dworld:smelting",
+  "category": "blocks",
+  "experience": 0.15,
+  "ingredient": "my2dworld:wet_sponge",
+  "result": {
+    "id": "my2dworld:sponge"
+  }
+}

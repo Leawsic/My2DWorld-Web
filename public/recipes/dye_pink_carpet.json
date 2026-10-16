@@ -1,0 +1,27 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "group": "carpet_dye",
+  "ingredients": [
+    "my2dworld:pink_dye",
+    [
+      "my2dworld:white_carpet",
+      "my2dworld:orange_carpet",
+      "my2dworld:magenta_carpet",
+      "my2dworld:light_blue_carpet",
+      "my2dworld:yellow_carpet",
+      "my2dworld:lime_carpet",
+      "my2dworld:gray_carpet",
+      "my2dworld:light_gray_carpet",
+      "my2dworld:cyan_carpet",
+      "my2dworld:purple_carpet",
+      "my2dworld:blue_carpet",
+      "my2dworld:brown_carpet",
+      "my2dworld:green_carpet",
+      "my2dworld:red_carpet",
+      "my2dworld:black_carpet"
+    ]
+  ],
+  "result": {
+    "id": "my2dworld:pink_carpet"
+  }
+}

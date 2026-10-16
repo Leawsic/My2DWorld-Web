@@ -1,0 +1,10 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "group": "light_gray_dye",
+  "ingredients": [
+    "my2dworld:oxeye_daisy"
+  ],
+  "result": {
+    "id": "my2dworld:light_gray_dye"
+  }
+}

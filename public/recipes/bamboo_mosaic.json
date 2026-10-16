@@ -1,0 +1,13 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "key": {
+    "#": "my2dworld:bamboo_slab"
+  },
+  "pattern": [
+    "#",
+    "#"
+  ],
+  "result": {
+    "id": "my2dworld:bamboo_mosaic"
+  }
+}

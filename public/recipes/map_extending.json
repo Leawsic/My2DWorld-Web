@@ -1,0 +1,8 @@
+{
+  "type": "my2dworld:crafting_special_mapextending",
+  "map": "my2dworld:filled_map",
+  "material": "my2dworld:paper",
+  "result": {
+    "id": "my2dworld:filled_map"
+  }
+}

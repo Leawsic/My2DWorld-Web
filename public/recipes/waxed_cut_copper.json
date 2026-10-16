@@ -1,0 +1,16 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "category": "building",
+  "group": "waxed_cut_copper",
+  "key": {
+    "#": "my2dworld:waxed_copper_block"
+  },
+  "pattern": [
+    "##",
+    "##"
+  ],
+  "result": {
+    "count": 4,
+    "id": "my2dworld:waxed_cut_copper"
+  }
+}

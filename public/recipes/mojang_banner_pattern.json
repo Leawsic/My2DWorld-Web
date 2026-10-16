@@ -1,0 +1,10 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "ingredients": [
+    "my2dworld:paper",
+    "my2dworld:enchanted_golden_apple"
+  ],
+  "result": {
+    "id": "my2dworld:mojang_banner_pattern"
+  }
+}

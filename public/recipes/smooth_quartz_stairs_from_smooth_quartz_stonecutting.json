@@ -1,0 +1,7 @@
+{
+  "type": "my2dworld:stonecutting",
+  "ingredient": "my2dworld:smooth_quartz",
+  "result": {
+    "id": "my2dworld:smooth_quartz_stairs"
+  }
+}

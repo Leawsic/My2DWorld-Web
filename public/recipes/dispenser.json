@@ -1,0 +1,17 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "category": "redstone",
+  "key": {
+    "#": "my2dworld:cobblestone",
+    "R": "my2dworld:redstone",
+    "X": "my2dworld:bow"
+  },
+  "pattern": [
+    "###",
+    "#X#",
+    "#R#"
+  ],
+  "result": {
+    "id": "my2dworld:dispenser"
+  }
+}

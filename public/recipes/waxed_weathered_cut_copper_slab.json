@@ -1,0 +1,15 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "category": "building",
+  "group": "waxed_weathered_cut_copper_slab",
+  "key": {
+    "#": "my2dworld:waxed_weathered_cut_copper"
+  },
+  "pattern": [
+    "###"
+  ],
+  "result": {
+    "count": 6,
+    "id": "my2dworld:waxed_weathered_cut_copper_slab"
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "group": "suspicious_stew",
+  "ingredients": [
+    "my2dworld:bowl",
+    "my2dworld:brown_mushroom",
+    "my2dworld:red_mushroom",
+    "my2dworld:cornflower"
+  ],
+  "result": {
+    "components": {
+      "my2dworld:suspicious_stew_effects": [
+        {
+          "duration": 100,
+          "id": "my2dworld:jump_boost"
+        }
+      ]
+    },
+    "id": "my2dworld:suspicious_stew"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "type": "my2dworld:crafting_shapeless",
+  "category": "building",
+  "ingredients": [
+    "my2dworld:diorite",
+    "my2dworld:cobblestone"
+  ],
+  "result": {
+    "count": 2,
+    "id": "my2dworld:andesite"
+  }
+}

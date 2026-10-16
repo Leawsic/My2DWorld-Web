@@ -1,0 +1,21 @@
+{
+  "type": "my2dworld:blasting",
+  "experience": 0.1,
+  "ingredient": [
+    "my2dworld:copper_pickaxe",
+    "my2dworld:copper_shovel",
+    "my2dworld:copper_axe",
+    "my2dworld:copper_hoe",
+    "my2dworld:copper_sword",
+    "my2dworld:copper_spear",
+    "my2dworld:copper_helmet",
+    "my2dworld:copper_chestplate",
+    "my2dworld:copper_leggings",
+    "my2dworld:copper_boots",
+    "my2dworld:copper_horse_armor",
+    "my2dworld:copper_nautilus_armor"
+  ],
+  "result": {
+    "id": "my2dworld:copper_nugget"
+  }
+}

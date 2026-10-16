@@ -1,0 +1,19 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "category": "redstone",
+  "key": {
+    "#": [
+      "my2dworld:sand",
+      "my2dworld:red_sand"
+    ],
+    "X": "my2dworld:gunpowder"
+  },
+  "pattern": [
+    "X#X",
+    "#X#",
+    "X#X"
+  ],
+  "result": {
+    "id": "my2dworld:tnt"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "key": {
+    "#": "my2dworld:stick",
+    "S": "#minecraft:soul_fire_base_blocks",
+    "X": [
+      "my2dworld:coal",
+      "my2dworld:charcoal"
+    ]
+  },
+  "pattern": [
+    "X",
+    "#",
+    "S"
+  ],
+  "result": {
+    "count": 4,
+    "id": "my2dworld:soul_torch"
+  }
+}

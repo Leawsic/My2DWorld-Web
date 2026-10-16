@@ -1,0 +1,8 @@
+{
+  "type": "my2dworld:smelting",
+  "experience": 0.2,
+  "ingredient": "my2dworld:nether_quartz_ore",
+  "result": {
+    "id": "my2dworld:quartz"
+  }
+}

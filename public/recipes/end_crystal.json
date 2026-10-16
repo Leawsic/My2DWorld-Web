@@ -1,0 +1,16 @@
+{
+  "type": "my2dworld:crafting_shaped",
+  "key": {
+    "E": "my2dworld:ender_eye",
+    "G": "my2dworld:glass",
+    "T": "my2dworld:ghast_tear"
+  },
+  "pattern": [
+    "GGG",
+    "GEG",
+    "GTG"
+  ],
+  "result": {
+    "id": "my2dworld:end_crystal"
+  }
+}

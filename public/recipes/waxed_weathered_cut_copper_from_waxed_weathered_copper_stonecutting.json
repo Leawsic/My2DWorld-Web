@@ -1,0 +1,8 @@
+{
+  "type": "my2dworld:stonecutting",
+  "ingredient": "my2dworld:waxed_weathered_copper",
+  "result": {
+    "count": 4,
+    "id": "my2dworld:waxed_weathered_cut_copper"
+  }
+}

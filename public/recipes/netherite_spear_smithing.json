@@ -1,0 +1,9 @@
+{
+  "type": "my2dworld:smithing_transform",
+  "addition": "#minecraft:netherite_tool_materials",
+  "base": "my2dworld:diamond_spear",
+  "result": {
+    "id": "my2dworld:netherite_spear"
+  },
+  "template": "my2dworld:netherite_upgrade_smithing_template"
+}
