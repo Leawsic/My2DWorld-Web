@@ -65,6 +65,12 @@ export function itemDefinition(id: string | null | undefined): ItemObject | unde
     return safeItem(id);
 }
 
+/** 手持的这个 id 是否是「工具」（物品定义里带 `tool` 字段：镐/斧/剑/锹/锄）。
+ *  渲染层据此决定 itemL/idemR 节点用 `public/items/hold.json` 的工具几何（见 core/holdstyle.ts）。 */
+export function isToolItem(id: string | null | undefined): boolean {
+    return !!itemDefinition(id)?.tool;
+}
+
 /** 单格堆叠上限：物品配置优先（夹紧到 1..MAX_STACK_SIZE），否则 MAX_STACK_SIZE。 */
 export function stackLimit(id: string | null | undefined): number {
     const size = itemDefinition(id)?.stackSize;

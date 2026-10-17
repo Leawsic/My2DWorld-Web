@@ -401,14 +401,14 @@
 | 目标 | 刷新内容 |
 | --- | --- |
 | `images` | 方块/物品/生物群系/GUI/角色贴图缓存 |
-| `items` | 重新读取 `public/items/items.json`（工具的挖掘速度/伤害/耐久/堆叠上限），并刷新物品贴图 |
+| `items` | 重新读取 `public/items/items.json`（工具的挖掘速度/伤害/耐久/堆叠上限）与 `public/items/hold.json`（手持工具的 itemL/itemR 显示几何），并刷新物品贴图 |
 | `animations` | 角色动画（`.myanim`）清单与变体缓存 |
 | `hitboxes` | 生物碰撞箱配置（`public/hitboxes/*.json`），并应用到已存在的生物 |
 | `squeeze` | 挤压箱几何（`public/squeeze/*.json`）与挤压参数（`run/config/squeeze.json`），并应用到已存在的生物 |
 | `plugins` | 卸载并重装全部插件，同时刷新插件注册的碰撞箱到现有生物 |
 | `all` | 以上全部（缺省值） |
 
-示例：`/reload hitboxes`、`/reload items`（改完物品配置不用重开页面）
+示例：`/reload hitboxes`、`/reload items`（改完物品配置 / 手持工具的显示几何不用重开页面）
 
 ---
 

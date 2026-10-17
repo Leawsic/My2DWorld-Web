@@ -2,7 +2,24 @@ import type {KeyState, Player} from "../core/player";
 import type {World} from "../core/world";
 import type {BlockType, GameModeName, ItemStack} from "../core/types";
 import type {MobManager} from "../core/entity";
-import type {HeldItemImages} from "../core/skeleton";
+import type {CharacterPose, HeldItemImages} from "../core/skeleton";
+
+/**
+ * 攻击姿态（`public/animations/player/attack.myanim`）的播放时长（秒）：
+ * 点中生物后播放这么久再回到 walk/idle。挖方块用的是另一条姿态 `dig`（dig.myanim）。
+ */
+export const ATTACK_POSE_SECONDS = 0.3;
+
+/**
+ * 玩家姿态优先级（纯函数，生存/冒险/创造共用，便于单独验证）：
+ * 攻击（点中生物 → attack.myanim）> 挖掘（挖方块 → dig.myanim）> 走 > 站。
+ * **攻击必须优先于挖掘**：否则手持工具打生物时会错误地播成挖方块的 dig 动画。
+ */
+export function playerPose(attacking: boolean, mining: boolean, moving: boolean): CharacterPose {
+    if (attacking) return "attack";
+    if (mining) return "dig";
+    return moving ? "walk" : "idle";
+}
 
 export interface ModeContext {
     player: Player;

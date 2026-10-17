@@ -40,8 +40,18 @@ export interface MobKindConfig {
     readonly damage: number;
     readonly attackCooldown: number;
     readonly hitRange: number;
+    /** 攻击前摇（僵直）时长（秒）；缺省用 `MOB_ATTACK_WINDUP`（敌对生物 0.1s）。 */
+    readonly attackWindup?: number;
     /** Rendered sprite size in blocks (art is wider than the 0.5-block hitbox). */
     readonly visual: {width: number; height: number};
+}
+
+/** 该 kind 的攻击前摇时长（秒）：配置优先，缺省 0.1s；温顺生物恒为 0（它们不攻击）。 */
+export function attackWindupSeconds(config: MobKindConfig): number {
+    if (!config.hostile) return 0;
+    const value = config.attackWindup;
+    if (typeof value === "number" && Number.isFinite(value) && value >= 0) return value;
+    return MOB_ATTACK_WINDUP;
 }
 
 export const MOB_KINDS: Record<MobKind, MobKindConfig> = {
@@ -88,6 +98,12 @@ const DEFAULT_AGGRO_RANGE = 24;
 const SAME_LEVEL_TOLERANCE = 3;
 const MOB_GRAVITY = 28;
 const MOB_KNOCKBACK = 5;
+/**
+ * 攻击前摇（僵直）时长（秒）：敌对生物（僵尸/尸壳/溺尸及其幼体）进入攻击距离后先僵直这么久，
+ * 期间停在原地不动、攻击姿势已举起，倒计时结束才真正对玩家结算伤害——给玩家后撤/反击的窗口。
+ * 单个 kind 可用 `MobKindConfig.attackWindup` 覆盖；温顺生物不攻击，恒为 0。
+ */
+export const MOB_ATTACK_WINDUP = 0.1;
 /** 实体间碰撞的恢复系数（弹性）：碰撞后沿法线反弹的比例。 */
 const ENTITY_RESTITUTION = 0.3;
 /** 玩家主动推怪时的质量因子（略大于生物，可轻微顶回玩家）。 */
@@ -140,6 +156,11 @@ export class Mob implements PhysicsBody {
     hp: number;
     hurtTimer = 0;
     attackCooldown = 0;
+    /**
+     * 攻击前摇（僵直）剩余时间（秒）：>0 时生物停在原地蓄力，倒计时结束才结算伤害。
+     * 玩家在僵直期间跑出攻击距离 → 状态离开 `attack`，前摇被打断（这一下打空）。
+     */
+    windupTimer = 0;
     alive = true;
     /** 最近一次致死原因（alive 变为 false 时写入，供聊天播报）。 */
     deathCause: MobDeathCause = "unknown";
@@ -330,19 +351,33 @@ export class Mob implements PhysicsBody {
                 ? distX <= config.hitRange && sameLevel ? "attack" : distX <= aggroRange && sameLevel ? "walk" : "idle"
                 : Math.sin((this.animationTime + this.x * 0.13) * 0.8) > 0.45 ? "walk" : "idle";
         if (targetState !== this.state) {
+            // 离开攻击状态（玩家跑出攻击距离/高度差）就取消前摇：僵直期间生物不动，所以能后撤躲开。
+            if (this.state === "attack") this.windupTimer = 0;
             this.state = targetState;
             this.stateTime = 0;
         }
         this.stateTime += seconds;
 
         switch (this.state) {
-            case "attack":
+            case "attack": {
                 this.velocityX = 0;
-                if (this.attackCooldown <= 0) {
-                    this.attackCooldown = config.attackCooldown;
+                // 前摇（僵直）中：不动、不出手，倒计时结束才真正打到玩家。
+                if (this.windupTimer > 0) {
+                    this.windupTimer -= seconds;
+                    if (this.windupTimer > 0) break;
+                    this.windupTimer = 0;
                     onPlayerDamage(mobAttackDamage(this.kind, config.damage));
+                    break;
+                }
+                if (this.attackCooldown <= 0) {
+                    const windup = attackWindupSeconds(config);
+                    // 冷却在「举手的瞬间」开始计时：前摇只是让这一下晚 0.1s 落下，攻击间隔不变。
+                    this.attackCooldown = config.attackCooldown;
+                    if (windup > 0) this.windupTimer = windup;
+                    else onPlayerDamage(mobAttackDamage(this.kind, config.damage));
                 }
                 break;
+            }
             case "walk":
                 this.facing = config.hostile ? dx >= 0 ? 1 : -1 : Math.sin((this.animationTime + this.x) * 0.4) >= 0 ? 1 : -1;
                 this.velocityX = this.facing * config.speed;

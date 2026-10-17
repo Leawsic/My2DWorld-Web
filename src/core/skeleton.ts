@@ -1,6 +1,7 @@
 import {MOB_KINDS, type MobKind} from "./entity";
-import {Animation, animImageReady, type AnimDrawOptions, type AnimImage, type AnimTransform} from "./anim";
+import {Animation, animImageReady, type AnimDef, type AnimDrawOptions, type AnimImage, type AnimTransform} from "./anim";
 import {loadCharacterAnimations, loadAnimationUrl} from "./animations";
+import {holdGeometryFor, holdStyle, holdStyleRevision} from "./holdstyle";
 
 export type CharacterKind = "player" | MobKind;
 export type CharacterPose = "idle" | "walk" | "attack" | "dig";
@@ -12,6 +13,13 @@ export type AnimationPose = CharacterPose;
 export interface HeldItemImages {
     left: AnimImage | null;
     right: AnimImage | null;
+    /**
+     * 左手/右手拿的是否是「工具」（物品定义带 `tool` 字段）。
+     * 工具会按 `public/items/hold.json`（`core/holdstyle.ts`）把对应手部节点的 w/h/pivot
+     * 覆盖成更大的、绕握把旋转的几何；方块等非工具物品保持 .myanim 原值。
+     */
+    leftTool?: boolean;
+    rightTool?: boolean;
 }
 
 export interface CharacterRenderOptions {
@@ -117,6 +125,7 @@ export function clearCharacterAnimationState(): void {
     characterAnims.clear();
     variantAnims.clear();
     scaleCache.clear();
+    clearHoldVariants();
     preloadPromise = null;
 }
 
@@ -140,6 +149,8 @@ export function reloadCharacterImages(): void {
     particleTextures.clear();
     variantAnims.clear();
     scaleCache.clear();
+    // 手持几何变体共享模板的图片对象，模板换图后必须重建，否则工具仍用旧贴图。
+    clearHoldVariants();
     for (const animation of characterAnims.values()) animation.invalidateImages?.();
     for (const animation of pluginAnims.values()) animation.invalidateImages?.();
 }
@@ -344,17 +355,68 @@ function itemImageOverrides(opt: CharacterRenderOptions): ReadonlyMap<string, An
     return overrides;
 }
 
+/** 哪只手拿着工具：bit0 = itemL（副手），bit1 = itemR（主手）；0 表示都不需要覆盖几何。 */
+function holdMask(opt: CharacterRenderOptions): number {
+    const images = opt.itemImages;
+    if (!images) return 0;
+    return (images.leftTool ? 1 : 0) | (images.rightTool ? 2 : 0);
+}
+
+/** 「手持工具几何」变体缓存：模板动画 → (掩码 → 变体)。配置版本变化时整体重建。 */
+let holdVariants = new Map<Animation, Map<number, Animation>>();
+let holdVariantRevision = -1;
+
+/** 丢弃手持几何变体缓存（`/reload images`、`/reload items` 之后贴图或配置已变）。 */
+export function clearHoldVariants(): void {
+    holdVariants = new Map();
+    holdVariantRevision = -1;
+}
+
+/**
+ * 拿工具时把 itemL / itemR 的 w/h/pivot 换成 `public/items/hold.json`（`core/holdstyle.ts`）里的值。
+ * 返回共享贴图、共享时间轴的轻量副本：模板本体与其它 kind 的变体都不受影响。
+ * 不拿工具（掩码 0）或配置里没写节点时直接返回原动画。
+ * 导出仅供渲染层与探针复用，不要在别处直接改返回对象的 def。
+ */
+export function holdVariant(animation: Animation, mask: number): Animation {
+    const revision = holdStyleRevision();
+    if (revision !== holdVariantRevision) clearHoldVariants();
+    holdVariantRevision = revision;
+    const config = holdStyle();
+    if (!mask || config.nodes.length === 0) return animation;
+    let perAnimation = holdVariants.get(animation);
+    if (!perAnimation) {
+        perAnimation = new Map();
+        holdVariants.set(animation, perAnimation);
+    }
+    const cached = perAnimation.get(mask);
+    if (cached) return cached;
+    const patched: AnimDef = {
+        ...animation.def,
+        objects: (animation.def.objects ?? []).map((obj) => {
+            const geometry = obj.id ? holdGeometryFor(obj.id, mask, config) : null;
+            if (!geometry) return obj;
+            const pivot: [number, number] = [geometry.pivot[0], geometry.pivot[1]];
+            return {...obj, w: geometry.w, h: geometry.h, pivot};
+        }),
+    };
+    const variant = new Animation(patched, animation.baseUrl, undefined, animation);
+    perAnimation.set(mask, variant);
+    return variant;
+}
+
 /** 用 .myanim 文件绘制角色，锚点在世界坐标（x,y）（角色脚底），坐标单位为游戏方块；
- * 渲染比例统一为源图 1 像素 = 1/4 方块。 */
+ * 渲染比例统一为源图 1 像素 = 1/4 方块。拿工具时按 hold.json 换 itemL/itemR 的几何。 */
 function renderCharacterFromAnimation(ctx: CanvasRenderingContext2D, animation: Animation, opt: CharacterRenderOptions): void {
-    const scale = unitScaleFor(animation);
+    const painted = holdVariant(animation, holdMask(opt));
+    const scale = unitScaleFor(painted);
     const screenX = (opt.x - opt.cameraX) * opt.blockSize + window.innerWidth / 2;
     const screenY = (opt.cameraY - opt.y) * opt.blockSize + window.innerHeight / 2;
     ctx.save();
     ctx.imageSmoothingEnabled = false;
     ctx.translate(screenX, screenY);
     ctx.scale((opt.facing < 0 ? -1 : 1) * opt.blockSize * scale, -opt.blockSize * scale);
-    animation.render(ctx, opt.time, {
+    painted.render(ctx, opt.time, {
         alpha: opt.alpha,
         brightness: opt.brightness,
         tint: opt.tint,
@@ -421,11 +483,15 @@ function renderCharacterBlend(
     k: number,
     opt: CharacterRenderOptions,
 ): void {
-    const scale = unitScaleFor(to);
+    // 姿态过渡期间两只手也要用同一套手持几何，否则过渡帧里工具会突然缩小/回中。
+    const mask = holdMask(opt);
+    const fromAnim = holdVariant(from, mask);
+    const toAnim = holdVariant(to, mask);
+    const scale = unitScaleFor(toAnim);
     const screenX = (opt.x - opt.cameraX) * opt.blockSize + window.innerWidth / 2;
     const screenY = (opt.cameraY - opt.y) * opt.blockSize + window.innerHeight / 2;
-    const fromTx = from.transformsAt(fromTime);
-    const toTx = to.transformsAt(toTime);
+    const fromTx = fromAnim.transformsAt(fromTime);
+    const toTx = toAnim.transformsAt(toTime);
     const drawOptions: AnimDrawOptions = {
         alpha: opt.alpha,
         brightness: opt.brightness,
@@ -437,13 +503,13 @@ function renderCharacterBlend(
     ctx.imageSmoothingEnabled = false;
     ctx.translate(screenX, screenY);
     ctx.scale((opt.facing < 0 ? -1 : 1) * opt.blockSize * scale, -opt.blockSize * scale);
-    const objs = [...(to.def.objects ?? [])].sort((a, b) => (a.layer ?? 0) - (b.layer ?? 0));
+    const objs = [...(toAnim.def.objects ?? [])].sort((a, b) => (a.layer ?? 0) - (b.layer ?? 0));
     for (const obj of objs) {
         // 无 id 的对象无法从变换表匹配，直接按各自动画计算变换
-        const trA = obj.id ? fromTx.get(obj.id) : from.transformOf(obj, fromTime);
-        const trB = obj.id ? toTx.get(obj.id) : to.transformOf(obj, toTime);
+        const trA = obj.id ? fromTx.get(obj.id) : fromAnim.transformOf(obj, fromTime);
+        const trB = obj.id ? toTx.get(obj.id) : toAnim.transformOf(obj, toTime);
         const tr = trA && trB ? lerpTransform(trA, trB, k) : (trB ?? trA);
-        if (tr) to.drawObject(ctx, obj, tr, drawOptions);
+        if (tr) toAnim.drawObject(ctx, obj, tr, drawOptions);
     }
     ctx.restore();
 }

@@ -14,7 +14,8 @@ import {loadBlockConfigs} from "./core/blockconfig";
 import {DroppedItemManager, DROP_PICKUP_RADIUS} from "./core/itemdrop";
 import {loadSqueeze} from "./core/squeeze";
 import {distributeStack} from "./core/inventory";
-import {itemDefinition, itemRegistry, itemTextureSrc, loadItemConfigs, maxDurabilityFor, normalizeDurability, stackLimit} from "./core/items";
+import {itemDefinition, isToolItem, itemRegistry, itemTextureSrc, loadItemConfigs, maxDurabilityFor, normalizeDurability, stackLimit} from "./core/items";
+import {loadHoldStyle} from "./core/holdstyle";
 import {MAX_TICK_RATE, MIN_TICK_RATE, NORMAL_TICK_RATE, clampTickRate, simulationSteps, tickSeconds, ticksToSeconds} from "./core/tick";
 import {deviceSpanSize, snapToDevice} from "./core/pixels";
 import {
@@ -1411,8 +1412,10 @@ class GameSession {
             reloaded.push("images");
         }
         if (part === "items" || part === "all") {
-            // 重新读取 public/items/items.json（改完挖掘速度/伤害/耐久不用重开页面），并刷新物品贴图。
+            // 重新读取 public/items/items.json（改完挖掘速度/伤害/耐久不用重开页面）与
+            // hold.json（手持工具的 itemL/itemR 几何），并刷新物品贴图。
             await loadItemConfigs();
+            await loadHoldStyle();
             this.loadAllItemImages(true);
             reloaded.push(`items(${itemRegistry.list().length})`);
         }
@@ -2966,12 +2969,15 @@ class GameSession {
         this.save();
     }
 
-    /** 左右手物品贴图：left=副手（itemL），right=当前快捷栏格（itemR）；空手为 null（不绘制）。 */
+    /** 左右手物品贴图：left=副手（itemL），right=当前快捷栏格（itemR）；空手为 null（不绘制）。
+     *  同时告诉渲染层哪只手拿的是「工具」——工具按 public/items/hold.json 的几何显示。 */
     private heldItemImages(): HeldItemImages {
         const main = this.hotbar[this.selected] ?? null;
         return {
             left: this.offhand ? this.iconFor(this.offhand.id) ?? null : null,
             right: main ? this.iconFor(main.id) ?? null : null,
+            leftTool: isToolItem(this.offhand?.id),
+            rightTool: isToolItem(main?.id),
         };
     }
 
@@ -4224,6 +4230,8 @@ async function startGame(meta: WorldMeta): Promise<void> {
     await loadBlockConfigs();
     // 物品（工具）定义必须先加载：GameSession 构造时要按 items.json 的贴图与耐久初始化。
     await loadItemConfigs();
+    // 手持工具的 itemL/itemR 几何（public/items/hold.json）；读不到就用内置默认值。
+    await loadHoldStyle();
     new GameSession(meta, save);
 }
 

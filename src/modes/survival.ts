@@ -1,5 +1,5 @@
 import {ParticleSystem} from "../core/particles";
-import {GameMode, type ModeContext} from "./base";
+import {ATTACK_POSE_SECONDS, GameMode, playerPose, type ModeContext} from "./base";
 import {Blocks, blockRegistry, GameModes} from "../core/registry";
 import {renderCharacter} from "../core/skeleton";
 import {playerAttackCooldownFrames, playerAttackDamage} from "../core/attackConfig";
@@ -22,6 +22,10 @@ export class SurvivalMode extends GameMode {
     private mineTimer = 0;
     /** 挖掘动画时钟：站立时也在推进（不复用 walk 时钟，否则站立时动画停在第一帧）。 */
     private mineAnimTime = 0;
+    /** 攻击动画剩余时长（秒），>0 时播放 attack 姿态（点中生物）；与挖方块的 dig 分开。 */
+    private attackTimer = 0;
+    /** 攻击动画时钟（同 mineAnimTime，站立攻击时也要能推进）。 */
+    private attackAnimTime = 0;
     /** 当前正在挖掘的目标格与进度（0..1，满 1 时破坏该方块）。 */
     private mineX = 0;
     private mineY = 0;
@@ -35,6 +39,8 @@ export class SurvivalMode extends GameMode {
         this.mobHitCooldown = Math.max(0, this.mobHitCooldown - context.dt * 60);
         if (this.mineTimer > 0) this.mineAnimTime += context.dt;
         this.mineTimer = Math.max(0, this.mineTimer - context.dt);
+        if (this.attackTimer > 0) this.attackAnimTime += context.dt;
+        this.attackTimer = Math.max(0, this.attackTimer - context.dt);
 
         if (!context.mouseDown) {
             this.mineProgress = 0;
@@ -44,7 +50,8 @@ export class SurvivalMode extends GameMode {
         const hit = context.mobs.hitMob(context.mouseWorld, context.player);
         if (hit) {
             this.mineProgress = 0;
-            this.mineTimer = 0.3;
+            // 攻击生物播放 attack.myanim（不是挖方块的 dig.myanim）。
+            this.attackTimer = ATTACK_POSE_SECONDS;
             if (this.mobHitCooldown <= 0) {
                 // 手持工具（剑等）按物品配置的伤害结算，空手回落到 attackConfig 的默认值。
                 hit.hurt(attackDamageFor(context.heldItem?.id, playerAttackDamage()), context.player.x);
@@ -104,11 +111,15 @@ export class SurvivalMode extends GameMode {
 
     renderPlayer(ctx: CanvasRenderingContext2D, context: ModeContext, cameraX: number, cameraY: number): void {
         const {player, blockSize} = context;
-        const mining = this.mineTimer > 0;
+        // 姿态优先级：攻击（点中生物，attack.myanim）> 挖掘（挖方块，dig.myanim）> 走/站。
+        const attacking = this.attackTimer > 0;
+        const mining = !attacking && this.mineTimer > 0;
+        const pose = playerPose(attacking, mining, player.velocityX !== 0);
+        const time = attacking ? this.attackAnimTime : mining ? this.mineAnimTime : player.animationT;
         renderCharacter(ctx, {
             kind: "player",
-            pose: mining ? "dig" : player.velocityX ? "walk" : "idle",
-            time: mining ? this.mineAnimTime : player.animationT,
+            pose,
+            time,
             blendKey: player,
             x: player.x,
             y: player.y,

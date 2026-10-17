@@ -122,12 +122,16 @@ export class Animation {
     private readonly imageTransform?: (url: string) => string;
     private boundsCache: { t: number; x: number; y: number; w: number; h: number } | null = null;
 
-    constructor(readonly def: AnimDef, readonly baseUrl = "", imageTransform?: (url: string) => string) {
+    constructor(readonly def: AnimDef, readonly baseUrl = "", imageTransform?: (url: string) => string, shareImagesFrom?: Animation) {
         this.imageTransform = imageTransform;
         this.objects = def.objects ?? [];
+        // 共享另一份动画已经加载好的贴图（只改对象几何的轻量副本用，避免重复请求图片）。
+        if (shareImagesFrom) {
+            for (const [key, image] of shareImagesFrom.images) this.images.set(key, image);
+        }
         for (const obj of this.objects) {
             if (obj.id) this.byId.set(obj.id, obj);
-            if (obj.type === "image" && obj.image) {
+            if (obj.type === "image" && obj.image && !shareImagesFrom) {
                 const img = new Image();
                 let src = new URL(obj.image, baseUrl || location.href).href;
                 if (this.imageTransform) src = this.imageTransform(src);

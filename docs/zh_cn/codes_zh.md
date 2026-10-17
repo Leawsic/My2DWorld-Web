@@ -18,7 +18,9 @@
 - 中键复制：`pickBlock` 把指向的方块按该物品的单格堆叠上限（`stackLimit()`）放进当前快捷栏格
 - 物品栏面板按模式切换：`INVENTORY_PANELS`（创造=`gui/creative_inventory/tab_inventory.png`，生存/冒险=`gui/container/inventory.png`），
   槽位坐标为源图像素，另含副手槽与创造模式的销毁格（红色 `×`，放入即销毁）；`F` 键交换副手与当前快捷栏格
-- 手持物品渲染：`renderCharacter` 的 `itemImages` 覆盖 `.myanim` 里 `itemL`（左手/副手）与 `itemR`（右手/主手）节点贴图
+- 手持物品渲染：`renderCharacter` 的 `itemImages` 覆盖 `.myanim` 里 `itemL`（左手/副手）与 `itemR`（右手/主手）节点贴图；
+  `heldItemImages()` 同时传 `leftTool`/`rightTool`（`isToolItem`），拿工具时按 `public/items/hold.json` 换成 2×2、
+  绕左下角的几何（见 `core/holdstyle.ts`）
 - 工具/物品：贴图来自 `public/assets/items/`（`loadItem` 缓存在 `itemImages`），定义来自 `public/items/items.json`；
   `iconFor()` 先查物品再查方块，槽位/快捷栏/掉落物/手持共用同一套图标
 - 堆叠上限：单格上限一律走 `stackLimit(id)`（工具 1、方块 64），不再直接用全局 `MAX_STACK_SIZE`
@@ -64,6 +66,7 @@
 - `miningSeconds(硬度, 速度)`：挖掘耗时 = 硬度 / 速度（硬度 ≥ 0.05，非法值兜底）
 - `attackDamageFor(手持id, 回落值)`：物品伤害优先，缺省回落到 `attackConfig` 的玩家伤害
 - `maxDurabilityFor()` / `normalizeDurability()`：耐久上限与存档归一化（无耐久的物品不写入耐久）
+- `isToolItem(id)`：是否带 `tool` 字段（渲染层据此决定手部节点用工具几何）
 - `itemTextureSrc(id)`：贴图路径 = `/assets/items/<texture>.png`
 
 ### `src/core/tick.ts`
@@ -120,10 +123,13 @@
 **功能**：生物（Mob）管理与物理交互模块。
 
 **核心功能**：
-- 定义所有生物种类（僵尸、牛、猪等）和配置（血量、速度、碰撞箱）
+- 定义所有生物种类（僵尸、牛、猪等）和配置（血量、速度、碰撞箱、`attackWindup`）
 - MobManager：管理已生成生物（chunk-based 自动刷新）
 - 挤压伤害系统：支持双轴（水平+竖直）碰撞检测，只有真正重叠才扣血
 - 生物 AI（行走、攻击、跳跃）、击杀逻辑、缓慢效果等
+- **攻击前摇（僵直）**：敌对生物进入攻击距离后先僵直 `MOB_ATTACK_WINDUP = 0.1s` 才真正扣血——期间停在原地，
+  `windupTimer` 走完才结算伤害；玩家在僵直期间跑出距离会打断前摇（这一下打空）。`attackWindupSeconds(config)`
+  给出某 kind 的前摇（温顺生物恒为 0），冷却在抬手瞬间开始计时，所以攻击间隔不因前摇变长。
 - 玩家与生物的相互碰撞处理
 
 ### `src/core/physics.ts`
@@ -155,7 +161,11 @@
 - `src/core/structures.ts`：结构（房屋、树等）导出/加载
 
 ### 渲染与视觉
-- `src/core/skeleton.ts`：玩家角色骨骼动画（Steve 模型）
+- `src/core/skeleton.ts`：玩家角色骨骼动画（Steve 模型）；`renderCharacter` 按姿态取 `.myanim` 并做姿态过渡；
+  `holdVariant()` 按 `public/items/hold.json` 生成「拿工具时 itemL/itemR 换几何」的轻量副本（共享贴图，不改模板）
+- `src/core/holdstyle.ts`：手持工具的手部节点几何配置（`public/items/hold.json` 经 `/api/hold` 加载）：
+  `parseHoldStyle()` 容错解析、`holdGeometryFor(id, 掩码)` 决定某只手要不要换几何（纯函数，可单独验证）
+- `src/core/anim.ts`：`.myanim` 动画引擎（对象/节点/pivot/attach/inheritAngle、按 id 覆盖贴图、共享贴图的几何副本）
 - `src/core/animations.ts`：角色动画加载与播放
 - `src/core/particles.ts`：粒子系统（破坏、血迹等）
 - `src/core/pixels.ts`：设备像素对齐（`snapToDevice` / `deviceSpanSize`），消除非整数 `devicePixelRatio` 下相邻色块之间的抗锯齿接缝（海洋白线）
@@ -163,10 +173,17 @@
 - `src/core/squeeze.ts`：物理挤压配置——挤压箱几何（`public/squeeze/*.json`，结构与碰撞箱一致）+ 全局挤压参数（`run/config/squeeze.json`）
 - `public/assets/gui/gamemode/{creative,survival,adventure,spectator}.png`：游戏模式图标（HUD 右上角 + 模式切换提示）
 
+### 掉落物与流体
+- `src/core/itemdrop.ts`：掉落物实体（重力、与方块碰撞、拾取、同 id 合并）；**水中浮力**：浮力 52 方块/秒²、上浮上限
+  2.2 方块/秒，最终底部停在液面下 0.15 格（漂浮）；岩浆仍是「重力减弱 + 缓慢下沉」
+- `src/core/fluid.ts`：水/岩浆传播与查询；`fluidSurfaceAt(x, y)` 返回某水柱的液面（向上连续流体格的最高顶面 y），
+  掉落物浮力与水面判定都用它
+
 ### 模式与交互
-- `src/modes/base.ts`：游戏模式基类
-- `src/modes/creative.ts`：创造模式（无重力、飞行、方块放置）
-- `src/modes/survival.ts`：生存模式（挖掘速度/工具耐久、掉落物、受伤）；`canMine` 控制能否破坏方块
+- `src/modes/base.ts`：游戏模式基类；`ATTACK_POSE_SECONDS`（攻击姿态时长 0.3s）与纯函数 `playerPose()`（攻击 > 挖掘 > 走 > 站）
+- `src/modes/creative.ts`：创造模式（无重力、飞行、方块放置；命中生物也播 attack 姿态）
+- `src/modes/survival.ts`：生存模式（挖掘速度/工具耐久、掉落物、受伤）；`canMine` 控制能否破坏方块；
+  挖方块播 `dig`、命中生物播 `attack`（两条时钟分开推进）
 - `src/modes/adventure.ts`：冒险模式（继承生存模式，仅把 `canMine` 关掉：不能破坏方块，其余同生存）
 - `src/modes/spectator.ts`：旁观模式（可穿实体、第三人称）
 - `src/modes/index.ts`：模式创建工厂

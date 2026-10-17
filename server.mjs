@@ -271,6 +271,10 @@ const api = async (req, res) => {
             // 透传整份配置，由客户端校验并写入物品注册表。
             return send(res, 200, readJson(join(root, "public", "items", "items.json"), {}));
         }
+        if (url.pathname === "/api/hold" && req.method === "GET") {
+            // 手持工具的 itemL/itemR 节点几何：public/items/hold.json（w/h/pivot）。
+            return send(res, 200, readJson(join(root, "public", "items", "hold.json"), {}));
+        }
         if (url.pathname === "/api/squeeze" && req.method === "GET") {
             // 挤压箱几何：public/squeeze/*.json，结构与碰撞箱一致（halfWidth/height/centerX/centerY、
             // boxes、left/right）。整份透传，由客户端归一化校验。

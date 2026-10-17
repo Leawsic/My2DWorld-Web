@@ -36,11 +36,13 @@ npm run build          # tsc --noEmit && vite build（生产构建验证）
   - `tick.ts`：客户端 tick 速率（游戏速度）的纯计算（`NORMAL_TICK_RATE = 20`、`clampTickRate`、`tickScale`、`simulationSteps` 帧内子步拆分），不依赖 DOM、可单独验证。
   - `daylight.ts`：昼夜与环境光照的纯计算（时刻 → 天空亮度/颜色、日月星空、格子光照、压暗带几何 `ambientBands`/`ambientRampHeight` 含设备像素对齐），不依赖 DOM、可单独验证。
   - `pixels.ts`：设备像素对齐的纯计算（`snapToDevice`、`deviceSpanSize`、`needsDeviceSnap`），消除非整数 `devicePixelRatio` 下相邻色块之间的抗锯齿接缝（海洋白线），不依赖 DOM、可单独验证。
+  - `holdstyle.ts`：手持工具时 `itemL`/`itemR` 节点的几何覆盖配置（`public/items/hold.json` 经 `/api/hold` 加载，`parseHoldStyle` 容错解析、`holdGeometryFor` 纯判定），不依赖 DOM、可单独验证；渲染在 `skeleton.ts` 的 `holdVariant()` 里生成共享贴图的轻量副本。
   - `storage.ts`：同步本地 API 客户端；`types.ts`：稳定数据结构。
 - `src/modes/`：`creative.ts`（创造）、`survival.ts`（生存，含挖掘速度/工具耐久，`canMine` 开关）、`adventure.ts`（冒险，继承生存、`canMine = false`）、`spectator.ts`（旁观）四个 `GameMode` 实现。
 - `src/plugins/api.ts`：插件扩展注册表与生命周期 API。
 - `public/hitboxes/`、`public/squeeze/`：实体碰撞箱 / 挤压箱 JSON（走 `/api/hitboxes`、`/api/squeeze`）。
 - `public/items/items.json`：物品（工具）定义（挖掘速度/伤害/耐久/堆叠上限，走 `/api/items`），贴图在 `public/assets/items/`。
+- `public/items/hold.json`：手持**工具**时 `itemL`/`itemR` 的显示几何（`w`/`h`/`pivot`，走 `/api/hold`）；见 §3.11。
 - `public/blocks/blocks.json`：方块定义（`hardness` 硬度、`tool` 对口工具类别，走 `/api/blocks`）。
 
 ## 3. 关键不变量（改动前务必理解，不要破坏）
@@ -112,12 +114,23 @@ npm run build          # tsc --noEmit && vite build（生产构建验证）
 - 免伤判定仍以 `creative` / `spectator` / `ghost` 为准（`damagePlayer`、实体挤压回调、`updateSqueeze`、`updateVoid`）——冒险模式**会**受伤，别把它加进免伤分支。
 - 模式图标（`public/assets/gui/gamemode/{creative,survival,adventure,spectator}.png`，64×64 白色剪影）在构造时与 `/reload images` 时由 `loadModeIcons()` 加载；HUD 右上角与切换提示都用 `modeIconKey()`/`modeIcon()` 取当前模式的图标，不要按模式写 if 分支。
 
+### 3.11 手持工具几何 / 生物攻击前摇 / 掉落物浮力
+- **手持工具几何**（`public/items/hold.json` + `src/core/holdstyle.ts` + `src/core/skeleton.ts`）：玩家动画里 `itemL`（副手）/`itemR`（主手）在模板中的值固定是 `w/h=0.4`、`pivot=[0.5,0.5]`；**拿带 `tool` 字段的物品**时按配置换成 `w/h=2`、`pivot=[0,1]`（左下角=握把）。规则：
+  - 只改**这只手**：副手拿工具、主手拿方块时互不影响（`holdGeometryFor(id, mask)`，mask bit0=itemL、bit1=itemR）；拿方块/空手时**绝不**改。
+  - 通过 `Animation` 的「共享贴图的轻量副本」实现（`holdVariant()`），**不要就地改 `.myanim` 的 `AnimDef` 对象**——模板会被别的 kind/掩码共用；也不要改 `public/animations/player/*.myanim` 里的原值（那会影响非工具物品）。
+  - 配置版本变化（`setHoldStyle`）或 `/reload images` 时会丢弃变体缓存（`clearHoldVariants`），所以贴图/数值改完无需重开页面；`/reload items` 会同时重读 `hold.json`。
+- **生物攻击前摇**（`src/core/entity.ts`）：敌对生物进入攻击距离后先僵直 `MOB_ATTACK_WINDUP = 0.1s`（`Mob.windupTimer`），期间 `velocityX = 0`、不结算伤害，倒计时结束才 `onPlayerDamage`；僵直期间玩家跑出攻击距离 → 状态离开 `attack` → 前摇清零（这一下打空）。**冷却在抬手瞬间开始计时**（不是命中时），所以攻击间隔仍约等于 `attackCooldown`。新增攻击行为时不要绕过 `windupTimer`。
+- **掉落物浮力**（`src/core/itemdrop.ts` + `fluid.ts` 的 `fluidSurfaceAt`）：水里有净浮力（52 > 重力 24），上浮速度上限 2.2 方块/秒，底部停在液面下 0.15 格并清零竖直速度（不抖）；**岩浆不适用浮力**（仍是重力减弱 + 缓慢下沉）。液面用「该列向上连续流体格的最高顶面」算，别改成「液面 = 丢出点」或写死海平面 `SEA_LEVEL`，否则水池/被堵住的液面会算错。
+
 ## 4. 常见任务指引
 
 - 新增方块：纹理放 `public/assets/block/`，`src/registry.ts`（本体）或插件 `registerBlock`（插件），显示名在 `src/i18n.ts`。详见 `README.md`「扩展开发」。
 - 新增游戏模式：`src/modes/` 新建 `GameMode`（只差一两条规则就继承已有模式并覆写开关，见 §3.10），改 `createMode()`、`GameModeName`、`gameModeRegistry`，加 i18n 名称，图标放进 `public/assets/gui/gamemode/` 并加入 `MODE_ICON_SOURCES`，最后补上 `server.mjs` 的存档白名单。
 - 改渲染/加半透明色块：方块、流体、压暗带的屏幕矩形一律用 `src/core/pixels.ts` 的 `snapToDevice` / `deviceSpanSize` 对齐设备像素（见 §3.5），否则非整数 `devicePixelRatio` 下会重新出现水面白线。
 - 新增物品/工具：贴图放 `public/assets/items/`，配置加进 `public/items/items.json`（`label`/`texture`/`tool`/`tier`/`miningSpeed`/`damage`/`durability`/`stackSize`）；要让某方块被这类工具加速，给 `public/blocks/blocks.json` 里那个方块加 `tool`。游戏内 `/reload items` 生效，`/give <id>` 拿取。详见 `README.md`「工具与物品配置」。
+- 改手持物品的显示大小/旋转中心：只改 `public/items/hold.json`（`w`/`h`/`pivot`），`/reload items` 生效；不要改 `.myanim` 里的 `itemL`/`itemR` 原值（见 §3.11）。
+- 玩家姿态（攻击/挖掘/走/站）：只在 `src/modes/base.ts` 的 `playerPose()` 里定优先级，攻击必须优先于挖掘；点中生物用 `attack.myanim`，挖方块用 `dig.myanim`，两条动画时钟分开（`attackAnimTime` / `mineAnimTime`）。
+- 调生物攻击节奏：前摇改 `MOB_ATTACK_WINDUP` 或单个 kind 的 `MobKindConfig.attackWindup`；掉落物浮力参数在 `src/core/itemdrop.ts` 顶部（`DROP_BUOYANCY` / `DROP_FLOAT_RISE` / `DROP_FLOAT_SUBMERGE`）。
 - 调游戏速度/加世界更新：只动 `core/tick.ts` 与 `stepWorld`（见 §3.9），并跑一遍「20 tick 且 60fps 时一帧一步、步长=帧时长」的验证。
 - 调碰撞箱/挤压箱：改 `public/hitboxes/`、`public/squeeze/`（32×整数），游戏内 `/reload hitboxes`、`/reload squeeze` 生效。挤压伤害「只按挤压箱结算」不要退回按碰撞箱结算。
 - 改存档格式：遵循「只存脏区块」模型（`World.serializeChanges` 只序列化 `dirty`，`restore` 用 `idTable` 重映射数字 ID）。

@@ -1,0 +1,9 @@
+{
+    "description": "玩家手持『工具』(物品定义带 tool 字段: pickaxe/axe/shovel/hoe/sword) 时, 覆盖 public/animations/player/*.myanim 里这些节点的几何; 手拿方块等非工具物品或空手时保持 .myanim 原值。单位与 .myanim 相同: player 模板下 1 单位 = 1 个方块。",
+    "nodes": ["itemL", "itemR"],
+    "tool": {
+        "w": 2,
+        "h": 2,
+        "pivot": [0, 1]
+    }
+}

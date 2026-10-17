@@ -71,6 +71,38 @@ export function fluidMotionAt(world: World, x: number, y: number): {inFluid: boo
     return state ? {inFluid: true, flowX: state.flowX} : {inFluid: false, flowX: 0};
 }
 
+export interface FluidSurface {
+    /** 液面顶面的 y（方块坐标，等于该水柱最高流体格的 y）。 */
+    surface: number;
+    /** 流体种类 id（`my2dworld:water` / `my2dworld:lava`）。 */
+    type: string;
+    /** 该格的流向（-1 向左 / 0 无 / 1 向右）。 */
+    flowX: number;
+    /** 水面以下还剩多少格流体（0 = 该格本身就是最上面一格）。 */
+    depth: number;
+}
+
+/**
+ * 某点所在水柱的液面：从 (x, y) 所在格向上找**连续流体格**，返回最高那一格的顶面 y。
+ * 掉落物靠它做浮力——浮到液面后就停在那里，而不是一直沉到水底。
+ * 该点不在流体里时返回 null（`y` 按格子顶面约定：`ceil(y)` 才是包含该点的格子）。
+ */
+export function fluidSurfaceAt(world: World, x: number, y: number): FluidSurface | null {
+    const cx = Math.floor(x);
+    const bottom = Math.ceil(y);
+    const state = fluidStateAt(world, cx, bottom);
+    if (!state) return null;
+    const type = world.getBlockId(cx, bottom);
+    if (!type) return null;
+    let surface = bottom;
+    // 防御性上限：即使世界数据异常也不会死循环。
+    for (let step = 0; step < 256; step += 1) {
+        if (!fluidStateAt(world, cx, surface + 1)) break;
+        surface += 1;
+    }
+    return {surface, type, flowX: state.flowX, depth: surface - bottom};
+}
+
 /**
  * 2D 流体传播（水 / 岩浆，原版 3D 流体逻辑的降维简化）：
  *  - 水平流动：从水源（level 0）出发，在平整液面左右各传播最多 7 格，每格 level +1；

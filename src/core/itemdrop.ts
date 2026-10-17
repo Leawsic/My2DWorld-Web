@@ -2,7 +2,7 @@ import {moveBody, type PhysicsBody} from "./physics";
 import type {ItemStack, SavedDroppedItem} from "./types";
 import {stackLimit} from "./items";
 import {WORLD_MIN_Y, type World} from "./world";
-import {FLUID_FLOW_SPEED, FLUID_GRAVITY_SCALE, FLUID_MAX_FALL, fluidMotionAt} from "./fluid";
+import {FLUID_FLOW_SPEED, FLUID_GRAVITY_SCALE, FLUID_MAX_FALL, WATER_ID, fluidMotionAt, fluidSurfaceAt} from "./fluid";
 
 /** 玩家捡起掉落物的水平+竖直距离（世界坐标）。 */
 export const DROP_PICKUP_RADIUS = 1.25;
@@ -18,6 +18,14 @@ const DROP_GRAVITY = 24;
 /** 所有方块掉落物统一使用同一个 0.5×0.5 的碰撞箱（与渲染图标尺寸一致）。 */
 const DROP_HALF_WIDTH = 0.25;
 const DROP_HEIGHT = 0.5;
+/** 水中的浮力加速度（方块/秒²）：明显大于 `DROP_GRAVITY`，所以掉落物在水里净向上浮。 */
+const DROP_BUOYANCY = 52;
+/** 水中上浮的最大速度（方块/秒）：别让掉落物像炮弹一样窜出水面。 */
+const DROP_FLOAT_RISE = 2.2;
+/** 漂浮时底部没入液面的深度（方块）：看起来像泡在水里漂着。 */
+const DROP_FLOAT_SUBMERGE = 0.15;
+/** 液面稳定判定带（方块）：目标高度 ±该值内不再施加竖直力，避免上下抖动。 */
+const DROP_FLOAT_BAND = 0.02;
 
 /** 世界中的一个掉落物：受重力、与实心方块碰撞，靠近玩家时可被捡起。 */
 export class DroppedItem implements PhysicsBody {
@@ -90,12 +98,28 @@ export class DroppedItemManager {
             item.age += seconds;
             item.pickupDelay -= seconds;
             if (Math.hypot(item.x - playerX, item.centerY - playerY) > DROP_UPDATE_RADIUS) continue;
-            // 流体浮力：水/岩浆中重力降低（缓慢下沉）并受水平流动推力。
-            const fluid = fluidMotionAt(world, item.x, item.centerY);
-            if (fluid.inFluid) {
+            // 流体：水里有浮力（最终漂浮在水面上）；岩浆等其它流体保持原来的「缓慢下沉」。
+            const motion = fluidMotionAt(world, item.x, item.centerY);
+            const surface = fluidSurfaceAt(world, item.x, item.y);
+            if (surface && surface.type === WATER_ID) {
+                // 目标：底部略没入液面（泡在水里漂着），而不是沉到水底。
+                const targetY = surface.surface - DROP_FLOAT_SUBMERGE;
+                if (item.y < targetY - DROP_FLOAT_BAND) {
+                    // 还在水面以下：入水时先限制下沉速度，再按浮力加速上浮。
+                    item.velocityY = Math.max(item.velocityY, -FLUID_MAX_FALL);
+                    item.velocityY = Math.min(DROP_FLOAT_RISE, item.velocityY + DROP_BUOYANCY * seconds);
+                } else if (item.y > targetY + DROP_FLOAT_BAND) {
+                    // 被抛出水面之上：正常重力把它带回水面，再由上面的分支停住。
+                    item.velocityY -= DROP_GRAVITY * seconds;
+                } else {
+                    // 已经漂在液面：不再施加竖直力（否则会在水面上下抖）。
+                    item.velocityY = 0;
+                }
+                item.velocityX += surface.flowX * FLUID_FLOW_SPEED * seconds;
+            } else if (motion.inFluid) {
                 item.velocityY -= DROP_GRAVITY * FLUID_GRAVITY_SCALE * seconds;
                 item.velocityY = Math.max(item.velocityY, -FLUID_MAX_FALL);
-                item.velocityX += fluid.flowX * FLUID_FLOW_SPEED * seconds;
+                item.velocityX += motion.flowX * FLUID_FLOW_SPEED * seconds;
             } else {
                 item.velocityY -= DROP_GRAVITY * seconds;
             }
