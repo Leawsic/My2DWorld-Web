@@ -14,9 +14,13 @@ import {loadBlockConfigs} from "./core/blockconfig";
 import {DroppedItemManager, DROP_PICKUP_RADIUS} from "./core/itemdrop";
 import {loadSqueeze} from "./core/squeeze";
 import {distributeStack} from "./core/inventory";
+import {itemDefinition, itemRegistry, itemTextureSrc, loadItemConfigs, maxDurabilityFor, normalizeDurability, stackLimit} from "./core/items";
+import {MAX_TICK_RATE, MIN_TICK_RATE, NORMAL_TICK_RATE, clampTickRate, simulationSteps, tickSeconds, ticksToSeconds} from "./core/tick";
+import {deviceSpanSize, snapToDevice} from "./core/pixels";
 import {
     DAY_LENGTH_SECONDS,
     ambientBands,
+    ambientRampHeight,
     cellLight,
     celestialBodies,
     clockLabel,
@@ -31,7 +35,6 @@ import {
 } from "./core/daylight";
 import {
     DEFAULT_SETTINGS,
-    MAX_STACK_SIZE,
     type GameModeName,
     type ItemStack,
     type ItemStackSlot,
@@ -63,21 +66,40 @@ const PLAYER_SQUEEZE_IFRAME = 1;
 const UNDEAD_SLOW_SECONDS = 5;
 
 /** 命令补全与语法高亮共用的命令表。 */
-const CHAT_COMMANDS = ["gamemode", "speed", "movespeed", "debug", "seed", "locate", "tp", "summon", "structure", "reload", "aggro", "clearchat", "spawnpoint", "give", "kill", "fill", "time"];
+const CHAT_COMMANDS = ["gamemode", "speed", "movespeed", "debug", "seed", "locate", "tp", "summon", "structure", "reload", "aggro", "clearchat", "spawnpoint", "give", "kill", "fill", "time", "tick"];
 const CHAT_ARG_SUGGESTIONS: Record<string, string[]> = {
-    gamemode: ["creative", "survival", "spectator"],
+    gamemode: ["creative", "survival", "adventure", "spectator"],
     debug: ["on", "off", "true", "false"],
     locate: LOCATABLE_BIOMES,
     summon: Object.keys(MOB_KINDS),
     structure: ["export", "load", "list", "delete"],
-    reload: ["images", "animations", "hitboxes", "squeeze", "plugins", "all"],
+    reload: ["images", "animations", "hitboxes", "squeeze", "items", "plugins", "all"],
     spawnpoint: ["@p", "@a", "@r", "left", "right"],
     fill: ["replace", "keep", "destroy", "hollow", "outline", "air", "water", "lava"],
     time: ["set", "add", "cycle", "day", "noon", "night", "midnight", "sunrise", "sunset"],
+    tick: ["rate", "freeze", "unfreeze", "step", "normal"],
 };
 
 /** 补全命令后自动补一个空格（还有后续参数）。 */
-const COMMANDS_WITH_ARGS = ["/gamemode", "/debug", "/locate", "/tp", "/summon", "/reload", "/structure", "/aggro", "/spawnpoint", "/give", "/kill", "/fill", "/time"];
+const COMMANDS_WITH_ARGS = ["/gamemode", "/debug", "/locate", "/tp", "/summon", "/reload", "/structure", "/aggro", "/spawnpoint", "/give", "/kill", "/fill", "/time", "/tick"];
+
+/** 游戏模式图标（`public/assets/gui/gamemode/<mode>.png`）：HUD 右上角、模式切换提示与 F3 用。 */
+const MODE_ICON_SOURCES: Record<GameModeName, string> = {
+    creative: "/assets/gui/gamemode/creative.png",
+    survival: "/assets/gui/gamemode/survival.png",
+    adventure: "/assets/gui/gamemode/adventure.png",
+    spectator: "/assets/gui/gamemode/spectator.png",
+};
+
+/** 全部模式名（取自图标表，保证 `/gamemode` 可选值、F3+F4 循环与图标表始终一致）。 */
+const GAME_MODE_NAMES = Object.keys(MODE_ICON_SOURCES) as GameModeName[];
+
+/** 每帧最多模拟的子步数（防止极低帧率 + 极高 tick 速率时陷入死亡螺旋）。 */
+const MAX_STEPS_PER_FRAME = 40;
+/** 冻结状态下每帧最多补跑的 /tick step 数量。 */
+const MAX_STEP_TICKS_PER_FRAME = 20;
+/** 单条 /tick step 一次最多排队的 tick 数。 */
+const MAX_TICK_STEP_TOTAL = 2000;
 
 /** `/time set` 支持的具名时刻。 */
 const TIME_PRESETS: Record<string, number> = {
@@ -233,15 +255,28 @@ interface InventorySlotRef {
     index: number;
 }
 
-/** 兼容旧版存档（纯 id 字符串）与新版堆叠（{id, count}），并夹紧数量到合法范围。 */
-const normalizeStack = (value: ItemStackSlot | undefined, maxStack: number): ItemStack | null => {
-    if (typeof value === "string") return value ? {id: value, count: 1} : null;
-    if (value && typeof value.id === "string") {
-        const count = Number.isFinite(value.count) ? Math.min(maxStack, Math.max(1, Math.floor(value.count))) : 1;
-        return {id: value.id, count};
-    }
-    return null;
+/**
+ * 兼容旧版存档（纯 id 字符串）与新版堆叠（{id, count, durability}）：
+ * 数量夹紧到该物品的堆叠上限（工具为 1），耐久夹紧到 0..耐久上限（无耐久的物品不写入）。
+ */
+const normalizeStack = (value: ItemStackSlot | undefined): ItemStack | null => {
+    const raw = typeof value === "string" ? {id: value, count: 1, durability: undefined} : value;
+    if (!raw || typeof raw.id !== "string" || !raw.id) return null;
+    const limit = stackLimit(raw.id);
+    const count = Number.isFinite(raw.count) ? Math.min(limit, Math.max(1, Math.floor(raw.count))) : 1;
+    const durability = normalizeDurability(raw.id, raw.durability);
+    return durability === undefined ? {id: raw.id, count} : {id: raw.id, count, durability};
 };
+
+/**
+ * 两堆同 id 物品的耐久是否一致（只有可消耗耐久的物品需要比较）。
+ * 耐久缺省表示满耐久，所以「未写耐久」与「耐久 = 上限」视为一致。
+ */
+function sameDurability(a: ItemStack, b: ItemStack): boolean {
+    const max = maxDurabilityFor(a.id);
+    if (max <= 0) return true;
+    return (a.durability ?? maxDurabilityFor(a.id)) === (b.durability ?? maxDurabilityFor(b.id));
+}
 
 function toggleLanguage(): void {
     language = language === "zh" ? "en" : "zh";
@@ -350,7 +385,7 @@ function renderLogin(message = ""): void {
 
 async function renderWorlds(message = ""): Promise<void> {
     const worlds = await storage.loadWorlds(username);
-    const rows = worlds.map((world) => `<div class="world-row"><div><b>${world.name}</b><span>${world.mode === "creative" ? text("创造模式", "Creative") : world.mode === "survival" ? text("生存模式", "Survival") : text("旁观模式", "Spectator")} · ${text("种子", "Seed")} ${world.seed ?? 0}</span></div>${button(text("进入", "Enter"), `enter:${world.id}`, "primary")}${button(text("删除", "Delete"), `delete:${world.id}`, "small")}</div>`).join("");
+    const rows = worlds.map((world) => `<div class="world-row"><div><b>${world.name}</b><span>${t(language, `world_mode_${world.mode}`)} · ${text("种子", "Seed")} ${world.seed ?? 0}</span></div>${button(text("进入", "Enter"), `enter:${world.id}`, "primary")}${button(text("删除", "Delete"), `delete:${world.id}`, "small")}</div>`).join("");
     shell(`<section class="world-screen"><header class="topbar"><div class="brand compact"><span>MY2D</span><strong>WORLD</strong></div><div class="top-actions"><span>${username}</span><button data-action="plugins">${text("插件", "Plugins")} · ${pluginReports.length}</button><button data-action="language">${language === "zh" ? "中" : "EN"}</button>${button(text("退出", "Log out"), "logout")}</div></header><div class="world-content"><div class="section-kicker">WORLD ARCHIVE / ${String(worlds.length).padStart(2, "0")}</div><h1>${text("我的世界", "My worlds")}</h1><p class="muted">${text("选择一个存档，或者从一片新的地平线开始。", "Choose a save, or start from a new horizon.")}</p><div class="world-list">${rows || `<div class="empty">${text("还没有世界。创建第一个世界。", "No worlds yet. Create your first one.")}</div>`}</div></div><div class="world-actions">${button(text("插件管理", "Plugin Manager"), "plugins")}${button(text("创建世界", "Create world"), "create-world", "primary create")}</div><div class="message">${message}</div></div></section>`);
 }
 
@@ -380,7 +415,7 @@ function renderPlugins(message = ""): void {
 
 function renderCreate(): void {
     const defaults = settings.movement;
-    shell(`<section class="create-screen"><div class="create-card"><div class="section-kicker">NEW TERRITORY / 00${Math.floor(Math.random() * 9)}</div><h1>${text("创建世界", "Create world")}</h1><label>${text("世界名称", "World name")}<input id="world-name" value="新世界" maxlength="24" /></label><label>${text("游戏模式", "Game mode")}<select id="world-mode"><option value="creative">${text("创造模式", "Creative")}</option><option value="survival">${text("生存模式", "Survival")}</option><option value="spectator">${text("旁观模式", "Spectator")}</option></select></label><label>${text("世界种子", "World seed")}<input id="world-seed" placeholder="${text("留空自动生成", "Blank to random")}" /></label><div class="physics-grid"><label>${text("行走速度", "Walk speed")}<input id="walk-speed" type="number" step="0.1" value="${defaults.walkSpeed}" /></label><label>${text("飞行速度", "Fly speed")}<input id="fly-speed" type="number" step="0.1" value="${defaults.flySpeed}" /></label><label>${text("跳跃力度", "Jump power")}<input id="jump-velocity" type="number" step="0.1" value="${defaults.jumpVelocity}" /></label><label>${text("重力", "Gravity")}<input id="gravity" type="number" step="0.1" value="${defaults.gravity}" /></label></div><div class="actions">${button(text("开始探索", "Start exploring"), "save-world", "primary")}${button(text("取消", "Cancel"), "worlds")}</div></div></section>`);
+    shell(`<section class="create-screen"><div class="create-card"><div class="section-kicker">NEW TERRITORY / 00${Math.floor(Math.random() * 9)}</div><h1>${text("创建世界", "Create world")}</h1><label>${text("世界名称", "World name")}<input id="world-name" value="新世界" maxlength="24" /></label><label>${text("游戏模式", "Game mode")}<select id="world-mode"><option value="creative">${text("创造模式", "Creative")}</option><option value="survival">${text("生存模式", "Survival")}</option><option value="adventure">${text("冒险模式", "Adventure")}</option><option value="spectator">${text("旁观模式", "Spectator")}</option></select></label><label>${text("世界种子", "World seed")}<input id="world-seed" placeholder="${text("留空自动生成", "Blank to random")}" /></label><div class="physics-grid"><label>${text("行走速度", "Walk speed")}<input id="walk-speed" type="number" step="0.1" value="${defaults.walkSpeed}" /></label><label>${text("飞行速度", "Fly speed")}<input id="fly-speed" type="number" step="0.1" value="${defaults.flySpeed}" /></label><label>${text("跳跃力度", "Jump power")}<input id="jump-velocity" type="number" step="0.1" value="${defaults.jumpVelocity}" /></label><label>${text("重力", "Gravity")}<input id="gravity" type="number" step="0.1" value="${defaults.gravity}" /></label></div><div class="actions">${button(text("开始探索", "Start exploring"), "save-world", "primary")}${button(text("取消", "Cancel"), "worlds")}</div></div></section>`);
 }
 
 class GameSession {
@@ -428,7 +463,15 @@ class GameSession {
     /** 背包内的左键拖动：记录按下时的格子与拖过的格子，松开时把手上的堆叠均分到这些格子。 */
     private inventoryDrag: {origin: InventorySlotRef; slots: InventorySlotRef[]; pickedUp: boolean} | null = null;
     private bindingCapture: keyof KeyBindings | null = null;
+    /** 客户端 tick 速率（每秒模拟多少个 tick）。20 = 正常速度，1 = 1/20 速，200 = 10 倍速。 */
+    private tickRate = NORMAL_TICK_RATE;
+    /** /tick freeze：冻结世界推进（只渲染与输入，不模拟）。 */
+    private frozen = false;
+    /** /tick step 排队的 tick 数：冻结状态下逐帧补跑。 */
+    private pendingSteps = 0;
     private readonly blockImages = new Map<string, HTMLImageElement | HTMLCanvasElement>();
+    /** 物品（工具等非方块物品）贴图，key 为物品 id；与方块贴图分开，互不覆盖。 */
+    private readonly itemImages = new Map<string, HTMLImageElement | HTMLCanvasElement>();
     private readonly biomeImages = new Map<string, HTMLCanvasElement>();
     private readonly guiImages = new Map<string, HTMLImageElement>();
     private fps = 60;
@@ -474,16 +517,16 @@ class GameSession {
         // 恢复背包/物品栏：新世界（无存档）保持为空；有存档则逐格恢复（兼容旧版纯 id 字符串）。
         if (this.initialSave?.hotbar) {
             for (let i = 0; i < this.hotbar.length && i < this.initialSave.hotbar.length; i += 1) {
-                this.hotbar[i] = normalizeStack(this.initialSave.hotbar[i], MAX_STACK_SIZE);
+                this.hotbar[i] = normalizeStack(this.initialSave.hotbar[i]);
             }
         }
         if (this.initialSave?.inventorySlots) {
             for (let i = 0; i < this.inventorySlots.length && i < this.initialSave.inventorySlots.length; i += 1) {
-                this.inventorySlots[i] = normalizeStack(this.initialSave.inventorySlots[i], MAX_STACK_SIZE);
+                this.inventorySlots[i] = normalizeStack(this.initialSave.inventorySlots[i]);
             }
         }
         if (this.initialSave?.offhand !== undefined) {
-            this.offhand = normalizeStack(this.initialSave.offhand, MAX_STACK_SIZE);
+            this.offhand = normalizeStack(this.initialSave.offhand);
         }
         // 恢复当天时刻：存档里没有（旧档/新世界）就从清晨开始。
         this.time = typeof this.initialSave?.time === "number" && Number.isFinite(this.initialSave.time)
@@ -492,8 +535,8 @@ class GameSession {
         this.mode = createMode(this.modeName);
         this.applyModeFlags();
         [...new Set([...blockRegistry.list().map((block) => block.id), ...plugins.blocks.keys()].filter((type): type is string => type !== null))].forEach((type) => this.loadBlock(type));
-        this.loadGui("mode_creative", "/assets/gui/gamemode/creative.png");
-        this.loadGui("mode_spectator", "/assets/gui/gamemode/spectator.png");
+        this.loadAllItemImages();
+        this.loadModeIcons();
         this.loadGui("mouse", "/assets/gui/mouse/mouse.png");
         this.loadGui("mouse_attack", "/assets/gui/mouse/attack.png");
         this.loadGui("mouse_left_broke", "/assets/gui/mouse/mouse_left_broke.png");
@@ -760,17 +803,22 @@ class GameSession {
         }, {passive: false});
     }
 
-    /** 按当前模式应用角色能力（生存/旁观禁止飞行）。 */
+    /** 生存系模式（生存 / 冒险）：会受伤、不飞行、放置消耗方块、工具耗耐久、挖方块掉落自身。 */
+    private get survivalLike(): boolean {
+        return this.modeName === "survival" || this.modeName === "adventure";
+    }
+
+    /** 按当前模式应用角色能力（生存/冒险/旁观禁止飞行）。 */
     private applyModeFlags(): void {
-        const survival = this.modeName === "survival";
-        if (survival || this.modeName === "spectator") {
+        const survivalLike = this.survivalLike;
+        if (survivalLike || this.modeName === "spectator") {
             this.player.allowFlying = false;
             this.player.setFlying(false);
         } else {
             this.player.allowFlying = true;
         }
-        // 生存模式：水面不是跳板——在水里/水面只能靠浮力上浮，浮出液面后才起跳。
-        this.player.waterJump = !survival;
+        // 生存/冒险模式：水面不是跳板——在水里/水面只能靠浮力上浮，浮出液面后才起跳。
+        this.player.waterJump = !survivalLike;
     }
 
     /** 设置游戏模式并重置视角拖拽/出窍等状态。 */
@@ -788,7 +836,7 @@ class GameSession {
     private toggleMode(): void {
         if (this.menu || this.inventoryOpen) return;
         const previousMode = this.modeName;
-        const cycle: GameModeName[] = [GameModes.CREATIVE.id, GameModes.SURVIVAL.id, GameModes.SPECTATOR.id];
+        const cycle: GameModeName[] = [GameModes.CREATIVE.id, GameModes.SURVIVAL.id, GameModes.ADVENTURE.id, GameModes.SPECTATOR.id];
         const next = cycle[(cycle.indexOf(this.modeName) + 1) % cycle.length] ?? GameModes.CREATIVE.id;
         this.setMode(next);
         this.notice = text("已切换游戏模式", "Game mode switched");
@@ -837,13 +885,15 @@ class GameSession {
         return block ? [wx, wy, block.id] : null;
     }
 
-    private blockName(id: string): string {
-        return blockRegistry.get(id)?.label?.[language] ?? id;
+    /** 堆叠显示名：方块注册表 → 物品注册表 → 原始 id。 */
+    private stackName(id: string): string {
+        return blockRegistry.get(id)?.label?.[language] ?? itemDefinition(id)?.label?.[language] ?? id;
     }
 
     private getPlacementTarget(): [number, number] | null {
         if (this.modeName === "spectator") return null;
-        if (!this.hotbar[this.selected]) return null;
+        // 空手或手持非方块物品（工具）时不能放置。
+        if (!this.isPlaceableBlock(this.hotbar[this.selected]?.id)) return null;
         const [x, y] = this.worldAtMouse();
         const cellX = Math.floor(x);
         const cellY = Math.ceil(y);
@@ -1147,9 +1197,9 @@ class GameSession {
         }
         const parts = input.slice(1).trim().split(/\s+/);
         const command = parts[0]?.toLowerCase();
-        if (command === "gamemode" && (parts[1] === "creative" || parts[1] === "survival" || parts[1] === "spectator")) {
+        if (command === "gamemode" && (GAME_MODE_NAMES as string[]).includes(parts[1])) {
             const previousMode = this.modeName;
-            this.setMode(parts[1]);
+            this.setMode(parts[1] as GameModeName);
             this.save();
             plugins.notifyGameModeChanged({...this.pluginContext(), previousMode, mode: this.modeName});
             storage.log("Game mode changed", {world: this.meta.name, from: previousMode, to: this.modeName});
@@ -1177,6 +1227,7 @@ class GameSession {
             this.addChat(`Aggro range set to ${range}`);
         } else if (command === "seed") this.addChat(`Seed: ${this.meta.seed ?? 0}`);
         else if (command === "time") this.handleTimeCommand(parts);
+        else if (command === "tick") this.handleTickCommand(parts);
         else if (command === "locate") {
             const target = (parts[1] ?? "").toLowerCase();
             if (!LOCATABLE_BIOMES.includes(target)) this.addChat(`Biomes: ${LOCATABLE_BIOMES.join(", ")}`);
@@ -1210,14 +1261,14 @@ class GameSession {
                 blockArg = first;
                 countArg = parts[2];
             }
-            const id = blockArg ? this.resolveBlockId(blockArg) : undefined;
+            const id = blockArg ? this.resolveStackId(blockArg) : undefined;
             if (!id) {
-                this.addChat(`${text("未知方块", "Unknown block")} "${blockArg}"`);
+                this.addChat(`${text("未知方块或物品", "Unknown block or item")} "${blockArg}"`);
             } else if (this.blockCannotGive(id)) {
-                this.addChat(`${text("该方块无法拿在手中", "This block cannot be given")} "${this.blockName(id)}"`);
+                this.addChat(`${text("该方块无法拿在手中", "This block cannot be given")} "${this.stackName(id)}"`);
             } else {
                 const count = countArg !== undefined && Number.isFinite(Number(countArg))
-                    ? Math.max(1, Math.min(MAX_STACK_SIZE, Math.floor(Number(countArg))))
+                    ? Math.max(1, Math.min(stackLimit(id), Math.floor(Number(countArg))))
                     : 1;
                 this.giveItems(id, count, target);
             }
@@ -1330,13 +1381,13 @@ class GameSession {
     }
 
     /**
-     * /reload [images | animations | hitboxes | plugins | all] — 就地刷新资源与配置，
+     * /reload [images | items | animations | hitboxes | squeeze | plugins | all] — 就地刷新资源与配置，
      * 无需重开页面。默认全部重载。
      */
     private async handleReloadCommand(parts: string[]): Promise<void> {
         const part = (parts[1] ?? "all").toLowerCase();
-        if (!["images", "animations", "hitboxes", "squeeze", "plugins", "all"].includes(part)) {
-            this.addChat(`${text("未知的重载目标", "Unknown reload target")}. ${text("目标", "Targets")}: images, animations, hitboxes, squeeze, plugins, all`);
+        if (!["images", "items", "animations", "hitboxes", "squeeze", "plugins", "all"].includes(part)) {
+            this.addChat(`${text("未知的重载目标", "Unknown reload target")}. ${text("目标", "Targets")}: images, items, animations, hitboxes, squeeze, plugins, all`);
             return;
         }
         const reloaded: string[] = [];
@@ -1345,8 +1396,9 @@ class GameSession {
             this.biomeImages.clear();
             this.guiImages.clear();
             [...new Set([...blockRegistry.list().map((block) => block.id), ...plugins.blocks.keys()].filter((type): type is string => type !== null))].forEach((type) => this.loadBlock(type, true));
-            this.loadGui("mode_creative", "/assets/gui/gamemode/creative.png", true);
-            this.loadGui("mode_spectator", "/assets/gui/gamemode/spectator.png", true);
+            this.itemImages.clear();
+            this.loadAllItemImages(true);
+            this.loadModeIcons(true);
             this.loadGui("mouse", "/assets/gui/mouse/mouse.png", true);
             this.loadGui("mouse_attack", "/assets/gui/mouse/attack.png", true);
             this.loadGui("mouse_left_broke", "/assets/gui/mouse/mouse_left_broke.png", true);
@@ -1357,6 +1409,12 @@ class GameSession {
             this.loadGui(INVENTORY_PANELS.survival.key, INVENTORY_PANELS.survival.src, true);
             reloadCharacterImages();
             reloaded.push("images");
+        }
+        if (part === "items" || part === "all") {
+            // 重新读取 public/items/items.json（改完挖掘速度/伤害/耐久不用重开页面），并刷新物品贴图。
+            await loadItemConfigs();
+            this.loadAllItemImages(true);
+            reloaded.push(`items(${itemRegistry.list().length})`);
         }
         if (part === "animations" || part === "all") {
             await reloadCharacterAnimations();
@@ -1581,12 +1639,13 @@ class GameSession {
         if (!parts[0]) return CHAT_COMMANDS.map((command) => `/${command}`);
         if (parts.length === 1 && !trailing) return CHAT_COMMANDS.filter((command) => command.startsWith(parts[0].toLowerCase())).map((command) => `/${command}`);
         const command = parts[0].toLowerCase();
-        // /give：目标选择器 + 方块 id 列表（含插件方块）。
+        // /give：目标选择器 + 方块 id 列表（含插件方块）+ 物品（工具）id 列表。
         if (command === "give") {
             const prefix = trailing ? "" : parts.at(-1)?.toLowerCase() || "";
             const ids = ["@p", "@a", "@r", username,
                 ...blockRegistry.list().filter((block) => !block.nbt?.cannot_give).map((block) => block.id),
                 ...[...plugins.blocks.values()].filter((block) => !block.nbt?.cannot_give).map((block) => block.id),
+                ...itemRegistry.list().map((item) => item.id),
             ];
             return [...new Set(ids)].filter((id) => id.startsWith(prefix));
         }
@@ -1790,12 +1849,12 @@ class GameSession {
         const playerTop = playerBottom + 1.9;
         if (left < placeX + 1 && right > placeX && playerBottom < placeY && playerTop > placeY - 1) return;
         const type = this.hotbar[this.selected]?.id;
-        if (!type) return;
+        if (!type || !this.isPlaceableBlock(type)) return;
         if (this.world.placeBlock(placeX, placeY, type)) {
             this.notice = text("方块已放置", "Block placed");
             this.noticeTimer = 1;
-            // 生存模式消耗 1 个方块；创造模式无限放置。
-            if (this.modeName === "survival") {
+            // 生存/冒险模式消耗 1 个方块；创造模式无限放置。
+            if (this.survivalLike) {
                 const stack = this.hotbar[this.selected];
                 if (stack) {
                     if (stack.count <= 1) this.hotbar[this.selected] = null;
@@ -1828,64 +1887,89 @@ class GameSession {
         this.squeezeIframe = Math.max(0, this.squeezeIframe - dt);
         this.player.ghost = this.spectate || this.modeName === "spectator";
         if (!this.paused && !this.chatOpen && !this.inventoryOpen) {
-            // 昼夜循环：世界在跑的时候才推进时刻（暂停/背包/聊天时冻结）。
-            if (settings.dayNightCycle) this.time += dt;
-            if (!this.spectate) this.mode.update({
-                player: this.player,
-                world: this.world,
-                keys: this.keys,
-                mouseDown: this.mouseDown,
-                hovered: this.hovered(),
-                mouseWorld: this.worldAtMouse(),
-                mobs: this.mobs,
-                blockSize: this.blockSize,
-                dt,
-                textures: this.blockImages,
-                blockTextureAt: (type, x) => this.blockImageFor(type, x),
-                onBlockBroken: (x, y, type) => {
-                    plugins.notifyBlockBroken({...this.pluginContext(), x, y, type});
-                    storage.log("Block broken", {world: this.meta.name, x, y, type});
-                    // 生存模式掉落被破坏的方块自身。支撑消失而级联掉落的地物（花/草/仙人掌）
-                    // 也会走到这里（每次回调一格），因此同样会掉落自身而不是凭空消失。
-                    if (this.modeName === "survival") {
-                        this.drops.spawn({id: type, count: 1}, x + 0.5, y + 0.3, (Math.random() - 0.5) * 1.5, 3.2);
-                    }
+            if (this.frozen) {
+                // /tick freeze：世界不推进，只补跑 /tick step 排队的 tick（每 tick = 1/tickRate 秒）。
+                let budget = MAX_STEP_TICKS_PER_FRAME;
+                while (this.pendingSteps > 0 && budget > 0) {
+                    this.pendingSteps -= 1;
+                    budget -= 1;
+                    this.stepWorld(tickSeconds(this.tickRate));
                 }
-            });
-            if (this.player.flying !== this.lastFlying) {
-                this.lastFlying = this.player.flying;
-                plugins.notifyFlyChanged({...this.pluginContext(), flying: this.player.flying});
-                storage.log("Fly mode changed", {world: this.meta.name, flying: this.player.flying});
-            }
-            this.world.updateView(this.player.x);
-            this.fluids.update(this.world, dt);
-            this.drops.update(dt, this.world, this.player.x, this.player.y + this.player.height / 2);
-            this.updateDroppedItemPickup();
-            this.updateVoid(dt);
-            this.updateSqueeze(dt);
-            this.fx.update(dt);
-            const damagePlayer = this.player.ghost || this.modeName === "creative" ? () => undefined : (amount: number) => this.damagePlayer(amount);
-            this.mobs.update(dt, this.world, this.player, damagePlayer, (kind, x, y, cause) => {
-                this.fx.burst(x, y, characterParticleTexture(kind));
-                this.addChat(this.mobDeathLine(kind, cause), "#ffd24a");
-                plugins.notifyMobKilled({...this.pluginContext(), kind, x, y});
-                storage.log("Mob killed", {world: this.meta.name, kind, x, y, cause});
-            }, !this.player.ghost, (damage, undead) => {
-                // MC 式实体挤压伤害：创造/幽灵/旁观免伤；1s 无敌帧；亡灵挤压附带 5s 缓慢
-                if (this.player.ghost || this.modeName === "creative" || this.squeezeIframe > 0) return;
-                this.squeezeIframe = PLAYER_SQUEEZE_IFRAME;
-                if (undead) this.player.slowTimer = UNDEAD_SLOW_SECONDS;
-                damagePlayer(damage);
-            });
-            plugins.notifyGameTick({...this.pluginContext(), dt});
-            this.autosaveElapsed += dt;
-            if (settings.autosaveInterval > 0 && this.autosaveElapsed >= settings.autosaveInterval) {
-                this.save();
-                this.autosaveElapsed = 0;
+            } else {
+                // /tick rate：一帧需要模拟的秒数 = 真实帧时长 × (tickRate / 20)，
+                // 再拆成不超过一个正常 tick（1/20 秒）的子步（core/tick.ts 的 simulationSteps）。
+                for (const step of simulationSteps(dt, this.tickRate, MAX_STEPS_PER_FRAME)) this.stepWorld(step);
             }
         }
         this.render();
         requestAnimationFrame(this.tick);
+    };
+
+    /**
+     * 推进一次世界模拟（一个 tick，或倍速下拆分出的一个子步）。
+     * 世界时间、模式逻辑、区块流送、流体、掉落物、生物、插件 tick 与自动保存都在这里，
+     * 与真实帧率解耦 —— /tick rate 只改变「每帧跑几个这样的步」，不改变单步内的物理。
+     */
+    private stepWorld(dt: number): void {
+        // 昼夜循环：世界在跑的时候才推进时刻（暂停/背包/聊天/冻结时停住）。
+        if (settings.dayNightCycle) this.time += dt;
+        if (!this.spectate) this.mode.update({
+            player: this.player,
+            world: this.world,
+            keys: this.keys,
+            mouseDown: this.mouseDown,
+            hovered: this.hovered(),
+            mouseWorld: this.worldAtMouse(),
+            mobs: this.mobs,
+            blockSize: this.blockSize,
+            dt,
+            textures: this.blockImages,
+            blockTextureAt: (type, x) => this.blockImageFor(type, x),
+            // 主手堆叠：模式用它换算挖掘速度（对口工具加速）与攻击伤害。
+            heldItem: this.heldStack(),
+            // 挖掘/攻击消耗 1 点工具耐久（创造模式不消耗，因此只在生存/冒险模式下接上）。
+            onToolUsed: this.survivalLike ? (amount: number) => this.damageTool(amount) : undefined,
+            onBlockBroken: (x, y, type) => {
+                plugins.notifyBlockBroken({...this.pluginContext(), x, y, type});
+                storage.log("Block broken", {world: this.meta.name, x, y, type});
+                // 生存/冒险模式掉落被破坏的方块自身。支撑消失而级联掉落的地物（花/草/仙人掌）
+                // 也会走到这里（每次回调一格），因此同样会掉落自身而不是凭空消失。
+                if (this.survivalLike) {
+                    this.drops.spawn({id: type, count: 1}, x + 0.5, y + 0.3, (Math.random() - 0.5) * 1.5, 3.2);
+                }
+            }
+        });
+        if (this.player.flying !== this.lastFlying) {
+            this.lastFlying = this.player.flying;
+            plugins.notifyFlyChanged({...this.pluginContext(), flying: this.player.flying});
+            storage.log("Fly mode changed", {world: this.meta.name, flying: this.player.flying});
+        }
+        this.world.updateView(this.player.x);
+        this.fluids.update(this.world, dt);
+        this.drops.update(dt, this.world, this.player.x, this.player.y + this.player.height / 2);
+        this.updateDroppedItemPickup();
+        this.updateVoid(dt);
+        this.updateSqueeze(dt);
+        this.fx.update(dt);
+        const damagePlayer = this.player.ghost || this.modeName === "creative" ? () => undefined : (amount: number) => this.damagePlayer(amount);
+        this.mobs.update(dt, this.world, this.player, damagePlayer, (kind, x, y, cause) => {
+            this.fx.burst(x, y, characterParticleTexture(kind));
+            this.addChat(this.mobDeathLine(kind, cause), "#ffd24a");
+            plugins.notifyMobKilled({...this.pluginContext(), kind, x, y});
+            storage.log("Mob killed", {world: this.meta.name, kind, x, y, cause});
+        }, !this.player.ghost, (damage, undead) => {
+            // MC 式实体挤压伤害：创造/幽灵/旁观免伤；1s 无敌帧；亡灵挤压附带 5s 缓慢
+            if (this.player.ghost || this.modeName === "creative" || this.squeezeIframe > 0) return;
+            this.squeezeIframe = PLAYER_SQUEEZE_IFRAME;
+            if (undead) this.player.slowTimer = UNDEAD_SLOW_SECONDS;
+            damagePlayer(damage);
+        });
+        plugins.notifyGameTick({...this.pluginContext(), dt});
+        this.autosaveElapsed += dt;
+        if (settings.autosaveInterval > 0 && this.autosaveElapsed >= settings.autosaveInterval) {
+            this.save();
+            this.autosaveElapsed = 0;
+        }
     };
 
     private updateVoid(dt: number): void {
@@ -1983,21 +2067,57 @@ class GameSession {
         this.blockImages.set(type, image);
     }
 
+    /**
+     * 加载一个物品贴图（public/assets/items/<texture>.png）。物品贴图缺失时存一张
+     * fallback 画布（画一个灰色方块），保证槽位里仍能看出「有东西」而不是空白。
+     */
+    private loadItem(id: string, bust = false): void {
+        const src = itemTextureSrc(id);
+        if (!src) return;
+        const image = new Image();
+        image.onerror = () => {
+            const canvas = document.createElement("canvas");
+            canvas.width = 16;
+            canvas.height = 16;
+            const cctx = canvas.getContext("2d");
+            if (cctx) {
+                cctx.fillStyle = "#8b8b8b";
+                cctx.fillRect(2, 2, 12, 12);
+            }
+            this.itemImages.set(id, canvas);
+        };
+        image.src = bust ? `${src}?t=${Date.now()}` : src;
+        this.itemImages.set(id, image);
+    }
+
+    /** 加载物品注册表里的全部贴图（构造与 /reload items 都会走这里）。 */
+    private loadAllItemImages(bust = false): void {
+        itemRegistry.list().forEach((item) => this.loadItem(item.id, bust));
+    }
+
     /** Raw texture for a block id, or a biome-tinted variant for grass/leaves at column `x`. */
-    private blockImageFor(id: string, x: number): HTMLImageElement | HTMLCanvasElement | undefined {
-        if (id === Blocks.MY2DWORLD.GRASS_BLOCK.id) return this.biomeTexture("grass_block", this.biomeAtCached(x));
+    private blockImageFor(id: string, x: number): HTMLImageElement | HTMLCanvasElement | undefined {        if (id === Blocks.MY2DWORLD.GRASS_BLOCK.id) return this.biomeTexture("grass_block", this.biomeAtCached(x));
         if (id === Blocks.MY2DWORLD.OAK_LEAVES.id) return this.biomeTexture("leaves", this.biomeAtCached(x));
         if (id === Blocks.MY2DWORLD.SHORT_GRASS.id) return this.biomeTexture("short_grass", this.biomeAtCached(x));
         return this.blockImages.get(id);
     }
 
-    /** 绘制流体（水/岩浆）：液面随 level 变化，level 0 满格、level 7 最低（1/8 格高）。sx/sy 为该格左上角屏幕坐标。 */
-    private drawFluid(ctx: CanvasRenderingContext2D, sx: number, sy: number, id: string, x: number, y: number, bs: number): void {
+    /**
+     * 绘制流体（水/岩浆）：液面随 level 变化，level 0 满格、level 7 最低（1/8 格高）。
+     * 坐标是**未对齐**的整格左上角屏幕坐标（CSS 像素），这里统一对齐到设备像素网格：
+     * 否则 dpr 非整数时水流柱会和上下相邻格之间露出 1px 天空色横线（海面白线，见 core/pixels.ts）。
+     */
+    private drawFluid(ctx: CanvasRenderingContext2D, cellLeft: number, cellTop: number, id: string, x: number, y: number, bs: number): void {
         const nbt = this.world.nbtAt(x, y);
         const level = typeof nbt.level === "number" ? Math.max(0, Math.min(7, Math.floor(nbt.level))) : 0;
         const h = Math.max(1, Math.round(bs * (1 - level / 8)));
+        const dpr = this.dpr;
+        const left = snapToDevice(cellLeft, dpr);
+        const right = snapToDevice(cellLeft + bs, dpr);
+        const bottom = snapToDevice(cellTop + bs, dpr);
+        const top = snapToDevice(cellTop + bs - h, dpr);
         ctx.fillStyle = fluidColor(id);
-        ctx.fillRect(sx, sy + bs - h, bs, h);
+        ctx.fillRect(left, top, right - left, Math.max(1 / dpr, bottom - top));
     }
 
     /** 按列缓存 biomeAt：同一整数列 x 的草/树叶/草丛每帧共享一次噪声采样（世界种子固定，缓存永不过期）。 */
@@ -2014,10 +2134,18 @@ class GameSession {
 
     /** Icon texture for inventory/hotbar slots (uses a neutral biome tint). */
     private iconFor(type: string): HTMLImageElement | HTMLCanvasElement | undefined {
+        // 物品（工具等）优先：物品贴图直接来自 public/assets/items，不做群系染色。
+        const item = this.itemImages.get(type);
+        if (item) return item;
         if (type === Blocks.MY2DWORLD.GRASS_BLOCK.id) return this.biomeTexture("grass_block", DEFAULT_BIOME);
         if (type === Blocks.MY2DWORLD.OAK_LEAVES.id) return this.biomeTexture("leaves", DEFAULT_BIOME);
         if (type === Blocks.MY2DWORLD.SHORT_GRASS.id) return this.biomeTexture("short_grass", DEFAULT_BIOME);
         return this.blockImages.get(type);
+    }
+
+    /** 悬停/手持物品是否为可放置的方块（工具、物品不能放置）。 */
+    private isPlaceableBlock(id: string | undefined): boolean {
+        return !!id && !!(blockRegistry.get(id) ?? plugins.blocks.get(id));
     }
 
     /**
@@ -2094,6 +2222,22 @@ class GameSession {
         this.guiImages.set(key, image);
     }
 
+    /** 按 `MODE_ICON_SOURCES` 加载全部游戏模式图标（构造与 `/reload images` 共用）。 */
+    private loadModeIcons(bust = false): void {
+        for (const [mode, src] of Object.entries(MODE_ICON_SOURCES)) this.loadGui(`mode_${mode}`, src, bust);
+    }
+
+    /** 当前模式图标的 guiImages 键（`mode_<模式>`）；四种模式都有贴图。 */
+    private modeIconKey(): string {
+        return `mode_${this.modeName}`;
+    }
+
+    /** 当前模式的图标贴图（未加载完成时返回 undefined，调用方自行跳过绘制）。 */
+    private modeIcon(): HTMLImageElement | undefined {
+        const image = this.guiImages.get(this.modeIconKey());
+        return image?.complete && image.naturalWidth ? image : undefined;
+    }
+
     private pluginContext(): PluginGameContext {
         return {
             username,
@@ -2133,8 +2277,9 @@ class GameSession {
         for (const slots of [this.inventorySlots, this.hotbar]) {
             for (const slot of slots) {
                 if (!held) break;
-                if (slot && slot.id === held.id && slot.count < MAX_STACK_SIZE) {
-                    const moved = Math.min(MAX_STACK_SIZE - slot.count, held.count);
+                const limit = stackLimit(held.id);
+                if (slot && slot.id === held.id && slot.count < limit && sameDurability(slot, held)) {
+                    const moved = Math.min(limit - slot.count, held.count);
                     slot.count += moved;
                     held = moved >= held.count ? null : {...held, count: held.count - moved};
                 }
@@ -2158,11 +2303,13 @@ class GameSession {
     /** 把一堆物品放进快捷栏/背包（先并入同 id 未满格，再放入空格）；返回放不下的剩余数量。 */
     private addStack(stack: ItemStack): number {
         let remaining = stack.count;
+        const limit = stackLimit(stack.id);
         for (const slots of [this.hotbar, this.inventorySlots]) {
             for (const slot of slots) {
                 if (remaining <= 0) break;
-                if (slot && slot.id === stack.id && slot.count < MAX_STACK_SIZE) {
-                    const moved = Math.min(MAX_STACK_SIZE - slot.count, remaining);
+                // 同 id 且耐久一致才并入（工具上限为 1，因此实际不会合并）。
+                if (slot && slot.id === stack.id && slot.count < limit && sameDurability(slot, stack)) {
+                    const moved = Math.min(limit - slot.count, remaining);
                     slot.count += moved;
                     remaining -= moved;
                 }
@@ -2171,8 +2318,8 @@ class GameSession {
         for (const slots of [this.hotbar, this.inventorySlots]) {
             for (let i = 0; i < slots.length && remaining > 0; i += 1) {
                 if (slots[i] === null) {
-                    const count = Math.min(MAX_STACK_SIZE, remaining);
-                    slots[i] = {id: stack.id, count};
+                    const count = Math.min(limit, remaining);
+                    slots[i] = {id: stack.id, count, durability: stack.durability};
                     remaining -= count;
                 }
             }
@@ -2180,13 +2327,18 @@ class GameSession {
         return remaining;
     }
 
-    /** /give [目标] <方块> [数量]：放入背包，放不下的部分作为掉落物丢在玩家脚下。 */
+    /** /give [目标] <方块/物品> [数量]：放入背包，放不下的部分作为掉落物丢在玩家脚下。 */
     private giveItems(id: string, count: number, target = "@p"): void {
-        const leftover = this.addStack({id, count});
+        const limit = stackLimit(id);
+        const total = Math.max(1, Math.min(limit, Math.floor(count)));
+        // 工具给出即满耐久；堆叠上限（工具为 1）之外的余量丢在脚下。
+        const durability = maxDurabilityFor(id);
+        const stack: ItemStack = durability > 0 ? {id, count: total, durability} : {id, count: total};
+        const leftover = this.addStack(stack);
         if (leftover > 0) {
-            this.drops.spawn({id, count: leftover}, this.player.x, this.player.y + 0.5, this.player.facing * 1.2, 2);
+            this.drops.spawn({id, count: leftover, durability: stack.durability}, this.player.x, this.player.y + 0.5, this.player.facing * 1.2, 2);
         }
-        this.addChat(`${text("已给予", "Gave")} ${target} ${this.blockName(id)} ×${count}`);
+        this.addChat(`${text("已给予", "Gave")} ${target} ${this.stackName(id)} ×${total}`);
         this.save();
     }
 
@@ -2194,6 +2346,88 @@ class GameSession {
     private killPlayer(): void {
         this.health = 0;
         this.respawn("command");
+    }
+
+    /** tick 速率的中文/英文短语（HUD 与命令共用）。 */
+    private tickLabel(): string {
+        const rate = `${this.tickRate}${text("tick/秒", " tick/s")}`;
+        if (this.frozen) return `TICK ${text("已冻结", "FROZEN")} · ${rate}${this.pendingSteps > 0 ? ` (+${this.pendingSteps})` : ""}`;
+        return `TICK ${rate} ×${(this.tickRate / NORMAL_TICK_RATE).toFixed(2)}`;
+    }
+
+    /**
+     * /tick：客户端 tick 速率（游戏速度）控制。20 tick/秒 = 正常速度（1 倍速）。
+     * 用法：`/tick`、`/tick rate <1-200|normal>`、`/tick freeze [on|off]`、`/tick unfreeze`、
+     * `/tick step [n]`（冻结后单步推进 n 个 tick）。也可以直接 `/tick 40`。
+     */
+    private handleTickCommand(parts: string[]): void {
+        const usage = (): void => {
+            this.addChat(`${text("用法", "Usage")}: /tick | /tick rate <${MIN_TICK_RATE}-${MAX_TICK_RATE}|normal> | /tick freeze|unfreeze | /tick step [n]`);
+        };
+        const setRate = (value: number): void => {
+            const rate = clampTickRate(value);
+            this.tickRate = rate;
+            this.addChat(`${text("tick 速率", "Tick rate")} ${this.tickLabel()}`);
+            storage.log("Tick rate changed", {world: this.meta.name, rate});
+        };
+        // 冻结开关：value 为空视为开；/tick freeze off 解冻。
+        const setFrozen = (on: boolean): void => {
+            this.frozen = on;
+            if (!on) this.pendingSteps = 0;
+            this.addChat(`${text("世界", "World")} ${on ? text("已冻结", "frozen") : text("恢复运行", "running")} · ${this.tickLabel()}`);
+            storage.log("Tick freeze changed", {world: this.meta.name, frozen: on});
+        };
+
+        const sub = (parts[1] ?? "").toLowerCase();
+        if (!sub) {
+            this.addChat(this.tickLabel());
+            return;
+        }
+        if (sub === "rate") {
+            const raw = (parts[2] ?? "").toLowerCase();
+            if (["normal", "default", "reset"].includes(raw)) {
+                setRate(NORMAL_TICK_RATE);
+                return;
+            }
+            const value = Number(raw);
+            if (raw === "" || !Number.isFinite(value) || value < MIN_TICK_RATE || value > MAX_TICK_RATE) {
+                usage();
+                return;
+            }
+            setRate(value);
+            return;
+        }
+        // /tick 40 == /tick rate 40
+        if (Number.isFinite(Number(sub))) {
+            setRate(Number(sub));
+            return;
+        }
+        if (sub === "freeze" || sub === "pause") {
+            const value = (parts[2] ?? "").toLowerCase();
+            setFrozen(!["off", "false", "0"].includes(value));
+            return;
+        }
+        if (sub === "unfreeze" || sub === "resume" || sub === "start") {
+            setFrozen(false);
+            return;
+        }
+        if (sub === "step") {
+            if (!this.frozen) {
+                this.addChat(text("先用 /tick freeze 冻结世界，再用 /tick step 单步推进", "Freeze the world with /tick freeze before stepping"));
+                return;
+            }
+            const raw = (parts[2] ?? "1").toLowerCase();
+            const count = Number(raw === "" ? 1 : raw);
+            if (!Number.isFinite(count) || count < 1) {
+                usage();
+                return;
+            }
+            const ticks = Math.max(1, Math.min(MAX_TICK_STEP_TOTAL, Math.floor(count)));
+            this.pendingSteps += ticks;
+            this.addChat(`${text("单步推进", "Stepping")} ${ticks} tick (${ticksToSeconds(ticks, this.tickRate).toFixed(2)}s)`);
+            return;
+        }
+        usage();
     }
 
     /**
@@ -2258,6 +2492,10 @@ class GameSession {
     /** 把命令参数里的方块 id 解析成规范 id（含命名空间）；未知 id 返回 undefined。 */
     private resolveBlockId(id: string): string | undefined {
         return (blockRegistry.get(id) ?? plugins.blocks.get(id))?.id;
+    }
+    /** 把命令参数里的方块/物品 id 解析成规范 id（含命名空间）；两个注册表都查，未知返回 undefined。 */
+    private resolveStackId(id: string): string | undefined {
+        return this.resolveBlockId(id) ?? itemDefinition(id)?.id;
     }
 
     /** 该方块是否被 cannot_give 标记为不可拿在手中 / 掉落 / 给予（例如水、岩浆）。 */
@@ -2464,15 +2702,15 @@ class GameSession {
         this.drops.spawn({id, count: 1}, wx + 0.5, wy - 0.5, (Math.random() - 0.5) * 1.2, 2.5);
     }
 
-    /** 按 Q 丢弃：从选中的快捷栏格丢出 1 个物品作为掉落物实体。 */
+    /** 按 Q 丢弃：从选中的快捷栏格丢出 1 个物品作为掉落物实体（工具保留剩余耐久）。 */
     private dropSelectedItem(): void {
         const stack = this.hotbar[this.selected];
         if (!stack) return;
-        const id = stack.id;
+        const dropped: ItemStack = {id: stack.id, count: 1, durability: stack.durability};
         if (stack.count <= 1) this.hotbar[this.selected] = null;
         else stack.count -= 1;
         this.drops.spawn(
-            {id, count: 1},
+            dropped,
             this.player.x + this.player.facing * 0.45,
             this.player.y + 0.6,
             this.player.facing * 1.8,
@@ -2481,29 +2719,30 @@ class GameSession {
         this.save();
     }
 
-    /** 背包打开时按 Q：创造模式销毁悬停格整堆物品；生存模式不摧毁，改为整堆丢到世界中。 */
+    /** 背包打开时按 Q：创造模式销毁悬停格整堆物品；生存/冒险模式不摧毁，改为整堆丢到世界中。 */
     private destroyHoveredItem(): void {
         const slot = this.inventorySlotAt(this.lastMouseX, this.lastMouseY);
         // 销毁格本身不存物品，红色 X 靠鼠标点击（放上去即销毁）生效。
         if (!slot || slot.kind === "destroy") return;
         const stack = this.slotStack(slot);
         if (!stack) return;
-        if (this.modeName === "survival") {
+        if (this.survivalLike) {
             this.drops.spawn(stack, this.player.x + this.player.facing * 0.45, this.player.y + 0.7, this.player.facing * 1.5, 2.5);
         }
         this.setSlotStack(slot, null);
         this.save();
     }
 
-    /** 鼠标中键：把指向的方块复制一整组到当前选中的快捷栏格。 */
+    /** 鼠标中键：把指向的方块复制一整组（堆叠上限，工具为 1）到当前选中的快捷栏格。 */
     private pickBlock(): void {
         const target = this.pointedBlock();
         if (!target) return;
         const id = target[2];
         // 流体等不可携带（cannot_give）方块不复制到手中。
         if (this.blockCannotGive(id)) return;
-        this.hotbar[this.selected] = {id, count: MAX_STACK_SIZE};
-        this.notice = `${text("已选取", "Picked")} ${this.blockName(id)} ×${MAX_STACK_SIZE}`;
+        const count = stackLimit(id);
+        this.hotbar[this.selected] = {id, count};
+        this.notice = `${text("已选取", "Picked")} ${this.stackName(id)} ×${count}`;
         this.noticeTimer = 1.2;
         this.save();
     }
@@ -2663,24 +2902,25 @@ class GameSession {
     /** 把鼠标上的堆叠均分到拖过的格子：每格尽量一样多，余数从前面的格子开始加；
      *  只放进空格或同 id 未满的格子（不同 id 的格子不交换、保持原样），放不下的留在手上。 */
     private distributeHeldStack(targets: InventorySlotRef[], stack: ItemStack): void {
+        const limit = stackLimit(stack.id);
         const usable = targets.filter((slot) => {
             const current = this.slotStack(slot);
-            return !current || (current.id === stack.id && current.count < MAX_STACK_SIZE);
+            return !current || (current.id === stack.id && current.count < limit && sameDurability(current, stack));
         });
         if (!usable.length) return;
         const shares = distributeStack(stack.count, usable.map((slot) => {
             const current = this.slotStack(slot);
-            return current ? MAX_STACK_SIZE - current.count : MAX_STACK_SIZE;
+            return current ? limit - current.count : limit;
         }));
         let remaining = stack.count;
         usable.forEach((slot, index) => {
             const give = shares[index];
             if (give <= 0) return;
             const current = this.slotStack(slot);
-            this.setSlotStack(slot, current ? {id: stack.id, count: current.count + give} : {id: stack.id, count: give});
+            this.setSlotStack(slot, current ? {id: stack.id, count: current.count + give, durability: stack.durability} : {id: stack.id, count: give, durability: stack.durability});
             remaining -= give;
         });
-        this.heldInventoryItem = remaining > 0 ? {id: stack.id, count: remaining} : null;
+        this.heldInventoryItem = remaining > 0 ? {id: stack.id, count: remaining, durability: stack.durability} : null;
         this.save();
         storage.log("Inventory drag distributed", {
             world: this.meta.name,
@@ -2690,15 +2930,16 @@ class GameSession {
         });
     }
 
-    /** 把鼠标上的堆叠放到某一格：同 id 合并（超出上限的部分留在手上），不同 id 交换。 */
+    /** 把鼠标上的堆叠放到某一格：同 id 合并（超出堆叠上限的部分留在手上），不同 id 交换。 */
     private placeHeldIntoSlot(slot: InventorySlotRef): void {
         const held = this.heldInventoryItem;
         if (!held) return;
         const slotItem = this.slotStack(slot);
-        if (slotItem && slotItem.id === held.id) {
+        if (slotItem && slotItem.id === held.id && sameDurability(slotItem, held)) {
+            const limit = stackLimit(held.id);
             const total = slotItem.count + held.count;
-            this.setSlotStack(slot, {id: held.id, count: Math.min(MAX_STACK_SIZE, total)});
-            this.heldInventoryItem = total > MAX_STACK_SIZE ? {id: held.id, count: total - MAX_STACK_SIZE} : null;
+            this.setSlotStack(slot, {id: held.id, count: Math.min(limit, total), durability: held.durability});
+            this.heldInventoryItem = total > limit ? {id: held.id, count: total - limit, durability: held.durability} : null;
         } else {
             this.setSlotStack(slot, held);
             this.heldInventoryItem = slotItem;
@@ -2732,6 +2973,53 @@ class GameSession {
             left: this.offhand ? this.iconFor(this.offhand.id) ?? null : null,
             right: main ? this.iconFor(main.id) ?? null : null,
         };
+    }
+
+    /** 主手堆叠（当前选中的快捷栏格）；空手为 null。工具用它换算挖掘速度与攻击伤害。 */
+    private heldStack(): ItemStack | null {
+        return this.hotbar[this.selected] ?? null;
+    }
+
+    /** 主手物品剩余耐久（无耐久的物品返回 null）。 */
+    private heldDurability(): {current: number; max: number} | null {
+        const stack = this.heldStack();
+        if (!stack) return null;
+        const max = maxDurabilityFor(stack.id);
+        if (max <= 0) return null;
+        return {current: Math.max(0, Math.min(max, stack.durability ?? max)), max};
+    }
+
+    /** F3 调试的「主手」一行：物品名 + 耐久（工具）+ 挖掘速度倍率。 */
+    private debugHandLabel(): string {
+        const stack = this.heldStack();
+        if (!stack) return text("空手", "empty");
+        const durability = this.heldDurability();
+        const definition = itemDefinition(stack.id);
+        const speed = definition?.miningSpeed !== undefined && definition.tool ? ` speed=${definition.miningSpeed}` : "";
+        const damage = definition?.damage !== undefined ? ` dmg=${definition.damage}` : "";
+        return `${this.stackName(stack.id)}${durability ? ` ${durability.current}/${durability.max}` : ""}${speed}${damage}`;
+    }
+
+    /**
+     * 主手工具使用一次（挖掉一格 / 命中一次生物）：扣 amount 点耐久，归零时损坏消失。
+     * 只有配置了 durability 的物品会被消耗；创造/旁观不扣（modes 不会调用）。
+     * 不在这里 save()：挖掘是高频动作（10 倍速下每秒几十次），与破坏方块一样交给自动保存。
+     */
+    private damageTool(amount = 1): void {
+        const slot = this.selected;
+        const stack = this.hotbar[slot];
+        if (!stack) return;
+        const max = maxDurabilityFor(stack.id);
+        if (max <= 0) return;
+        const remaining = (stack.durability ?? max) - Math.max(1, Math.floor(amount));
+        if (remaining > 0) {
+            stack.durability = remaining;
+        } else {
+            this.hotbar[slot] = null;
+            this.notice = `${text("工具已损坏", "Tool broke")}: ${this.stackName(stack.id)}`;
+            this.noticeTimer = 1.6;
+            storage.log("Tool broke", {world: this.meta.name, item: stack.id});
+        }
     }
 
     private handleMenuClick(clientX: number, clientY: number): void {
@@ -2966,29 +3254,35 @@ class GameSession {
         const surfaceAlpha = darknessAlpha(cellLight(sky, 0), strength);
         const deepAlpha = darknessAlpha(cellLight(sky, SHADOW_DEPTH), strength);
         if (surfaceAlpha <= 0.002 && deepAlpha <= 0.002) return;
-        const rampHeight = Math.max(1, SHADOW_DEPTH * bs);
+        const dpr = this.dpr;
+        // 过渡带高度对齐到设备像素：渐变带与下方最暗带的公共边必须精确落在物理像素边界上，
+        // 否则两条半透明黑带的交界处会透出一条亮线（整片水面/海面上尤其明显，见 core/pixels.ts）。
+        const rampHeight = ambientRampHeight(bs, dpr);
         const ramp = ctx.createLinearGradient(0, 0, 0, rampHeight);
         ramp.addColorStop(0, `rgba(0,0,0,${surfaceAlpha.toFixed(4)})`);
         ramp.addColorStop(1, `rgba(0,0,0,${deepAlpha.toFixed(4)})`);
         const deepFill = `rgba(0,0,0,${deepAlpha.toFixed(4)})`;
         for (let x = left; x <= right; x += 1) {
-            const sx = Math.round((x - cameraX) * bs + width / 2);
-            if (sx + bs < 0 || sx > width) continue;
+            const cellLeft = Math.round((x - cameraX) * bs + width / 2);
+            const sx = snapToDevice(cellLeft, dpr);
+            const sw = deviceSpanSize(cellLeft, bs, dpr);
+            if (sx + sw < 0 || sx > width) continue;
             const top = this.world.columnTop(x);
             // 未加载 / 整列空气：整屏按天空处理，不压暗。
             if (top === null) continue;
-            const {rampTop, rampBottom} = ambientBands(cameraY, top, bs, height);
+            const {rampTop, rampBottom} = ambientBands(cameraY, top, bs, height, dpr);
             if (rampBottom > 0 && rampTop < height) {
                 ctx.save();
                 ctx.translate(0, rampTop);
                 ctx.fillStyle = ramp;
-                ctx.fillRect(sx, 0, bs, rampHeight);
+                ctx.fillRect(sx, 0, sw, rampHeight);
                 ctx.restore();
             }
             if (deepAlpha > 0.002 && rampBottom < height) {
                 const from = Math.max(0, rampBottom);
                 ctx.fillStyle = deepFill;
-                ctx.fillRect(sx, from, bs, height - from);
+                // 多画 2px：窗口高度 × dpr 可能不是整数，画布底边会留下半覆盖的一行。
+                ctx.fillRect(sx, from, sw, height - from + 2);
             }
         }
     }
@@ -3017,6 +3311,11 @@ class GameSession {
         // 缩到 25%（8px/格）时可见方块数激增，逐一 drawImage 会卡顿。
         // 此时把同列连续相同的方块合并成一次绘制（最近邻竖向拉伸），大幅减少绘制调用。
         const mergeColumns = bs <= 8;
+        // 每格的矩形都对齐到设备像素网格：相邻格共用同一条边，dpr 非整数时也不会露出背景缝
+        // （海面/流体上表现为一条条水平白线，见 core/pixels.ts）。
+        const dpr = this.dpr;
+        const edge = (css: number): number => snapToDevice(css, dpr);
+        const span = (css: number, size: number): number => deviceSpanSize(css, size, dpr);
         for (const [chunkX, chunk] of this.world.chunks) {
             if (chunkX * 16 > right || (chunkX + 1) * 16 < left) continue;
             const xFrom = Math.max(left, chunk.start);
@@ -3024,14 +3323,14 @@ class GameSession {
             const yUpTo = Math.min(top, WORLD_MAX_Y);
             if (mergeColumns) {
                 for (let x = xFrom; x < xTo; x += 1) {
-                    const sx = Math.round((x - cameraX) * bs + width / 2);
+                    const cellLeft = Math.round((x - cameraX) * bs + width / 2);
                     let y = bottom;
                     while (y <= yUpTo) {
                         const id = this.world.getBlockId(x, y);
                         if (!id) { y += 1; continue; }
                         if (isFluid(id)) {
-                            const sy = Math.round((cameraY - y) * bs + height / 2);
-                            this.drawFluid(ctx, sx, sy, id, x, y, bs);
+                            const cellTop = Math.round((cameraY - y) * bs + height / 2);
+                            this.drawFluid(ctx, cellLeft, cellTop, id, x, y, bs);
                             y += 1;
                             continue;
                         }
@@ -3039,31 +3338,39 @@ class GameSession {
                         while (y2 <= yUpTo && this.world.getBlockId(x, y2) === id) y2 += 1;
                         const run = y2 - y;
                         const image = this.blockImageFor(id, x);
-                        const sy = Math.round((cameraY - (y + run - 1)) * bs + height / 2);
-                        if (image) ctx.drawImage(image, sx, sy, bs, bs * run); else {
+                        const cellTop = Math.round((cameraY - (y + run - 1)) * bs + height / 2);
+                        const sy = edge(cellTop);
+                        const sx = edge(cellLeft);
+                        const sw = span(cellLeft, bs);
+                        const sh = span(cellTop, bs * run);
+                        if (image) ctx.drawImage(image, sx, sy, sw, sh); else {
                             const definition = blockRegistry.get(id);
                             ctx.fillStyle = definition?.color ?? "#000000";
-                            ctx.fillRect(sx, sy, bs, bs * run);
+                            ctx.fillRect(sx, sy, sw, sh);
                         }
                         y = y2;
                     }
                 }
             } else {
                 for (let x = xFrom; x < xTo; x += 1) {
-                    const sx = Math.round((x - cameraX) * bs + width / 2);
+                    const cellLeft = Math.round((x - cameraX) * bs + width / 2);
+                    const sx = edge(cellLeft);
+                    const sw = span(cellLeft, bs);
                     for (let y = bottom; y <= yUpTo; y += 1) {
                         const id = this.world.getBlockId(x, y);
                         if (!id) continue;
-                        const sy = Math.round((cameraY - y) * bs + height / 2);
+                        const cellTop = Math.round((cameraY - y) * bs + height / 2);
                         if (isFluid(id)) {
-                            this.drawFluid(ctx, sx, sy, id, x, y, bs);
+                            this.drawFluid(ctx, cellLeft, cellTop, id, x, y, bs);
                             continue;
                         }
+                        const sy = edge(cellTop);
+                        const sh = span(cellTop, bs);
                         const image = this.blockImageFor(id, x);
-                        if (image) ctx.drawImage(image, sx, sy, bs, bs); else {
+                        if (image) ctx.drawImage(image, sx, sy, sw, sh); else {
                             const definition = blockRegistry.get(id);
                             ctx.fillStyle = definition?.color ?? "#000000";
-                            ctx.fillRect(sx, sy, bs, bs);
+                            ctx.fillRect(sx, sy, sw, sh);
                         }
                     }
                 }
@@ -3367,7 +3674,8 @@ class GameSession {
         if (this.hoveredMob()) key = "mouse_attack";
         else if (this.modeName !== "spectator") {
             if (!target && placement) key = "mouse_right_place_and_move";
-            else if (target) key = "mouse_left_broke";
+            // 冒险模式不能破坏方块，悬停方块时仍用普通光标（不显示「破坏」提示）。
+            else if (target && this.modeName !== "adventure") key = "mouse_left_broke";
         } else if (this.modeName === "spectator" && this.dragging) {
             key = "mouse_right_place_and_move";
         }
@@ -3397,9 +3705,15 @@ class GameSession {
         ctx.fillRect(18, 92, 184 * (this.health / 20), 6);
         ctx.strokeStyle = "#e7eee5";
         ctx.strokeRect(18, 92, 184, 6);
+        // /tick 状态：只在速率非默认或世界被冻结时显示（平时不占地方）。
+        if (this.frozen || this.tickRate !== NORMAL_TICK_RATE) {
+            ctx.font = "600 13px ui-monospace";
+            ctx.fillStyle = this.frozen ? "#7fd4ff" : "#f2d67b";
+            ctx.fillText(this.tickLabel(), 212, 99);
+        }
         const pointed = this.pointedBlock();
         if (pointed) {
-            const info = `${this.blockName(pointed[2])} (${pointed[0]}, ${pointed[1]})`;
+            const info = `${this.stackName(pointed[2])} (${pointed[0]}, ${pointed[1]})`;
             ctx.font = "600 15px ui-monospace";
             const infoWidth = ctx.measureText(info).width;
             const infoHeight = 28;
@@ -3415,9 +3729,9 @@ class GameSession {
             ctx.fillText(info, width / 2, infoY + 19);
             ctx.textAlign = "left";
         }
-        const modeImageKey = this.modeName === "creative" ? "mode_creative" : this.modeName === "spectator" ? "mode_spectator" : null;
-        const modeImage = modeImageKey ? this.guiImages.get(modeImageKey) : undefined;
-        if (modeImage?.complete && modeImage.naturalWidth) {
+        // 模式图标（创造/生存/冒险/旁观都有贴图），右上角方块底 + 图标。
+        const modeImage = this.modeIcon();
+        if (modeImage) {
             ctx.fillStyle = "rgba(9,17,24,.55)";
             ctx.fillRect(width - 18 - 44, 14, 44, 44);
             ctx.drawImage(modeImage, width - 18 - 38, 18, 38, 38);
@@ -3447,6 +3761,7 @@ class GameSession {
                 ctx.drawImage(offhandImage, offhandX + iconInset, top + iconInset, 28, 28);
             }
             if (this.offhand && this.offhand.count > 1) this.drawStackCount(ctx, String(this.offhand.count), offhandX + 34, top + 35);
+            this.drawDurabilityBar(ctx, this.offhand, offhandX, top, box);
             this.hotbar.forEach((stack, index) => {
                 const x = barPanel.x + 8 + index * slot;
                 ctx.strokeStyle = index === this.selected ? "#f2d67b" : "#52666a";
@@ -3455,6 +3770,7 @@ class GameSession {
                 const image = stack ? this.iconFor(stack.id) : undefined;
                 if (image && (!("naturalWidth" in image) || (image.complete && image.naturalWidth))) ctx.drawImage(image, x + iconInset, top + iconInset, 28, 28);
                 if (stack && stack.count > 1) this.drawStackCount(ctx, String(stack.count), x + 34, top + 35);
+                this.drawDurabilityBar(ctx, stack, x, top, box);
             });
             if (!this.paused && !this.chatOpen) {
                 const hoveredIndex = this.hotbarSlotAt(this.lastMouseX, this.lastMouseY);
@@ -3470,7 +3786,7 @@ class GameSession {
             ctx.font = "12px ui-monospace";
             const lines = [
                 `${t(language, "debug_fps")} ${Math.round(this.fps)}`,
-                `${t(language, "debug_mode")} ${t(language, this.modeName === "creative" ? "mode_creative" : this.modeName === "survival" ? "mode_survival" : "mode_spectator")}`,
+                `${t(language, "debug_mode")} ${t(language, `mode_${this.modeName}`)}`,
                 `${t(language, "debug_world")} ${this.meta.name}`,
                 `${t(language, "debug_seed")} ${this.meta.seed ?? 0}`,
                 `${t(language, "debug_time")} ${clockLabel(this.time)} · ${t(language, "settings_ambient")} ${Math.round(settings.ambientLight * 100)}% · ${this.lightAt(this.player.x, this.player.y + this.player.height / 2).toFixed(2)}`,
@@ -3484,6 +3800,8 @@ class GameSession {
                 `${t(language, "debug_mobs")} ${this.mobs.activeCount}/${this.mobs.total}`,
                 `${t(language, "debug_textures")} ${this.blockImages.size}`,
                 `${t(language, "debug_health")} ${Math.ceil(this.health)}/20`,
+                `${t(language, "debug_tick")} ${this.tickLabel()}`,
+                `${t(language, "debug_hand")} ${this.debugHandLabel()}`,
                 `${t(language, "debug_controls")} ${Object.values(settings.keyBindings).map(keyName).join(" / ")}`,
             ];
             lines.forEach((line, index) => ctx.fillText(line, 30, 147 + index * 16));
@@ -3546,12 +3864,10 @@ class GameSession {
         }
         if (this.noticeTimer > 0) {
             ctx.font = "600 16px Manrope";
-            const noticeModeKey = this.modeName === "creative" ? "mode_creative" : this.modeName === "spectator" ? "mode_spectator" : null;
-            const modeImage = noticeModeKey ? this.guiImages.get(noticeModeKey) : undefined;
+            const modeImage = this.modeIcon();
             const iconSize = 22;
-            const iconShown = Boolean(modeImage?.complete && modeImage.naturalWidth);
             const textW = ctx.measureText(this.notice).width;
-            if (iconShown) ctx.drawImage(modeImage!, width / 2 - textW / 2 - iconSize - 8, 42 - 8 - iconSize / 2, iconSize, iconSize);
+            if (modeImage) ctx.drawImage(modeImage, width / 2 - textW / 2 - iconSize - 8, 42 - 8 - iconSize / 2, iconSize, iconSize);
             ctx.textAlign = "center";
             ctx.fillStyle = "#f5dc8e";
             ctx.fillText(this.notice, width / 2, 42);
@@ -3605,6 +3921,7 @@ class GameSession {
                 ctx.drawImage(image, x + inset, y + inset, layout.slot - inset * 2, layout.slot - inset * 2);
             }
             if (stack.count > 1) this.drawStackCount(ctx, String(stack.count), x + layout.slot - 2, y + layout.slot - 2);
+            this.drawDurabilityBar(ctx, stack, x, y, layout.slot);
         };
         const drawSlot = (slots: ReadonlyArray<ItemStack | null>, box: { x: number; y: number }, kind: "inventory" | "hotbar"): void => {
             slots.forEach((stack, index) => {
@@ -3634,6 +3951,7 @@ class GameSession {
                 ctx.drawImage(image, x + inset, y + inset, layout.slot - inset * 2, layout.slot - inset * 2);
             }
             if (this.heldInventoryItem.count > 1) this.drawStackCount(ctx, String(this.heldInventoryItem.count), this.lastMouseX + layout.slot / 2 - 2, this.lastMouseY + layout.slot / 2 - 2);
+            this.drawDurabilityBar(ctx, this.heldInventoryItem, this.lastMouseX - layout.slot / 2, this.lastMouseY - layout.slot / 2, layout.slot);
         }
         if (hovered) {
             const stack = this.slotStack(hovered);
@@ -3663,9 +3981,33 @@ class GameSession {
         ctx.textBaseline = "alphabetic";
     }
 
-    /** 物品堆叠的名称标签：数量 >1 时附加 ×N。 */
+    /** 物品堆叠的名称标签：数量 >1 时附加 ×N，可消耗耐久的物品附加 剩余/上限。 */
     private stackLabel(stack: ItemStack): string {
-        return stack.count > 1 ? `${this.blockName(stack.id)} ×${stack.count}` : this.blockName(stack.id);
+        const name = stack.count > 1 ? `${this.stackName(stack.id)} ×${stack.count}` : this.stackName(stack.id);
+        const max = maxDurabilityFor(stack.id);
+        if (max <= 0) return name;
+        return `${name} (${text("耐久", "Durability")} ${Math.max(0, Math.min(max, stack.durability ?? max))}/${max})`;
+    }
+
+    /**
+     * 工具耐久条：绘制在格子底部（绿 → 黄 → 红），只在「有耐久且未满」时显示。
+     * 与 MC 一致：满耐久的工具不显示耐久条，避免物品栏里一片横条。
+     */
+    private drawDurabilityBar(ctx: CanvasRenderingContext2D, stack: ItemStack | null | undefined, x: number, y: number, size: number): void {
+        if (!stack) return;
+        const max = maxDurabilityFor(stack.id);
+        if (max <= 0) return;
+        const current = Math.max(0, Math.min(max, stack.durability ?? max));
+        if (current >= max) return;
+        const ratio = current / max;
+        const width = Math.max(2, Math.round(size * 0.72));
+        const barX = Math.round(x + (size - width) / 2);
+        const barY = Math.round(y + size - Math.max(3, size * 0.14));
+        const barH = Math.max(2, Math.round(size * 0.07));
+        ctx.fillStyle = "rgba(0,0,0,.72)";
+        ctx.fillRect(barX - 1, barY - 1, width + 2, barH + 2);
+        ctx.fillStyle = ratio > 0.5 ? "#4ee04e" : ratio > 0.25 ? "#e8d24a" : "#e04a4a";
+        ctx.fillRect(barX, barY, Math.max(1, Math.round(width * ratio)), barH);
     }
 
     /** 绘制堆叠数量角标（右下角，白色带阴影）。 */
@@ -3880,6 +4222,8 @@ class GameSession {
 async function startGame(meta: WorldMeta): Promise<void> {
     const save = await storage.loadWorld(meta.id);
     await loadBlockConfigs();
+    // 物品（工具）定义必须先加载：GameSession 构造时要按 items.json 的贴图与耐久初始化。
+    await loadItemConfigs();
     new GameSession(meta, save);
 }
 

@@ -207,4 +207,6 @@ export const Registries = {
 
 gameModeRegistry.register({id: "creative", label: {zh: "创造模式", en: "Creative"}});
 gameModeRegistry.register({id: "survival", label: {zh: "生存模式", en: "Survival"}});
+// 冒险模式与生存模式同一套规则，唯一区别是不能破坏方块（见 src/modes/adventure.ts）。
+gameModeRegistry.register({id: "adventure", label: {zh: "冒险模式", en: "Adventure"}});
 gameModeRegistry.register({id: "spectator", label: {zh: "旁观模式", en: "Spectator"}});

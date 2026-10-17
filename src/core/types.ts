@@ -1,6 +1,13 @@
-export type GameModeName = "spectator" | "creative" | "survival";
+/** 游戏模式：创造 / 生存 / 冒险（生存的「不能破坏方块」版）/ 旁观。 */
+export type GameModeName = "spectator" | "creative" | "survival" | "adventure";
 export type Language = "zh" | "en";
 export type BlockType = string;
+
+/**
+ * 工具类别。方块的 `tool` 与手持物品的 `tool` 一致时，手持工具才对该方块有挖掘加速
+ * （见 `src/core/items.ts` 的 `miningSpeedFor`）。剑不参与挖掘加速，只提供攻击伤害。
+ */
+export type ToolClass = "pickaxe" | "axe" | "shovel" | "hoe" | "sword";
 
 export interface MovementSettings {
     walkSpeed: number;
@@ -33,10 +40,15 @@ export interface SavedMob {
     chunkX?: number;
 }
 
-/** 物品堆叠：一个格子内同 id 物品的数量（1..上限，上限由游戏逻辑决定）。 */
+/** 物品堆叠：一个格子内同 id 物品的数量（1..上限，上限由 `stackLimit()` 决定）。 */
 export interface ItemStack {
     id: string;
     count: number;
+    /**
+     * 剩余耐久。仅对配置了 `durability` 的工具存在；缺省（undefined）= 满耐久。
+     * 每次挖掘方块 / 攻击生物消耗 1 点，归零时物品损坏消失。
+     */
+    durability?: number;
 }
 
 /** 存档格子：旧版只有方块 id 字符串，新版为 {id, count} 堆叠。 */
@@ -49,6 +61,8 @@ export const MAX_STACK_SIZE = 64;
 export interface SavedDroppedItem {
     id: string;
     count: number;
+    /** 工具剩余耐久（仅可消耗耐久的物品有）。 */
+    durability?: number;
     x: number;
     y: number;
     velocityX?: number;

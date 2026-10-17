@@ -1,4 +1,4 @@
-import type {BlockType, Language} from "./types";
+import type {BlockType, Language, ToolClass} from "./types";
 
 /**
  * 方块携带的 NBT 标签（可扩展）。存于每格方块的附加数据中，覆盖方块定义的默认值。
@@ -37,6 +37,11 @@ export interface BlockDefinition {
     readonly feature?: boolean;
     /** 硬度：生存模式空手挖掘耗时（秒）；缺省 1。基岩等不可挖掘方块在生存模式单独禁止。 */
     readonly hardness?: number;
+    /**
+     * 对口工具类别：手持同类工具时按工具的 miningSpeed 加速挖掘（见 core/items.ts）。
+     * 缺省表示任何工具都不加速（仍用空手速度）。
+     */
+    readonly tool?: ToolClass;
 }
 
 /** A block type placed in a world. Definitions are shared; instances carry position. */

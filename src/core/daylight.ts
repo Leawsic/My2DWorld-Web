@@ -1,6 +1,8 @@
 // 昼夜循环与环境光照的纯计算（不依赖 DOM，可单独验证）。
 // 时间轴约定：0 点 = 午夜、0.25 = 日出、0.5 = 正午、0.75 = 日落（和原版一致的直觉）。
 
+import {snapToDevice} from "./pixels";
+
 /** 一整个昼夜的现实时长（秒）：20 分钟。 */
 export const DAY_LENGTH_SECONDS = 1200;
 /** 关键时间点（当天时刻 0..1）。 */
@@ -147,13 +149,22 @@ export interface AmbientBands {
 }
 
 /**
+ * 过渡带高度（像素）。`dpr` 非整数时会把高度对齐到设备像素网格，
+ * 保证「渐变带到最暗带」的公共边正好落在物理像素边界上——否则两条半透明黑带之间
+ * 会透出一条亮线（整片水面上尤其明显，见 core/pixels.ts）。同一帧内所有列相同。
+ */
+export function ambientRampHeight(blockSize: number, dpr = 1): number {
+    return Math.max(1 / dpr, snapToDevice(Math.max(1, SHADOW_DEPTH * blockSize), dpr));
+}
+
+/**
  * 某一列要画的两条压暗带的纵向范围（屏幕 y，未裁剪——Canvas 会自己裁掉画布外的部分）：
  * 分界以上是天空，不压暗；[rampTop, rampBottom] 是 SHADOW_DEPTH 格的渐变过渡带；
- * [rampBottom, height] 是最暗的地下区域。
+ * [rampBottom, height] 是最暗的地下区域。`dpr` 用于把两条带的公共边对齐到设备像素。
  */
-export function ambientBands(cameraY: number, top: number, blockSize: number, height: number): AmbientBands {
-    const rampTop = blockTopScreenY(cameraY, top, blockSize, height);
-    const rampHeight = Math.max(1, SHADOW_DEPTH * blockSize);
+export function ambientBands(cameraY: number, top: number, blockSize: number, height: number, dpr = 1): AmbientBands {
+    const rampTop = snapToDevice(blockTopScreenY(cameraY, top, blockSize, height), dpr);
+    const rampHeight = ambientRampHeight(blockSize, dpr);
     return {rampTop, rampBottom: rampTop + rampHeight, rampHeight};
 }
 

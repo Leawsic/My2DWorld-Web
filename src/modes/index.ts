@@ -1,3 +1,4 @@
+import {AdventureMode} from "./adventure";
 import {CreativeMode} from "./creative";
 import {SpectatorMode} from "./spectator";
 import {SurvivalMode} from "./survival";
@@ -6,5 +7,6 @@ import {GameModes} from "../core/registry";
 
 export function createMode(name: string): GameMode {
     if (name === GameModes.SURVIVAL.id) return new SurvivalMode();
+    if (name === GameModes.ADVENTURE.id) return new AdventureMode();
     return name === GameModes.CREATIVE.id ? new CreativeMode() : new SpectatorMode();
 }

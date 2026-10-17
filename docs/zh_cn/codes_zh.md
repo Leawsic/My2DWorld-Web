@@ -9,21 +9,33 @@
 ## 核心文件
 
 ### `src/main.ts`
-**功能**：游戏主入口文件，负责初始化 Canvas 渲染、事件绑定（键盘、鼠标、滚轮）、聊天系统、物品栏/背包交互、游戏模式切换（创造/旁观）、插件加载、世界保存、游戏循环等。
+**功能**：游戏主入口文件，负责初始化 Canvas 渲染、事件绑定（键盘、鼠标、滚轮）、聊天系统、物品栏/背包交互、游戏模式切换（创造/生存/冒险/旁观）、插件加载、世界保存、游戏循环等。
 
 **关键模块**：
 - `GameSession` 类：游戏会话核心，管理世界、玩家、实体、HUD 等
 - 背包系统：3×9 网格 + 9 格快捷栏 + 1 格副手，支持拖拽、交换、关闭时物品处理
 - 背包左键拖动：`inventoryDrag` 记录按下格与拖过的格子，`mouseup` 时调 `distributeStack`（`src/core/inventory.ts`）**均分**到这些格子
-- 中键复制：`pickBlock` 直接把指向的方块按 `MAX_STACK_SIZE`（64）放进当前快捷栏格
-- 物品栏面板按模式切换：`INVENTORY_PANELS`（创造=`gui/creative_inventory/tab_inventory.png`，生存=`gui/container/inventory.png`），
+- 中键复制：`pickBlock` 把指向的方块按该物品的单格堆叠上限（`stackLimit()`）放进当前快捷栏格
+- 物品栏面板按模式切换：`INVENTORY_PANELS`（创造=`gui/creative_inventory/tab_inventory.png`，生存/冒险=`gui/container/inventory.png`），
   槽位坐标为源图像素，另含副手槽与创造模式的销毁格（红色 `×`，放入即销毁）；`F` 键交换副手与当前快捷栏格
 - 手持物品渲染：`renderCharacter` 的 `itemImages` 覆盖 `.myanim` 里 `itemL`（左手/副手）与 `itemR`（右手/主手）节点贴图
-- 昼夜与环境光照：`time`（当天秒数）在 tick 里推进并写入存档；`renderSky` 画天空/霞光/星空/日月，
+- 工具/物品：贴图来自 `public/assets/items/`（`loadItem` 缓存在 `itemImages`），定义来自 `public/items/items.json`；
+  `iconFor()` 先查物品再查方块，槽位/快捷栏/掉落物/手持共用同一套图标
+- 堆叠上限：单格上限一律走 `stackLimit(id)`（工具 1、方块 64），不再直接用全局 `MAX_STACK_SIZE`
+- 工具耐久：`ItemStack.durability`（剩余耐久，缺省=满）；`damageTool()` 在生存/冒险模式挖掉一格/命中一次生物时扣 1 点，
+  归零损坏；槽位里画耐久条（`drawDurabilityBar`，未满才显示）
+- 游戏速度：`/tick` 控制 `tickRate`（20 = 正常速度）与 `frozen`；`stepWorld(dt)` 被抽成单步模拟，
+  正常/冻结两条路径都走它，帧内子步由 `core/tick.ts` 的 `simulationSteps()` 拆分
+- 昼夜与环境光照：`time`（当天秒数）在 `stepWorld` 里推进并写入存档；`renderSky` 画天空/霞光/星空/日月，
   `renderAmbientLight` 按列（`World.columnTop`）压暗，实体用 `lightAt(x, y)` 压暗；`/time` 命令可设时刻
+- 游戏模式：`modeName` + `createMode()`（`src/modes/`）；`survivalLike` 统一「生存/冒险」的差异（耗方块、耗耐久、掉落自身）；
+  `MODE_ICON_SOURCES` 把四种模式的图标（`public/assets/gui/gamemode/*.png`）统一加载，HUD 右上角与切换提示左侧显示；
+  `F3+F4` 按 创造 → 生存 → 冒险 → 旁观 循环
+- 设备像素对齐：方块/流体/压暗带的屏幕矩形都经 `core/pixels.ts` 的 `snapToDevice`/`deviceSpanSize` 对齐到物理像素，
+  消除非整数 `devicePixelRatio` 下水面出现的一条条水平白线（详见 `src/core/pixels.ts`）
 - 聊天系统：支持命令补全、历史记录、滚轮滚动、语法高亮
 - 插件系统：支持动态加载 `.mjs` 插件（API 注册方块、游戏事件等）
-- 游戏循环：`requestAnimationFrame` 驱动的 `tick` 函数
+- 游戏循环：`requestAnimationFrame` 驱动的 `tick` 函数（真实帧时长 → `simulationSteps()` → `stepWorld()`）
 
 ### `src/core/player.ts`
 **功能**：玩家物理与状态（位置、速度、跳跃/二段跳、飞行、游泳）。
@@ -40,6 +52,29 @@
 - `distributeStack(count, rooms)`：把一堆物品尽量均分到各目标格，每格先分 `floor(count/n)`，
   余数从前面的格子开始各多 1（64 分 3 格 → 22/21/21）；每格受自身剩余容量限制，放不下的留在手上
 
+### `src/core/items.ts`
+**功能**：物品（工具）注册表与纯规则（不依赖 DOM）。
+
+**要点**：
+- 定义来自 `public/items/items.json`（经 `/api/items` 加载，`loadItemConfigs()`），支持 `{items: {...}}` 或平铺 map；
+  单条 id 非法只跳过该条，不会中断整份配置的加载
+- `tool`（pickaxe/axe/shovel/hoe/sword）、`tier`、`miningSpeed`、`damage`、`durability`、`stackSize`
+- `stackLimit(id)`：单格堆叠上限（工具 1，缺省 64；语法非法的脏 id 不抛异常，回落 64）
+- `miningSpeedFor(手持id, 方块tool)`：类别一致才按 `miningSpeed` 加速，否则 1（空手速度）
+- `miningSeconds(硬度, 速度)`：挖掘耗时 = 硬度 / 速度（硬度 ≥ 0.05，非法值兜底）
+- `attackDamageFor(手持id, 回落值)`：物品伤害优先，缺省回落到 `attackConfig` 的玩家伤害
+- `maxDurabilityFor()` / `normalizeDurability()`：耐久上限与存档归一化（无耐久的物品不写入耐久）
+- `itemTextureSrc(id)`：贴图路径 = `/assets/items/<texture>.png`
+
+### `src/core/tick.ts`
+**功能**：客户端 tick 速率（游戏速度）的纯计算（不依赖 DOM）。
+
+**要点**：
+- `NORMAL_TICK_RATE = 20`（20 tick/秒 = 1 倍速）、`MIN_TICK_RATE = 1`、`MAX_TICK_RATE = 200`
+- `clampTickRate()` / `tickScale()` / `tickSeconds()` / `ticksToSeconds()`：速率夹紧与倍率换算
+- `simulationSteps(帧时长, 速率, 上限)`：一帧要模拟的秒数 = 帧时长 × 倍率，拆成不超过 `1/20` 秒的子步；
+  每帧步数有上限，避免极低帧率 + 极高速率时死亡螺旋
+
 ### `src/core/daylight.ts`
 **功能**：昼夜循环与环境光照的纯计算（不依赖 DOM）。
 
@@ -48,7 +83,19 @@
 - `skyLight()` / `skyColor()`：天空亮度与调色板（正午仍是 `rgb(130,201,215)`）；`horizonGlow()` 霞光、`starOpacity()` + `starField()` 星空
 - `celestialBodies()`：日月沿弧线的位置；`clockLabel()` / `timeFromHours()`：24 小时制时钟
 - `cellLight(sky, depth)`：地表 = 天空亮度，向下 `SHADOW_DEPTH`(=6) 格衰减到 `MIN_CAVE_LIGHT`(=0.14)
-- `darknessAlpha()`、`ambientBands()` / `blockTopScreenY()`：压暗透明度与压暗带的屏幕几何
+- `darknessAlpha()`、`ambientBands()` / `ambientRampHeight()` / `blockTopScreenY()`：压暗透明度与压暗带的屏幕几何；
+  `ambientBands(cameraY, top, blockSize, height, dpr)` 会把渐变带顶/底对齐到物理像素（避免两条半透明黑带交界处透出亮线）
+
+### `src/core/pixels.ts`
+**功能**：设备像素对齐（Canvas 2D 抗锯齿接缝修复）的纯计算（不依赖 DOM）。
+
+**要点**：
+- 画布按 `devicePixelRatio` 放大绘制；`dpr` 不是整数时（Windows 125%/150% → 1.25/1.5），整数 CSS 坐标会落在半个物理像素上
+- 相邻两个半透明 `fillRect` 各自按覆盖率抗锯齿，交界像素的合成 alpha 会低于设定值 → 背景（天空）透出来：
+  整片水面上就是一条条**水平白线**，摄像机移动时相位扫过 0/0.25/0.5/0.75，所以白线随移动周期性出现/消失
+- `snapToDevice(值, dpr)`：把 CSS 坐标对齐到物理像素网格；`deviceSpanSize(起点, 边长, dpr)`：对齐后的实际长度
+  （`snapToDevice(起点) + deviceSpanSize(...)` 恒等于 `snapToDevice(起点 + 边长)`，所以相邻格共用同一条边：无缝也不重叠）
+- `needsDeviceSnap(dpr)`：判断当前 dpr 是否会产生接缝；`dpr` 为整数时以上函数都是恒等变换（行为与旧版一致）
 
 ### `src/core/types.ts`
 **功能**：定义所有游戏核心数据类型和默认配置。
@@ -111,12 +158,16 @@
 - `src/core/skeleton.ts`：玩家角色骨骼动画（Steve 模型）
 - `src/core/animations.ts`：角色动画加载与播放
 - `src/core/particles.ts`：粒子系统（破坏、血迹等）
+- `src/core/pixels.ts`：设备像素对齐（`snapToDevice` / `deviceSpanSize`），消除非整数 `devicePixelRatio` 下相邻色块之间的抗锯齿接缝（海洋白线）
 - `src/core/hitboxes.ts`：碰撞箱配置加载与归一化（多矩形并集 `boxes` + 左右朝向 `left`/`right`，供 F5 显示）
 - `src/core/squeeze.ts`：物理挤压配置——挤压箱几何（`public/squeeze/*.json`，结构与碰撞箱一致）+ 全局挤压参数（`run/config/squeeze.json`）
+- `public/assets/gui/gamemode/{creative,survival,adventure,spectator}.png`：游戏模式图标（HUD 右上角 + 模式切换提示）
 
 ### 模式与交互
 - `src/modes/base.ts`：游戏模式基类
 - `src/modes/creative.ts`：创造模式（无重力、飞行、方块放置）
+- `src/modes/survival.ts`：生存模式（挖掘速度/工具耐久、掉落物、受伤）；`canMine` 控制能否破坏方块
+- `src/modes/adventure.ts`：冒险模式（继承生存模式，仅把 `canMine` 关掉：不能破坏方块，其余同生存）
 - `src/modes/spectator.ts`：旁观模式（可穿实体、第三人称）
 - `src/modes/index.ts`：模式创建工厂
 

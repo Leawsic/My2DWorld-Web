@@ -151,7 +151,7 @@ const api = async (req, res) => {
             writeFileSync(savePath, JSON.stringify({
                 playerX: Number(data.playerX) || 0,
                 playerY: Number(data.playerY) || 0,
-                mode: ["creative", "survival", "spectator"].includes(data.mode) ? data.mode : "creative",
+                mode: ["creative", "survival", "adventure", "spectator"].includes(data.mode) ? data.mode : "creative",
                 ...(Number.isFinite(Number(data.spawnX)) && Number.isFinite(Number(data.spawnY)) ? {spawnX: Number(data.spawnX), spawnY: Number(data.spawnY)} : {}),
                 ...(data.spawnFacing === 1 || data.spawnFacing === -1 ? {spawnFacing: data.spawnFacing} : {}),
                 idTable: Array.isArray(data.idTable) ? data.idTable : [],
@@ -265,6 +265,11 @@ const api = async (req, res) => {
         if (url.pathname === "/api/entitiesattack" && req.method === "GET") {
             // 玩家/生物攻击力：public/entitiesattack.json。透传原始对象给客户端。
             return send(res, 200, readJson(join(root, "public", "entitiesattack.json"), {}));
+        }
+        if (url.pathname === "/api/items" && req.method === "GET") {
+            // 物品定义：public/items/items.json（结构 id -> 定义，或 {items: {id -> 定义}}）。
+            // 透传整份配置，由客户端校验并写入物品注册表。
+            return send(res, 200, readJson(join(root, "public", "items", "items.json"), {}));
         }
         if (url.pathname === "/api/squeeze" && req.method === "GET") {
             // 挤压箱几何：public/squeeze/*.json，结构与碰撞箱一致（halfWidth/height/centerX/centerY、

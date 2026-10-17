@@ -1,6 +1,6 @@
 import type {KeyState, Player} from "../core/player";
 import type {World} from "../core/world";
-import type {BlockType, GameModeName} from "../core/types";
+import type {BlockType, GameModeName, ItemStack} from "../core/types";
 import type {MobManager} from "../core/entity";
 import type {HeldItemImages} from "../core/skeleton";
 
@@ -22,6 +22,16 @@ export interface ModeContext {
     itemImages?: HeldItemImages;
     /** 取某点（方块坐标）的环境光 0..1：把角色按所处深度压暗（夜晚 / 洞穴更暗）。 */
     lightAt?: (x: number, y: number) => number;
+    /**
+     * 主手（当前选中的快捷栏格）堆叠。工具用它换算出挖掘速度倍率与攻击伤害
+     * （core/items.ts 的 miningSpeedFor / attackDamageFor）；空手或手持方块时为 null。
+     */
+    heldItem?: ItemStack | null;
+    /**
+     * 使用了一次主手工具（挖掉一个方块 / 命中一次生物）：由会话扣 1 点耐久。
+     * 只有可消耗耐久的物品会真正被扣（实现方自行判断），创造模式不调用。
+     */
+    onToolUsed?: (amount: number) => void;
     onBlockBroken?: (x: number, y: number, type: BlockType) => void;
     onPlayerDamage?: (amount: number) => void;
 }

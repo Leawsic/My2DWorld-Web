@@ -16,15 +16,21 @@
 切换游戏模式。
 
 ```
-/gamemode <creative|spectator>
+/gamemode <creative|survival|adventure|spectator>
 ```
 
 | 参数 | 说明 |
 | --- | --- |
 | `creative` | 创造模式：可飞行、放置/破坏方块、攻击生物；**免疫一切伤害，仅虚空坠落会扣血并重生** |
+| `survival` | 生存模式：不能飞行；会受伤、受挤压/虚空伤害；挖方块掉落自身、放置消耗物品、工具耗耐久 |
+| `adventure` | 冒险模式：规则与生存模式完全一致（受伤、不飞行、放置消耗方块、工具耗耐久、掉落物），**但不能破坏方块**——按住左键挖方块没有裂纹、不掉落、不耗耐久；点击生物仍按手持武器结算伤害 |
 | `spectator` | 旁观模式：幽灵视角，不参与物理与伤害 |
 
-示例：`/gamemode spectator`
+- 模式图标（`public/assets/gui/gamemode/*.png`）会显示在右上角、切换模式的提示文字左侧。
+- `F3+F4` 按 创造 → 生存 → 冒险 → 旁观 的顺序循环切换。
+- 模式会随存档保存（重进保留），创建世界时也可以直接选择冒险模式。
+
+示例：`/gamemode spectator`、`/gamemode adventure`
 
 ---
 
@@ -83,6 +89,42 @@
 ```
 
 示例：`/seed` → `Seed: 123456789`
+
+---
+
+## /tick
+
+控制游戏速度（客户端 tick 速率）。**20 tick/秒 = 正常速度**，一整天（20 分钟）等所有世界时间都按这个速率缩放。
+
+```
+/tick                                    # 查看当前 tick 速率与冻结状态
+/tick rate <1-200>                       # 设置 tick 速率（20 = 正常）
+/tick rate normal                        # 等价于 /tick rate 20
+/tick <1-200>                            # 等价于 /tick rate <n>
+/tick freeze [on|off]                    # 冻结 / 解冻世界（on/off 缺省为冻结）
+/tick unfreeze                           # 解冻（等价于 /tick freeze off）
+/tick step [n]                           # 冻结后单步推进 n 个 tick（默认 1）
+```
+
+| 参数 | 说明 |
+| --- | --- |
+| `<1-200>` | 每秒模拟的 tick 数，夹紧到 1~200 的整数；`20` = 1 倍速、`40` = 2 倍速、`10` = 半速、`200` = 10 倍速、`1` = 1/20 速 |
+| `freeze` | 冻结世界推进：生物、流体、掉落物、昼夜时刻、自动保存全部停住，只保留渲染与输入（`Esc` 菜单、聊天仍可用） |
+| `step [n]` | 仅在冻结状态下有效；排队推进 n 个 tick（每 tick = 1/速率 秒），逐帧补跑，最多一次排队 2000 tick |
+
+- 速率与冻结状态只作用于当前会话，不写入存档；重进世界恢复 20 tick/秒。
+- 倍速实现方式：一帧要模拟的秒数 = 真实帧时长 × (速率 / 20)，再拆成**不超过 1/20 秒**的子步逐个模拟——所以任何倍速下的单步物理都与正常速度一致，不会因为 10 倍速就穿墙。
+- 速率非 20 或世界被冻结时，`F3` 面板左上角生命条右侧会显示当前 tick 状态；`F3` 面板的「tick」一行也会显示。
+- 相关：`/time cycle off` 只冻结时刻，`/tick freeze` 冻结整个世界。
+
+示例：
+
+```
+/tick 40            # 2 倍速
+/tick freeze        # 暂停世界，观察生物/流体
+/tick step 20       # 单步推进 20 tick（= 1 秒游戏时间）
+/tick unfreeze      # 恢复
+```
 
 ---
 
@@ -189,23 +231,38 @@
 
 ## /give
 
-给予本地玩家方块（物品堆叠）。
+给予本地玩家方块或物品（工具）。
 
 ```
-/give [<targets>] <方块> [数量]
+/give [<targets>] <方块|物品> [数量]
 ```
 
 | 参数 | 说明 |
 | --- | --- |
 | `<targets>` | 可选玩家目标选择器：`@p`（最近玩家）、`@a`（全部玩家）、`@r`（随机玩家）、玩家名；本游戏为单机，全部指向本地玩家。默认为 `@p` |
-| `<方块>` | 方块/物品 ID，可省略 `my2dworld:` 前缀，也支持插件方块；可 Tab 补全 |
-| `数量` | 可选，`1`~`64`，默认 `1` |
+| `<方块\|物品>` | 方块/物品 ID，可省略 `my2dworld:` 前缀，也支持插件方块；可 Tab 补全 |
+| `数量` | 可选，默认 `1`；上限是该物品的单格堆叠上限（方块 64，工具 1） |
 
-- 物品先并入背包中同 ID 未满的格子（单格上限 64），再放入空格。
+- 物品先并入背包中同 ID 未满的格子（单格上限见 `public/items/items.json` 的 `stackSize`），再放入空格。
 - 背包全满时，放不下的部分会作为掉落物丢在玩家脚下，可走近捡回。
 - 标记了 `cannot_give` 的方块（水、岩浆等不可携带方块）**无法给予**，Tab 补全列表中也不会出现。
+- 工具（镐/斧/剑/锹/锄）来自 `public/items/items.json`，**给出时是满耐久**；耐久、挖掘速度与伤害都由该文件配置。
 
-示例：`/give dirt`、`/give grass_block 64`、`/give @p diamond_ore 16`
+示例：`/give dirt`、`/give grass_block 64`、`/give diamond_pickaxe`、`/give netherite_sword`
+
+工具 ID 一览（`<材质>_<工具>`，材质为 `wooden`/`stone`/`copper`/`iron`/`golden`/`diamond`/`netherite`，工具为 `pickaxe`/`axe`/`sword`/`shovel`/`hoe`，共 35 件）：
+
+```
+/give wooden_pickaxe      # 木镐：挖掘速度 2、伤害 2、耐久 59
+/give diamond_axe         # 钻石斧：挖掘速度 8、伤害 9、耐久 1561
+/give netherite_sword     # 下界合金剑：伤害 8、耐久 2031
+/give iron_shovel         # 铁锹
+/give stone_hoe           # 石锄
+```
+
+- 手持对口工具才有挖掘加速：镐→石头/矿石/深板岩，斧→原木，锹→草方块/泥土/沙子/雪，锄→树叶；拿错类别（拿剑挖石头）与空手同速。
+- 挖掘耗时 = 方块硬度 / 工具速度（例：石头硬度 4 → 空手 4 秒、木镐 2 秒、钻石镐 0.5 秒）。
+- 生存模式下每挖掉一格 / 命中一次生物消耗 1 点耐久，归零时工具损坏消失；创造模式不消耗耐久。
 
 ---
 
@@ -338,24 +395,26 @@
 就地刷新资源与配置，无需刷新页面。
 
 ```
-/reload [images|animations|hitboxes|squeeze|plugins|all]
+/reload [images|items|animations|hitboxes|squeeze|plugins|all]
 ```
 
 | 目标 | 刷新内容 |
 | --- | --- |
-| `images` | 方块/生物群系/GUI/角色贴图缓存 |
+| `images` | 方块/物品/生物群系/GUI/角色贴图缓存 |
+| `items` | 重新读取 `public/items/items.json`（工具的挖掘速度/伤害/耐久/堆叠上限），并刷新物品贴图 |
 | `animations` | 角色动画（`.myanim`）清单与变体缓存 |
 | `hitboxes` | 生物碰撞箱配置（`public/hitboxes/*.json`），并应用到已存在的生物 |
 | `squeeze` | 挤压箱几何（`public/squeeze/*.json`）与挤压参数（`run/config/squeeze.json`），并应用到已存在的生物 |
 | `plugins` | 卸载并重装全部插件，同时刷新插件注册的碰撞箱到现有生物 |
 | `all` | 以上全部（缺省值） |
 
-示例：`/reload hitboxes` 或 `/reload squeeze`
+示例：`/reload hitboxes`、`/reload items`（改完物品配置不用重开页面）
 
 ---
 
 ## 相关快捷键
 
 - `T`（或配置键）：打开聊天；`/`：直接以 `/` 打开聊天。
-- `F3`：调试信息（含当前时间与环境光照）；`F4`：切换模式；`F5`：碰撞箱/范围可视化；`F7`：旁观；`F11`：全屏。
+- `F3`：调试信息（含当前时间与环境光照、tick 速率、主手物品与耐久）；`F4`：切换模式（配合 `F3` 按 创造 → 生存 → 冒险 → 旁观 循环）；`F5`：碰撞箱/范围可视化；`F7`：旁观；`F11`：全屏。
 - 昼夜与环境光照的开关在 `Esc` → `设置` 里的「昼夜循环」与「环境光照」两行。
+- 游戏速度用 `/tick`（20 tick/秒 = 正常速度）。

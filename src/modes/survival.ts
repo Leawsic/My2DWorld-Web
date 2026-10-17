@@ -3,14 +3,19 @@ import {GameMode, type ModeContext} from "./base";
 import {Blocks, blockRegistry, GameModes} from "../core/registry";
 import {renderCharacter} from "../core/skeleton";
 import {playerAttackCooldownFrames, playerAttackDamage} from "../core/attackConfig";
+import {attackDamageFor, miningSeconds, miningSpeedFor} from "../core/items";
+import type {GameModeName} from "../core/types";
 
-/** 空手挖掘速度系数（未来工具可放大；硬度 / 速度 = 挖掘耗时秒）。 */
-const HAND_MINING_SPEED = 1;
 /** 挖掘碎屑粒子发射间隔（秒）。 */
 const CHIP_INTERVAL = 0.12;
 
 export class SurvivalMode extends GameMode {
-    readonly name = GameModes.SURVIVAL.id;
+    readonly name: GameModeName = GameModes.SURVIVAL.id;
+    /**
+     * 是否允许破坏方块。生存模式为 true；冒险模式（`src/modes/adventure.ts`）覆写为 false，
+     * 其余行为（受伤、耗方块、工具耐久、攻击伤害、掉落物）全部继承。
+     */
+    protected readonly canMine: boolean = true;
     readonly particles = new ParticleSystem();
     private mobHitCooldown = 0;
     /** 挖掘动画剩余时长（秒），>0 时播放 dig 姿态。 */
@@ -41,9 +46,17 @@ export class SurvivalMode extends GameMode {
             this.mineProgress = 0;
             this.mineTimer = 0.3;
             if (this.mobHitCooldown <= 0) {
-                hit.hurt(playerAttackDamage(), context.player.x);
+                // 手持工具（剑等）按物品配置的伤害结算，空手回落到 attackConfig 的默认值。
+                hit.hurt(attackDamageFor(context.heldItem?.id, playerAttackDamage()), context.player.x);
+                context.onToolUsed?.(1);
                 this.mobHitCooldown = playerAttackCooldownFrames();
             }
+            return;
+        }
+
+        // 冒险模式：只能攻击生物，不能破坏方块（不显示裂纹、不掉落、不耗耐久）。
+        if (!this.canMine) {
+            this.mineProgress = 0;
             return;
         }
 
@@ -65,8 +78,10 @@ export class SurvivalMode extends GameMode {
             this.mineY = y;
             this.mineProgress = 0;
         }
-        const hardness = Math.max(0.05, definition?.hardness ?? 1);
-        this.mineProgress += context.dt / (hardness / HAND_MINING_SPEED);
+        // 手持对口工具（镐挖石 / 斧砍木 / 锹铲土 / 锄收树叶）时按工具的 miningSpeed 加速；
+        // 空手或工具类别不符仍是空手速度 1。耗时 = 硬度 / 速度（秒，见 core/items.ts 的 miningSeconds）。
+        const speed = miningSpeedFor(context.heldItem?.id, definition?.tool);
+        this.mineProgress += context.dt / miningSeconds(definition?.hardness, speed);
         this.mineTimer = 0.15;
 
         // 挖掘过程中不断掉落方块碎屑。
@@ -80,6 +95,8 @@ export class SurvivalMode extends GameMode {
             // 支撑消失而被级联破坏的地物（花/草/仙人掌）也走 onBlockBroken：一并掉落自身。
             if (context.world.breakBlock(x, y, (bx, by, block) => context.onBlockBroken?.(bx, by, block.id))) {
                 this.particles.spawn(x, y, context.blockTextureAt?.(type, x) ?? context.textures.get(type));
+                // 挖掉一格消耗手持工具 1 点耐久（没有耐久的物品不会被扣）。
+                context.onToolUsed?.(1);
             }
             this.mineProgress = 0;
         }

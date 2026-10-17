@@ -3,6 +3,7 @@ import {GameMode, type ModeContext} from "./base";
 import {blockRegistry, GameModes} from "../core/registry";
 import {renderCharacter} from "../core/skeleton";
 import {playerAttackDamage} from "../core/attackConfig";
+import {attackDamageFor} from "../core/items";
 
 export class CreativeMode extends GameMode {
     readonly name = GameModes.CREATIVE.id;
@@ -16,7 +17,8 @@ export class CreativeMode extends GameMode {
         if (context.mouseDown && this.breakCooldown <= 0) {
             const hit = context.mobs.hitMob(context.mouseWorld, context.player);
             if (hit) {
-                hit.hurt(playerAttackDamage(), context.player.x);
+                // 创造模式也按手持工具的伤害结算（但不消耗耐久：创造模式物品不损耗）。
+                hit.hurt(attackDamageFor(context.heldItem?.id, playerAttackDamage()), context.player.x);
                 this.breakCooldown = 8;
             } else if (context.hovered) {
                 const [x, y, type] = context.hovered;

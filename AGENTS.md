@@ -34,9 +34,10 @@ npm run build          # tsc --noEmit && vite build（生产构建验证）
   - `inventory.ts`：背包纯规则（左键拖动「均分」`distributeStack`），不依赖 DOM、可单独验证。
   - `items.ts`：物品（工具）注册表与纯规则（`stackLimit` 堆叠上限、`miningSpeedFor`/`miningSeconds` 挖掘速度与耗时、`attackDamageFor` 攻击伤害、`maxDurabilityFor`/`normalizeDurability` 耐久、`loadItemConfigs()` 加载 `public/items/items.json`），不依赖 DOM、可单独验证。
   - `tick.ts`：客户端 tick 速率（游戏速度）的纯计算（`NORMAL_TICK_RATE = 20`、`clampTickRate`、`tickScale`、`simulationSteps` 帧内子步拆分），不依赖 DOM、可单独验证。
-  - `daylight.ts`：昼夜与环境光照的纯计算（时刻 → 天空亮度/颜色、日月星空、格子光照、压暗带几何），不依赖 DOM、可单独验证。
+  - `daylight.ts`：昼夜与环境光照的纯计算（时刻 → 天空亮度/颜色、日月星空、格子光照、压暗带几何 `ambientBands`/`ambientRampHeight` 含设备像素对齐），不依赖 DOM、可单独验证。
+  - `pixels.ts`：设备像素对齐的纯计算（`snapToDevice`、`deviceSpanSize`、`needsDeviceSnap`），消除非整数 `devicePixelRatio` 下相邻色块之间的抗锯齿接缝（海洋白线），不依赖 DOM、可单独验证。
   - `storage.ts`：同步本地 API 客户端；`types.ts`：稳定数据结构。
-- `src/modes/`：`creative.ts`（创造）、`survival.ts`（生存，含挖掘速度/工具耐久）、`spectator.ts`（旁观）三个 `GameMode` 实现。
+- `src/modes/`：`creative.ts`（创造）、`survival.ts`（生存，含挖掘速度/工具耐久，`canMine` 开关）、`adventure.ts`（冒险，继承生存、`canMine = false`）、`spectator.ts`（旁观）四个 `GameMode` 实现。
 - `src/plugins/api.ts`：插件扩展注册表与生命周期 API。
 - `public/hitboxes/`、`public/squeeze/`：实体碰撞箱 / 挤压箱 JSON（走 `/api/hitboxes`、`/api/squeeze`）。
 - `public/items/items.json`：物品（工具）定义（挖掘速度/伤害/耐久/堆叠上限，走 `/api/items`），贴图在 `public/assets/items/`。
@@ -70,9 +71,14 @@ npm run build          # tsc --noEmit && vite build（生产构建验证）
 - 缩放到 **25%（`blockSize <= 8`）** 时，可见方块数激增。渲染循环会**按列合并连续相同方块**为一次 `drawImage`（最近邻竖向拉伸），避免逐格绘制卡顿。改动方块渲染时保留这个 `mergeColumns` 分支；`>= 16`（>25%）仍逐格绘制以保纹理平铺精度。
 - `blockImageFor` 里的草/树叶/草丛通过 `biomeAtCached(x)` 按整数列缓存 `biomeAt`，不要改回每帧每块重复算噪声。
 - F3 的 FPS 是**真实帧率**（`this.fps` EMA），不是写死的 60。
+- **设备像素对齐**（`src/core/pixels.ts`）：画布后备存储按 `devicePixelRatio` 放大，绘制用 `ctx.setTransform(dpr, …)`。`dpr` 不是整数时（Windows 125%/150% → 1.25/1.5），整数 CSS 坐标落在半个物理像素上，相邻两个半透明 `fillRect` 各自按覆盖率抗锯齿 → 交界像素的合成 alpha 低于设定值 → 背景透出来（水面上一格一条的**水平白线**，摄像机移动时相位扫动所以「移动才出现」）。因此方块、流体（`drawFluid`）、环境光压暗带（`daylight.ts` 的 `ambientBands`/`ambientRampHeight` 接受 `dpr`）的每条边都用 `snapToDevice` 对齐、长度用 `deviceSpanSize`：
+  - 相邻两格必须用**同一个表达式**算共享边（右邻的左边 = 本格的右边），否则会对不齐；
+  - 不要为了「消缝」把矩形放大 1px 去重叠——半透明色块重叠会变深，也一样是线；
+  - `dpr` 为整数时这些函数是恒等变换（与旧版逐像素一致），别在这里引入 `dpr` 相关的分支逻辑；
+  - 新增任何大面积/半透明的世界层绘制（新的液体、滤镜、渐变带）时同样要走这两个函数。
 
 ### 3.6 水面不能起跳（`player.waterJump`）
-- `Player.waterJump` 由 `main.ts` 的 `applyModeFlags()` 设置：**生存模式为 false**（创造/旁观为 true，行为与旧版一致）。
+- `Player.waterJump` 由 `main.ts` 的 `applyModeFlags()` 设置：**生存/冒险模式为 false**（创造/旁观为 true，行为与旧版一致）。
 - `waterJump === false` 时，脚底在「所在列脚下水柱的液面」或更低 → 按空格只走上浮/浮力分支，**拿不到起跳速度**；脚底高于液面（浮出水面后）才允许正常起跳。判据是 `player.ts` 的 `waterSurfaceUnder()`（脚下向下 3 格内找水，返回该水柱最高一格的顶面 y），不要换成「脚下一格是水就不许跳」——玩家上浮只能到液面以上约 0.4 格，那样会把人永久困在水里（实测跳不出、也爬不上岸）。
 - 水面跳跃曾经是**无限上升漏洞**：在水面反复点空格可以一路升到几百格高（`jumpsUsed` 被水重置 + 水面可跳）。改动后同样场景上限约 7 格（实测 278 → 67），真实河边/海边仍能在 6~8 秒内爬上岸。改这段时务必同时验证「不能在水面跳」和「还能上岸」两件事。
 
@@ -90,7 +96,7 @@ npm run build          # tsc --noEmit && vite build（生产构建验证）
 - **挖掘速度只有一个入口**：`miningSpeedFor(手持id, 方块tool)` + `miningSeconds(硬度, 速度)`（`survival.ts` 里 `mineProgress += dt / miningSeconds(...)`）。只有工具类别与方块 `tool` 一致才加速，否则=空手速度 1。不要在模式里另写一套硬度/时间换算。
 - 方块的 `tool` 字段在 `public/blocks/blocks.json`：石头/矿石/深板岩=镐、原木=斧、草方块/泥土/沙子/雪=锹、树叶=锄；草丛/花没有 `tool`（任何工具都不加速）。
 - **堆叠上限按物品区分**（`stackLimit(id)`：工具 1、其余 64）。`main.ts` 与 `itemdrop.ts` 里**不要**再用全局 `MAX_STACK_SIZE` 做单格上限；合并、均分、`/give`、中键复制、掉落物合并都要走 `stackLimit`，并且只在耐久一致时才合并。
-- **耐久**：`ItemStack.durability` = 剩余耐久（缺省=满）。生存模式挖掉一格/命中一次生物扣 1 点（`context.onToolUsed` → `damageTool`），创造模式**不**调用（不消耗）；归零损坏并清空该格。存档（`normalizeStack`）与掉落物（`DroppedItemManager.spawn/serialize/restore`）都必须带上耐久，否则丢出去捡回来会变成满耐久。工具不可堆叠，所以掉落物不合并。
+- **耐久**：`ItemStack.durability` = 剩余耐久（缺省=满）。生存/冒险模式挖掉一格/命中一次生物扣 1 点（`context.onToolUsed` → `damageTool`），创造模式**不**调用（不消耗）；归零损坏并清空该格。存档（`normalizeStack`）与掉落物（`DroppedItemManager.spawn/serialize/restore`）都必须带上耐久，否则丢出去捡回来会变成满耐久。工具不可堆叠，所以掉落物不合并。
 - 手持工具/物品**不能放置**：`getPlacementTarget()` 与 `place()` 都用 `isPlaceableBlock()` 拦住，避免把工具 id 写进世界当方块。
 
 ### 3.9 游戏速度（`/tick`，`src/core/tick.ts`）
@@ -99,10 +105,18 @@ npm run build          # tsc --noEmit && vite build（生产构建验证）
 - 每个子步 ≤ `MAX_STEP_SECONDS`（1/20 秒）：20 tick 且 60fps 时就是「一帧一步、步长 = 帧时长」，与改动前的行为完全一致；倍速只改变每帧的步数，不改变单步物理（`Player.update`/`Mob.update` 内部都还有 `Math.min(dt, 0.05)` 上限）。改这里要保持这个性质，否则 10 倍速会穿墙。
 - 冻结时昼夜时刻、流体、生物、掉落物、自动保存一并停住（都在 `stepWorld` 里）。
 
+### 3.10 游戏模式（创造 / 生存 / 冒险 / 旁观）
+- 模式名 union 在 `src/core/types.ts` 的 `GameModeName`；注册在 `src/core/registry.ts` 的 `gameModeRegistry`；实现由 `src/modes/index.ts` 的 `createMode()` 分发；模式图标表是 `main.ts` 的 `MODE_ICON_SOURCES`（同时决定 `/gamemode` 的可选值 `GAME_MODE_NAMES`）。**加新模式要同时改这五处**（外加 `i18n.ts` 的 `mode_<id>` / `world_mode_<id>`、`server.mjs` 存档白名单，否则存盘会把模式改写回 `creative`）。
+- **冒险模式 = 不能破坏方块的生存模式**：`src/modes/adventure.ts` 继承 `SurvivalMode`，只把 `protected canMine` 覆写为 `false`；`SurvivalMode.update` 在「没有点中生物」之后、进入挖掘逻辑之前 `if (!this.canMine) { this.mineProgress = 0; return; }`，所以挖方块没有裂纹、不产生掉落、不扣耐久，而攻击生物照旧。不要给冒险模式单独复制一份生存逻辑。
+- 模式差异统一走 `main.ts` 的 `survivalLike` getter（生存或冒险）：放置消耗方块、`onToolUsed`（工具耐久）、`onBlockBroken` 掉落自身、`destroyHoveredItem` 丢到世界、`applyModeFlags` 的禁飞与 `waterJump`。**不要**再到处写 `this.modeName === "survival"`。
+- 免伤判定仍以 `creative` / `spectator` / `ghost` 为准（`damagePlayer`、实体挤压回调、`updateSqueeze`、`updateVoid`）——冒险模式**会**受伤，别把它加进免伤分支。
+- 模式图标（`public/assets/gui/gamemode/{creative,survival,adventure,spectator}.png`，64×64 白色剪影）在构造时与 `/reload images` 时由 `loadModeIcons()` 加载；HUD 右上角与切换提示都用 `modeIconKey()`/`modeIcon()` 取当前模式的图标，不要按模式写 if 分支。
+
 ## 4. 常见任务指引
 
 - 新增方块：纹理放 `public/assets/block/`，`src/registry.ts`（本体）或插件 `registerBlock`（插件），显示名在 `src/i18n.ts`。详见 `README.md`「扩展开发」。
-- 新增游戏模式：`src/modes/` 新建 `GameMode`，改 `createMode()`，加 i18n 名称。
+- 新增游戏模式：`src/modes/` 新建 `GameMode`（只差一两条规则就继承已有模式并覆写开关，见 §3.10），改 `createMode()`、`GameModeName`、`gameModeRegistry`，加 i18n 名称，图标放进 `public/assets/gui/gamemode/` 并加入 `MODE_ICON_SOURCES`，最后补上 `server.mjs` 的存档白名单。
+- 改渲染/加半透明色块：方块、流体、压暗带的屏幕矩形一律用 `src/core/pixels.ts` 的 `snapToDevice` / `deviceSpanSize` 对齐设备像素（见 §3.5），否则非整数 `devicePixelRatio` 下会重新出现水面白线。
 - 新增物品/工具：贴图放 `public/assets/items/`，配置加进 `public/items/items.json`（`label`/`texture`/`tool`/`tier`/`miningSpeed`/`damage`/`durability`/`stackSize`）；要让某方块被这类工具加速，给 `public/blocks/blocks.json` 里那个方块加 `tool`。游戏内 `/reload items` 生效，`/give <id>` 拿取。详见 `README.md`「工具与物品配置」。
 - 调游戏速度/加世界更新：只动 `core/tick.ts` 与 `stepWorld`（见 §3.9），并跑一遍「20 tick 且 60fps 时一帧一步、步长=帧时长」的验证。
 - 调碰撞箱/挤压箱：改 `public/hitboxes/`、`public/squeeze/`（32×整数），游戏内 `/reload hitboxes`、`/reload squeeze` 生效。挤压伤害「只按挤压箱结算」不要退回按碰撞箱结算。

@@ -1,5 +1,6 @@
 import {moveBody, type PhysicsBody} from "./physics";
-import {MAX_STACK_SIZE, type ItemStack, type SavedDroppedItem} from "./types";
+import type {ItemStack, SavedDroppedItem} from "./types";
+import {stackLimit} from "./items";
 import {WORLD_MIN_Y, type World} from "./world";
 import {FLUID_FLOW_SPEED, FLUID_GRAVITY_SCALE, FLUID_MAX_FALL, fluidMotionAt} from "./fluid";
 
@@ -56,9 +57,10 @@ export class DroppedItemManager {
     }
 
     spawn(stack: ItemStack, x: number, y: number, velocityX = 0, velocityY = 0): DroppedItem | null {
-        const count = Math.max(1, Math.min(MAX_STACK_SIZE, Math.floor(stack.count)));
+        const count = Math.max(1, Math.min(stackLimit(stack.id), Math.floor(stack.count)));
         if (!Number.isFinite(count) || count <= 0) return null;
-        const item = new DroppedItem({id: stack.id, count}, x, y, velocityX, velocityY);
+        // 工具的剩余耐久跟随掉落物（不掉耐久），否则丢出去再捡回来会变成满耐久。
+        const item = new DroppedItem({id: stack.id, count, durability: stack.durability}, x, y, velocityX, velocityY);
         this.items.push(item);
         return item;
     }
@@ -118,14 +120,17 @@ export class DroppedItemManager {
                 const b = near[j];
                 if (!this.items.includes(b)) continue;
                 if (a.stack.id !== b.stack.id) continue;
+                // 不可堆叠的物品（工具，stackLimit = 1）不合并：各自是一个独立掉落物。
+                const limit = stackLimit(a.stack.id);
+                if (limit <= 1) continue;
                 if (Math.hypot(a.x - b.x, a.centerY - b.centerY) > DROP_MERGE_RADIUS) continue;
                 const total = a.stack.count + b.stack.count;
-                if (total <= MAX_STACK_SIZE) {
+                if (total <= limit) {
                     a.stack.count = total;
                     this.remove(b);
                 } else {
-                    a.stack.count = MAX_STACK_SIZE;
-                    b.stack.count = total - MAX_STACK_SIZE;
+                    a.stack.count = limit;
+                    b.stack.count = total - limit;
                 }
             }
         }
@@ -142,6 +147,7 @@ export class DroppedItemManager {
         return this.items.map((item) => ({
             id: item.stack.id,
             count: item.stack.count,
+            durability: item.stack.durability,
             x: item.x,
             y: item.y,
             velocityX: item.velocityX,
@@ -153,11 +159,11 @@ export class DroppedItemManager {
         if (!Array.isArray(saved)) return;
         for (const data of saved) {
             if (!data || typeof data.id !== "string") continue;
-            const count = Number.isFinite(data.count) ? Math.max(1, Math.min(MAX_STACK_SIZE, Math.floor(data.count))) : 1;
+            const count = Number.isFinite(data.count) ? Math.max(1, Math.min(stackLimit(data.id), Math.floor(data.count))) : 1;
             const x = Number.isFinite(data.x) ? data.x : 0;
             const y = Number.isFinite(data.y) ? data.y : 0;
             this.spawn(
-                {id: data.id, count},
+                {id: data.id, count, durability: Number.isFinite(data.durability) ? data.durability : undefined},
                 x,
                 y,
                 Number.isFinite(data.velocityX) ? data.velocityX : 0,

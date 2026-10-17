@@ -1,0 +1,45 @@
+{
+  "items": {
+    "my2dworld:wooden_pickaxe": {"label": {"zh": "木镐", "en": "Wooden Pickaxe"}, "texture": "wooden_pickaxe", "tool": "pickaxe", "tier": "wood", "miningSpeed": 2, "damage": 2, "durability": 59, "stackSize": 1},
+    "my2dworld:wooden_axe": {"label": {"zh": "木斧", "en": "Wooden Axe"}, "texture": "wooden_axe", "tool": "axe", "tier": "wood", "miningSpeed": 2, "damage": 7, "durability": 59, "stackSize": 1},
+    "my2dworld:wooden_sword": {"label": {"zh": "木剑", "en": "Wooden Sword"}, "texture": "wooden_sword", "tool": "sword", "tier": "wood", "miningSpeed": 1, "damage": 4, "durability": 59, "stackSize": 1},
+    "my2dworld:wooden_shovel": {"label": {"zh": "木锹", "en": "Wooden Shovel"}, "texture": "wooden_shovel", "tool": "shovel", "tier": "wood", "miningSpeed": 2, "damage": 2.5, "durability": 59, "stackSize": 1},
+    "my2dworld:wooden_hoe": {"label": {"zh": "木锄", "en": "Wooden Hoe"}, "texture": "wooden_hoe", "tool": "hoe", "tier": "wood", "miningSpeed": 2, "damage": 1, "durability": 59, "stackSize": 1},
+
+    "my2dworld:stone_pickaxe": {"label": {"zh": "石镐", "en": "Stone Pickaxe"}, "texture": "stone_pickaxe", "tool": "pickaxe", "tier": "stone", "miningSpeed": 4, "damage": 3, "durability": 131, "stackSize": 1},
+    "my2dworld:stone_axe": {"label": {"zh": "石斧", "en": "Stone Axe"}, "texture": "stone_axe", "tool": "axe", "tier": "stone", "miningSpeed": 4, "damage": 9, "durability": 131, "stackSize": 1},
+    "my2dworld:stone_sword": {"label": {"zh": "石剑", "en": "Stone Sword"}, "texture": "stone_sword", "tool": "sword", "tier": "stone", "miningSpeed": 1, "damage": 5, "durability": 131, "stackSize": 1},
+    "my2dworld:stone_shovel": {"label": {"zh": "石锹", "en": "Stone Shovel"}, "texture": "stone_shovel", "tool": "shovel", "tier": "stone", "miningSpeed": 4, "damage": 3.5, "durability": 131, "stackSize": 1},
+    "my2dworld:stone_hoe": {"label": {"zh": "石锄", "en": "Stone Hoe"}, "texture": "stone_hoe", "tool": "hoe", "tier": "stone", "miningSpeed": 4, "damage": 1, "durability": 131, "stackSize": 1},
+
+    "my2dworld:copper_pickaxe": {"label": {"zh": "铜镐", "en": "Copper Pickaxe"}, "texture": "copper_pickaxe", "tool": "pickaxe", "tier": "copper", "miningSpeed": 5, "damage": 3, "durability": 190, "stackSize": 1},
+    "my2dworld:copper_axe": {"label": {"zh": "铜斧", "en": "Copper Axe"}, "texture": "copper_axe", "tool": "axe", "tier": "copper", "miningSpeed": 5, "damage": 9, "durability": 190, "stackSize": 1},
+    "my2dworld:copper_sword": {"label": {"zh": "铜剑", "en": "Copper Sword"}, "texture": "copper_sword", "tool": "sword", "tier": "copper", "miningSpeed": 1, "damage": 5, "durability": 190, "stackSize": 1},
+    "my2dworld:copper_shovel": {"label": {"zh": "铜锹", "en": "Copper Shovel"}, "texture": "copper_shovel", "tool": "shovel", "tier": "copper", "miningSpeed": 5, "damage": 3.5, "durability": 190, "stackSize": 1},
+    "my2dworld:copper_hoe": {"label": {"zh": "铜锄", "en": "Copper Hoe"}, "texture": "copper_hoe", "tool": "hoe", "tier": "copper", "miningSpeed": 5, "damage": 1, "durability": 190, "stackSize": 1},
+
+    "my2dworld:iron_pickaxe": {"label": {"zh": "铁镐", "en": "Iron Pickaxe"}, "texture": "iron_pickaxe", "tool": "pickaxe", "tier": "iron", "miningSpeed": 6, "damage": 4, "durability": 250, "stackSize": 1},
+    "my2dworld:iron_axe": {"label": {"zh": "铁斧", "en": "Iron Axe"}, "texture": "iron_axe", "tool": "axe", "tier": "iron", "miningSpeed": 6, "damage": 9, "durability": 250, "stackSize": 1},
+    "my2dworld:iron_sword": {"label": {"zh": "铁剑", "en": "Iron Sword"}, "texture": "iron_sword", "tool": "sword", "tier": "iron", "miningSpeed": 1, "damage": 6, "durability": 250, "stackSize": 1},
+    "my2dworld:iron_shovel": {"label": {"zh": "铁锹", "en": "Iron Shovel"}, "texture": "iron_shovel", "tool": "shovel", "tier": "iron", "miningSpeed": 6, "damage": 4.5, "durability": 250, "stackSize": 1},
+    "my2dworld:iron_hoe": {"label": {"zh": "铁锄", "en": "Iron Hoe"}, "texture": "iron_hoe", "tool": "hoe", "tier": "iron", "miningSpeed": 6, "damage": 1, "durability": 250, "stackSize": 1},
+
+    "my2dworld:golden_pickaxe": {"label": {"zh": "金镐", "en": "Golden Pickaxe"}, "texture": "golden_pickaxe", "tool": "pickaxe", "tier": "golden", "miningSpeed": 12, "damage": 2, "durability": 32, "stackSize": 1},
+    "my2dworld:golden_axe": {"label": {"zh": "金斧", "en": "Golden Axe"}, "texture": "golden_axe", "tool": "axe", "tier": "golden", "miningSpeed": 12, "damage": 7, "durability": 32, "stackSize": 1},
+    "my2dworld:golden_sword": {"label": {"zh": "金剑", "en": "Golden Sword"}, "texture": "golden_sword", "tool": "sword", "tier": "golden", "miningSpeed": 1, "damage": 4, "durability": 32, "stackSize": 1},
+    "my2dworld:golden_shovel": {"label": {"zh": "金锹", "en": "Golden Shovel"}, "texture": "golden_shovel", "tool": "shovel", "tier": "golden", "miningSpeed": 12, "damage": 2.5, "durability": 32, "stackSize": 1},
+    "my2dworld:golden_hoe": {"label": {"zh": "金锄", "en": "Golden Hoe"}, "texture": "golden_hoe", "tool": "hoe", "tier": "golden", "miningSpeed": 12, "damage": 1, "durability": 32, "stackSize": 1},
+
+    "my2dworld:diamond_pickaxe": {"label": {"zh": "钻石镐", "en": "Diamond Pickaxe"}, "texture": "diamond_pickaxe", "tool": "pickaxe", "tier": "diamond", "miningSpeed": 8, "damage": 5, "durability": 1561, "stackSize": 1},
+    "my2dworld:diamond_axe": {"label": {"zh": "钻石斧", "en": "Diamond Axe"}, "texture": "diamond_axe", "tool": "axe", "tier": "diamond", "miningSpeed": 8, "damage": 9, "durability": 1561, "stackSize": 1},
+    "my2dworld:diamond_sword": {"label": {"zh": "钻石剑", "en": "Diamond Sword"}, "texture": "diamond_sword", "tool": "sword", "tier": "diamond", "miningSpeed": 1, "damage": 7, "durability": 1561, "stackSize": 1},
+    "my2dworld:diamond_shovel": {"label": {"zh": "钻石锹", "en": "Diamond Shovel"}, "texture": "diamond_shovel", "tool": "shovel", "tier": "diamond", "miningSpeed": 8, "damage": 5.5, "durability": 1561, "stackSize": 1},
+    "my2dworld:diamond_hoe": {"label": {"zh": "钻石锄", "en": "Diamond Hoe"}, "texture": "diamond_hoe", "tool": "hoe", "tier": "diamond", "miningSpeed": 8, "damage": 1, "durability": 1561, "stackSize": 1},
+
+    "my2dworld:netherite_pickaxe": {"label": {"zh": "下界合金镐", "en": "Netherite Pickaxe"}, "texture": "netherite_pickaxe", "tool": "pickaxe", "tier": "netherite", "miningSpeed": 9, "damage": 6, "durability": 2031, "stackSize": 1},
+    "my2dworld:netherite_axe": {"label": {"zh": "下界合金斧", "en": "Netherite Axe"}, "texture": "netherite_axe", "tool": "axe", "tier": "netherite", "miningSpeed": 9, "damage": 10, "durability": 2031, "stackSize": 1},
+    "my2dworld:netherite_sword": {"label": {"zh": "下界合金剑", "en": "Netherite Sword"}, "texture": "netherite_sword", "tool": "sword", "tier": "netherite", "miningSpeed": 1, "damage": 8, "durability": 2031, "stackSize": 1},
+    "my2dworld:netherite_shovel": {"label": {"zh": "下界合金锹", "en": "Netherite Shovel"}, "texture": "netherite_shovel", "tool": "shovel", "tier": "netherite", "miningSpeed": 9, "damage": 6.5, "durability": 2031, "stackSize": 1},
+    "my2dworld:netherite_hoe": {"label": {"zh": "下界合金锄", "en": "Netherite Hoe"}, "texture": "netherite_hoe", "tool": "hoe", "tier": "netherite", "miningSpeed": 9, "damage": 1, "durability": 2031, "stackSize": 1}
+  }
+}
